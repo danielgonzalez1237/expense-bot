@@ -1,18 +1,6 @@
 """
-Expense Tracker Bot · González-Guevara
-Telegram bot para tracking de gastos diarios contra presupuesto de $4,000 USD/mes
-
-Uso:
-  /gasto 50000 restaurante         → Registra gasto
-  /gasto 240000 gasolina semanal   → Con nota
-  /resumen                         → Resumen del mes actual
-  /semana                          → Resumen de la semana
-  /presupuesto                     → Estado vs presupuesto
-  /historial                       → Últimos 20 gastos
-  /exportar                        → Exporta CSV del mes
-  /borrar ID                       → Borra un gasto por ID
-  /categorias                      → Lista de categorías válidas
-  /ayuda                           → Ayuda
+Expense Tracker Bot v2 · González-Guevara
+Telegram bot con menú interactivo para tracking de gastos · $4,000 USD/mes
 """
 
 import os, json, sqlite3, csv, io
@@ -25,47 +13,56 @@ ALLOWED_USERS = [int(x) for x in os.environ.get("ALLOWED_USER_IDS", "").split(",
 TRM = int(os.environ.get("TRM", "3700"))
 DB_PATH = os.environ.get("DB_PATH", "expenses.db")
 
-# === PRESUPUESTO (USD/mes) ===
+# ════════════════════════════════════════
+# PRESUPUESTO (USD/mes)
+# ════════════════════════════════════════
 BUDGET = {
-    "hipoteca":       {"usd": 1000, "tipo": "fijo",     "label": "Hipoteca"},
-    "admin":          {"usd": 371,  "tipo": "fijo",     "label": "Admin Nuvó Medellín"},
-    "empleada":       {"usd": 774,  "tipo": "fijo",     "label": "Empleada doméstica"},
-    "telecom":        {"usd": 106,  "tipo": "fijo",     "label": "Telecom (UNE+UAE)"},
-    "seguros":        {"usd": 12,   "tipo": "fijo",     "label": "Seguros mascotas"},
-    "trainer":        {"usd": 130,  "tipo": "semi-fijo","label": "Trainer personal"},
-    "salud":          {"usd": 115,  "tipo": "variable", "label": "Salud"},
-    "claude":         {"usd": 100,  "tipo": "fijo",     "label": "Claude Pro"},
-    "suscripciones":  {"usd": 92,   "tipo": "fijo",     "label": "Apps (Apple+Netflix+Amazon+Mobi)"},
-    "gasolina":       {"usd": 259,  "tipo": "variable", "label": "Gasolina"},
-    "peajes":         {"usd": 41,   "tipo": "variable", "label": "Peajes GOPASS"},
-    "uber":           {"usd": 27,   "tipo": "variable", "label": "Uber/Taxi"},
-    "parqueadero":    {"usd": 8,    "tipo": "variable", "label": "Parqueadero"},
-    "mantenimiento":  {"usd": 27,   "tipo": "variable", "label": "Mantenimiento vehículo"},
-    "supermercado":   {"usd": 378,  "tipo": "variable", "label": "Supermercado"},
-    "restaurante":    {"usd": 149,  "tipo": "variable", "label": "Restaurantes"},
-    "rappi":          {"usd": 122,  "tipo": "variable", "label": "Domicilios/Rappi"},
-    "cafe":           {"usd": 27,   "tipo": "variable", "label": "Cafeterías"},
-    "viaje":          {"usd": 150,  "tipo": "variable", "label": "Fondo viaje"},
-    "comisiones":     {"usd": 15,   "tipo": "fijo",     "label": "Comisiones bancarias"},
-    "mascotas":       {"usd": 27,   "tipo": "variable", "label": "Mascotas"},
-    "otro":           {"usd": 0,    "tipo": "variable", "label": "Otros / Sin categoría"},
+    "hipoteca":       {"usd": 1000, "tipo": "fijo",     "icon": "🏠", "label": "Hipoteca"},
+    "admin":          {"usd": 371,  "tipo": "fijo",     "icon": "🏢", "label": "Admin Nuvó"},
+    "empleada":       {"usd": 774,  "tipo": "fijo",     "icon": "🧹", "label": "Empleada"},
+    "supermercado":   {"usd": 378,  "tipo": "variable", "icon": "🛒", "label": "Supermercado"},
+    "gasolina":       {"usd": 259,  "tipo": "variable", "icon": "⛽", "label": "Gasolina"},
+    "viaje":          {"usd": 150,  "tipo": "variable", "icon": "✈️", "label": "Viaje"},
+    "restaurante":    {"usd": 149,  "tipo": "variable", "icon": "🍽️", "label": "Restaurante"},
+    "trainer":        {"usd": 130,  "tipo": "semi-fijo", "icon": "💪", "label": "Trainer"},
+    "rappi":          {"usd": 122,  "tipo": "variable", "icon": "🛵", "label": "Rappi/Domicilio"},
+    "salud":          {"usd": 115,  "tipo": "variable", "icon": "🏥", "label": "Salud"},
+    "telecom":        {"usd": 106,  "tipo": "fijo",     "icon": "📡", "label": "Telecom"},
+    "claude":         {"usd": 100,  "tipo": "fijo",     "icon": "🤖", "label": "Claude Pro"},
+    "suscripciones":  {"usd": 92,   "tipo": "fijo",     "icon": "📱", "label": "Suscripciones"},
+    "peajes":         {"usd": 41,   "tipo": "variable", "icon": "🛣️", "label": "Peajes"},
+    "cafe":           {"usd": 27,   "tipo": "variable", "icon": "☕", "label": "Café"},
+    "uber":           {"usd": 27,   "tipo": "variable", "icon": "🚕", "label": "Uber/Taxi"},
+    "mantenimiento":  {"usd": 27,   "tipo": "variable", "icon": "🔧", "label": "Mant. Vehículo"},
+    "mascotas":       {"usd": 27,   "tipo": "variable", "icon": "🐾", "label": "Mascotas"},
+    "comisiones":     {"usd": 15,   "tipo": "fijo",     "icon": "🏦", "label": "Comisiones"},
+    "seguros":        {"usd": 12,   "tipo": "fijo",     "icon": "🛡️", "label": "Seguros"},
+    "parqueadero":    {"usd": 8,    "tipo": "variable", "icon": "🅿️", "label": "Parqueadero"},
+    "otro":           {"usd": 0,    "tipo": "variable", "icon": "📦", "label": "Otro"},
 }
 
 TOTAL_BUDGET_USD = sum(v["usd"] for v in BUDGET.values())
 BUDGET_LIMIT_USD = 4000
+# Categorías agrupadas para el menú
+CAT_GROUPS = {
+    "🏠 Hogar": ["hipoteca", "admin", "empleada", "telecom"],
+    "🍽️ Comida": ["supermercado", "restaurante", "rappi", "cafe"],
+    "🚗 Transporte": ["gasolina", "peajes", "uber", "parqueadero", "mantenimiento"],
+    "💊 Personal": ["salud", "trainer", "mascotas", "seguros"],
+    "💻 Digital": ["claude", "suscripciones", "comisiones"],
+    "🌍 Otro": ["viaje", "otro"],
+}
 
-# Aliases para reconocimiento rápido
+# Aliases para texto rápido
 ALIASES = {
-    "rest": "restaurante", "restaurantes": "restaurante", "comida": "restaurante",
-    "super": "supermercado", "mercado": "supermercado", "pricesmart": "supermercado",
-    "exito": "supermercado", "jumbo": "supermercado",
-    "domicilio": "rappi", "domicilios": "rappi", "delivery": "rappi",
+    "rest": "restaurante", "restaurantes": "restaurante", "comida": "restaurante", "almuerzo": "restaurante", "cena": "restaurante",
+    "super": "supermercado", "mercado": "supermercado", "pricesmart": "supermercado", "exito": "supermercado", "jumbo": "supermercado",
+    "domicilio": "rappi", "domicilios": "rappi", "delivery": "rappi", "ifood": "rappi",
     "gas": "gasolina", "tanqueo": "gasolina", "combustible": "gasolina",
-    "taxi": "uber", "didi": "uber",
+    "taxi": "uber", "didi": "uber", "indriver": "uber",
     "gym": "trainer", "entreno": "trainer", "entrenamiento": "trainer",
     "medico": "salud", "medicina": "salud", "farmacia": "salud", "drogueria": "salud",
-    "netflix": "suscripciones", "spotify": "suscripciones", "apple": "suscripciones",
-    "amazon": "suscripciones", "streaming": "suscripciones",
+    "netflix": "suscripciones", "spotify": "suscripciones", "apple": "suscripciones", "amazon": "suscripciones", "streaming": "suscripciones",
     "parking": "parqueadero", "parqueo": "parqueadero",
     "peaje": "peajes", "gopass": "peajes",
     "cafeteria": "cafe", "café": "cafe", "coffee": "cafe", "starbucks": "cafe",
@@ -78,6 +75,9 @@ ALIASES = {
     "seguro": "seguros",
 }
 
+# ════════════════════════════════════════
+# DATABASE
+# ════════════════════════════════════════
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     conn.execute("""CREATE TABLE IF NOT EXISTS expenses (
@@ -138,7 +138,9 @@ def delete_expense(expense_id):
     deleted = result.rowcount
     conn.close()
     return deleted > 0
-
+# ════════════════════════════════════════
+# HELPERS
+# ════════════════════════════════════════
 def is_allowed(user_id):
     return not ALLOWED_USERS or user_id in ALLOWED_USERS
 
@@ -148,315 +150,458 @@ def resolve_category(text):
         return t
     return ALIASES.get(t, None)
 
-def format_cop(n):
+def fmt(n):
     return f"${n:,.0f}".replace(",", ".")
 
-def bar(pct):
-    filled = int(min(pct, 1.0) * 10)
-    return "█" * filled + "░" * (10 - filled)
+def bar(pct, length=12):
+    filled = int(min(pct, 1.0) * length)
+    return "▓" * filled + "░" * (length - filled)
 
-# === HANDLERS ===
+def traffic(pct):
+    if pct < 0.5: return "🟢"
+    if pct < 0.75: return "🟡"
+    if pct < 1.0: return "🟠"
+    return "🔴"
 
+def month_summary_text():
+    rows = get_month_expenses()
+    now = datetime.now()
+    total_usd = sum(r[4] for r in rows)
+    total_cop = total_usd * TRM
+    pct = total_usd / BUDGET_LIMIT_USD if BUDGET_LIMIT_USD > 0 else 0
+    days_in_month = (datetime(now.year, now.month % 12 + 1, 1) - timedelta(days=1)).day if now.month < 12 else 31
+    day_of_month = now.day
+    ideal_pct = day_of_month / days_in_month
+    days_left = days_in_month - day_of_month
+
+    by_cat = {}
+    for _, _, _, _, usd, cat, _ in rows:
+        by_cat.setdefault(cat, 0)
+        by_cat[cat] += usd
+
+    header = (
+        f"╔══════════════════════════════╗\n"
+        f"  📊  {now.strftime('%B %Y').upper()}\n"
+        f"╚══════════════════════════════╝\n\n"
+    )
+
+    # Main gauge
+    gauge = (
+        f"  {traffic(pct)} {fmt(total_usd * TRM)} COP\n"
+        f"  {bar(pct)} {pct:.0%}\n"
+        f"  ${total_usd:,.0f} / ${BUDGET_LIMIT_USD:,} USD\n\n"
+    )
+
+    # Pace check
+    if pct > ideal_pct + 0.1:
+        pace = f"  ⚡ Vas rápido — llevas {pct:.0%} del budget en día {day_of_month}/{days_in_month}\n\n"
+    elif pct < ideal_pct - 0.1:
+        pace = f"  ✨ Buen ritmo — vas por debajo del ideal\n\n"
+    else:
+        pace = f"  👌 En línea con el ritmo esperado\n\n"
+
+    # Category breakdown
+    cats_text = "  ── Categorías con gasto ──\n"
+    for cat in sorted(by_cat.keys(), key=lambda c: by_cat[c], reverse=True):
+        cat_usd = by_cat[cat]
+        info = BUDGET.get(cat, {})
+        budget_usd = info.get("usd", 0)
+        icon = info.get("icon", "📦")
+        label = info.get("label", cat)
+        cat_pct = cat_usd / budget_usd if budget_usd > 0 else 0
+        cats_text += f"  {traffic(cat_pct)} {icon} {label}: ${cat_usd:.0f}/${budget_usd}\n"
+
+    # Footer
+    available = BUDGET_LIMIT_USD - total_usd
+    footer = (
+        f"\n  ── Disponible ──\n"
+        f"  💰 ${available:,.0f} USD ({fmt(available * TRM)} COP)\n"
+    )
+    if days_left > 0:
+        footer += f"  📅 {days_left} días → ${available / days_left:,.0f} USD/día\n"
+
+    return header + gauge + pace + cats_text + footer
+# ════════════════════════════════════════
+# INLINE KEYBOARDS
+# ════════════════════════════════════════
+def make_category_keyboard(monto, nota=""):
+    """Build grouped category selection keyboard."""
+    keyboard = []
+    for group_name, cats in CAT_GROUPS.items():
+        keyboard.append([InlineKeyboardButton(f"── {group_name} ──", callback_data="noop")])
+        row = []
+        for cat in cats:
+            info = BUDGET[cat]
+            btn_text = f"{info['icon']} {info['label']}"
+            cb_data = f"cat:{cat}:{monto}:{nota}"
+            row.append(InlineKeyboardButton(btn_text, callback_data=cb_data))
+            if len(row) == 2:
+                keyboard.append(row)
+                row = []
+        if row:
+            keyboard.append(row)
+    keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancel")])
+    return InlineKeyboardMarkup(keyboard)
+
+def make_main_menu():
+    """Main action keyboard."""
+    keyboard = [
+        [
+            InlineKeyboardButton("💸 Registrar gasto", callback_data="action:gasto"),
+            InlineKeyboardButton("📊 Estado del mes", callback_data="action:status"),
+        ],
+        [
+            InlineKeyboardButton("📅 Esta semana", callback_data="action:semana"),
+            InlineKeyboardButton("📋 Budget vs Real", callback_data="action:budget"),
+        ],
+        [
+            InlineKeyboardButton("📜 Últimos gastos", callback_data="action:historial"),
+            InlineKeyboardButton("📁 Exportar CSV", callback_data="action:exportar"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def make_confirm_keyboard(expense_id):
+    keyboard = [
+        [
+            InlineKeyboardButton("📊 Ver estado", callback_data="action:status"),
+            InlineKeyboardButton("💸 Otro gasto", callback_data="action:gasto"),
+        ],
+        [InlineKeyboardButton(f"🗑️ Borrar #{expense_id}", callback_data=f"del:{expense_id}")],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+# ════════════════════════════════════════
+# HANDLERS
+# ════════════════════════════════════════
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update.effective_user.id):
-        await update.message.reply_text("No autorizado. Pide a Daniel que agregue tu user ID.")
+        await update.message.reply_text("⛔ No autorizado. Pide a Daniel que agregue tu ID.")
         return
-    await update.message.reply_text(
-        f"👋 ¡Hola {update.effective_user.first_name}!\n\n"
-        "Soy el bot de gastos González-Guevara.\n\n"
-        "Para registrar un gasto:\n"
-        "  /gasto MONTO CATEGORÍA [nota]\n\n"
-        "Ejemplo:\n"
-        "  /gasto 50000 restaurante almuerzo\n"
-        "  /gasto 240000 gasolina\n\n"
-        "Comandos:\n"
-        "  /resumen — mes actual\n"
-        "  /semana — esta semana\n"
-        "  /presupuesto — estado vs budget\n"
-        "  /categorias — categorías válidas\n"
-        "  /historial — últimos 20\n"
-        "  /exportar — CSV del mes\n"
-        "  /borrar ID — eliminar gasto\n"
+
+    name = update.effective_user.first_name
+    welcome = (
+        f"╔══════════════════════════════╗\n"
+        f"  👋 ¡Hola {name}!\n"
+        f"╚══════════════════════════════╝\n\n"
+        f"Soy tu asistente de gastos GG\n"
+        f"Budget: ${BUDGET_LIMIT_USD:,} USD/mes\n"
+        f"TRM: {fmt(TRM)} COP/USD\n\n"
+        f"── Formas de registrar ──\n\n"
+        f"1️⃣ Botón → selecciona categoría\n"
+        f"2️⃣ Texto rápido:\n"
+        f"     50000 restaurante almuerzo\n"
+        f"     240000 gas\n\n"
+        f"── Menú ──"
     )
+    await update.message.reply_text(welcome, reply_markup=make_main_menu())
 
 async def cmd_gasto(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update.effective_user.id):
         return
     args = ctx.args
-    if not args or len(args) < 2:
-        await update.message.reply_text("Uso: /gasto MONTO CATEGORÍA [nota]\nEjemplo: /gasto 50000 restaurante almuerzo")
+    if not args:
+        await update.message.reply_text(
+            "💸 ¿Cuánto gastaste?\n\n"
+            "Escribe el monto en COP:\n"
+            "  /gasto 50000\n"
+            "  /gasto 240000 nota opcional"
+        )
         return
 
     try:
         monto_str = args[0].replace(".", "").replace(",", "")
         monto = float(monto_str)
     except ValueError:
-        await update.message.reply_text(f"'{args[0]}' no es un monto válido. Usa números sin puntos.\nEjemplo: /gasto 50000 restaurante")
+        await update.message.reply_text(f"❌ '{args[0]}' no es un monto válido")
         return
 
-    cat_input = args[1]
-    categoria = resolve_category(cat_input)
+    # If category provided, register directly
+    if len(args) >= 2:
+        cat = resolve_category(args[1])
+        if cat:
+            nota = " ".join(args[2:]) if len(args) > 2 else ""
+            await register_and_confirm(update.message, update.effective_user, monto, cat, nota)
+            return
 
-    if not categoria:
-        cats = ", ".join(sorted(BUDGET.keys()))
-        await update.message.reply_text(f"Categoría '{cat_input}' no reconocida.\n\nCategorías válidas:\n{cats}\n\nUsa /categorias para ver todas con aliases.")
-        return
+    # Otherwise show category menu
+    nota = " ".join(args[1:]) if len(args) > 1 else ""
+    await update.message.reply_text(
+        f"💸 Monto: **{fmt(monto)} COP** (${monto/TRM:.0f} USD)\n\n"
+        f"Selecciona la categoría:",
+        reply_markup=make_category_keyboard(monto, nota),
+        parse_mode="Markdown"
+    )
 
-    nota = " ".join(args[2:]) if len(args) > 2 else ""
-    user_name = update.effective_user.first_name or "Unknown"
+async def register_and_confirm(message, user, monto, categoria, nota=""):
+    """Register expense and send aesthetic confirmation."""
+    user_name = user.first_name or "Unknown"
+    exp_id, monto_usd = add_expense(user.id, user_name, monto, categoria, nota)
 
-    exp_id, monto_usd = add_expense(update.effective_user.id, user_name, monto, categoria, nota)
-
-    # Check budget status for this category
+    info = BUDGET[categoria]
     month_rows = get_month_expenses()
-    cat_total_usd = sum(r[4] for r in month_rows if r[5] == categoria)
-    cat_budget = BUDGET[categoria]["usd"]
-
-    pct = cat_total_usd / cat_budget if cat_budget > 0 else 0
-    status = "🟢" if pct < 0.7 else "🟡" if pct < 1.0 else "🔴"
-
-    total_month_usd = sum(r[4] for r in month_rows)
-    global_pct = total_month_usd / BUDGET_LIMIT_USD
-    global_status = "🟢" if global_pct < 0.7 else "🟡" if global_pct < 1.0 else "🔴"
+    cat_total = sum(r[4] for r in month_rows if r[5] == categoria)
+    cat_budget = info["usd"]
+    cat_pct = cat_total / cat_budget if cat_budget > 0 else 0
+    total_usd = sum(r[4] for r in month_rows)
+    global_pct = total_usd / BUDGET_LIMIT_USD
 
     msg = (
-        f"✅ Gasto #{exp_id} registrado\n\n"
-        f"💰 {format_cop(monto)} COP (${monto_usd:.0f} USD)\n"
-        f"📂 {BUDGET[categoria]['label']}\n"
+        f"╔══════════════════════════════╗\n"
+        f"  ✅  GASTO #{exp_id} REGISTRADO\n"
+        f"╚══════════════════════════════╝\n\n"
+        f"  {info['icon']} {info['label']}\n"
+        f"  💰 {fmt(monto)} COP  (${monto_usd:.0f} USD)\n"
     )
     if nota:
-        msg += f"📝 {nota}\n"
+        msg += f"  📝 {nota}\n"
+
     msg += (
-        f"\n{status} {BUDGET[categoria]['label']}: ${cat_total_usd:.0f}/${cat_budget} USD ({pct:.0%})\n"
-        f"{bar(pct)}\n"
-        f"\n{global_status} Total mes: ${total_month_usd:.0f}/${BUDGET_LIMIT_USD} USD ({global_pct:.0%})\n"
-        f"{bar(global_pct)}"
+        f"\n  ── {info['label']} ──\n"
+        f"  {traffic(cat_pct)} {bar(cat_pct)} {cat_pct:.0%}\n"
+        f"  ${cat_total:.0f} / ${cat_budget} USD\n"
+        f"\n  ── Mes total ──\n"
+        f"  {traffic(global_pct)} {bar(global_pct)} {global_pct:.0%}\n"
+        f"  ${total_usd:,.0f} / ${BUDGET_LIMIT_USD:,} USD\n"
     )
 
-    if pct >= 1.0:
-        msg += f"\n\n⚠️ ¡Pasaste el presupuesto de {BUDGET[categoria]['label']}!"
+    if cat_pct >= 1.0:
+        msg += f"\n  ⚠️ ¡{info['label']} al límite!"
     if global_pct >= 0.9:
-        msg += f"\n\n🚨 ¡Vas al {global_pct:.0%} del tope mensual!"
+        msg += f"\n  🚨 ¡{global_pct:.0%} del tope mensual!"
 
-    await update.message.reply_text(msg)
+    await message.reply_text(msg, reply_markup=make_confirm_keyboard(exp_id))
+async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
-async def cmd_resumen(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(query.from_user.id):
+        return
+
+    data = query.data
+
+    if data == "noop":
+        return
+
+    if data == "cancel":
+        await query.edit_message_text("❌ Cancelado")
+        return
+
+    # Category selection: cat:CATEGORY:MONTO:NOTA
+    if data.startswith("cat:"):
+        parts = data.split(":", 3)
+        cat = parts[1]
+        monto = float(parts[2])
+        nota = parts[3] if len(parts) > 3 else ""
+        await query.edit_message_text(f"⏳ Registrando...")
+        await register_and_confirm(query.message, query.from_user, monto, cat, nota)
+        return
+
+    # Delete
+    if data.startswith("del:"):
+        eid = int(data.split(":")[1])
+        if delete_expense(eid):
+            await query.edit_message_text(f"🗑️ Gasto #{eid} eliminado")
+        else:
+            await query.edit_message_text(f"❌ Gasto #{eid} no encontrado")
+        return
+
+    # Actions
+    if data.startswith("action:"):
+        action = data.split(":")[1]
+
+        if action == "gasto":
+            await query.edit_message_text(
+                "💸 Escribe el monto en COP:\n\n"
+                "  /gasto 50000\n"
+                "  /gasto 240000 nota\n\n"
+                "O directo: 50000 restaurante"
+            )
+            return
+
+        if action == "status":
+            text = month_summary_text()
+            await query.message.reply_text(text, reply_markup=make_main_menu())
+            return
+
+        if action == "semana":
+            rows = get_week_expenses()
+            if not rows:
+                await query.message.reply_text("📅 No hay gastos esta semana", reply_markup=make_main_menu())
+                return
+            total_usd = sum(r[4] for r in rows)
+            weekly_budget = BUDGET_LIMIT_USD / 4.33
+            pct = total_usd / weekly_budget
+
+            msg = (
+                f"╔══════════════════════════════╗\n"
+                f"  📅  ESTA SEMANA\n"
+                f"╚══════════════════════════════╝\n\n"
+                f"  {traffic(pct)} {bar(pct)} {pct:.0%}\n"
+                f"  ${total_usd:,.0f} / ~${weekly_budget:,.0f} USD\n\n"
+                f"  ── Detalle ──\n"
+            )
+            for _, user, fecha, cop, usd, cat, nota in rows[:12]:
+                info = BUDGET.get(cat, {})
+                icon = info.get("icon", "📦")
+                label = info.get("label", cat)
+                msg += f"  {icon} {fecha[5:]} · {fmt(cop)} · {label}"
+                if nota:
+                    msg += f" ({nota})"
+                msg += "\n"
+            await query.message.reply_text(msg, reply_markup=make_main_menu())
+            return
+
+        if action == "budget":
+            rows = get_month_expenses()
+            by_cat = {}
+            for _, _, _, _, usd, cat, _ in rows:
+                by_cat.setdefault(cat, 0)
+                by_cat[cat] += usd
+
+            msg = (
+                f"╔══════════════════════════════╗\n"
+                f"  📋  BUDGET vs REAL\n"
+                f"╚══════════════════════════════╝\n\n"
+            )
+            total_real = 0
+            for cat, info in sorted(BUDGET.items(), key=lambda x: x[1]["usd"], reverse=True):
+                if info["usd"] == 0 and cat not in by_cat:
+                    continue
+                real = by_cat.get(cat, 0)
+                disp = info["usd"] - real
+                total_real += real
+                icon = info["icon"]
+                s = "✅" if disp > 0 else "🔴"
+                msg += f"  {s} {icon} {info['label'][:14]:<14} ${info['usd']:>4} → ${real:>4.0f}\n"
+
+            msg += (
+                f"\n  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"  💰 Gastado: ${total_real:,.0f} USD\n"
+                f"  🎯 Libre: ${BUDGET_LIMIT_USD - total_real:,.0f} USD\n"
+            )
+            await query.message.reply_text(msg, reply_markup=make_main_menu())
+            return
+
+        if action == "historial":
+            rows = get_month_expenses()[:15]
+            if not rows:
+                await query.message.reply_text("📜 No hay gastos este mes", reply_markup=make_main_menu())
+                return
+            msg = (
+                f"╔══════════════════════════════╗\n"
+                f"  📜  ÚLTIMOS GASTOS\n"
+                f"╚══════════════════════════════╝\n\n"
+            )
+            for eid, user, fecha, cop, usd, cat, nota in rows:
+                info = BUDGET.get(cat, {})
+                icon = info.get("icon", "📦")
+                msg += f"  #{eid} {icon} {fecha[5:]} · {fmt(cop)} · {user}"
+                if nota:
+                    msg += f"\n       📝 {nota}"
+                msg += "\n"
+            await query.message.reply_text(msg, reply_markup=make_main_menu())
+            return
+
+        if action == "exportar":
+            rows = get_month_expenses()
+            if not rows:
+                await query.message.reply_text("📁 No hay gastos este mes")
+                return
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(["ID", "Usuario", "Fecha", "Monto_COP", "Monto_USD", "Categoría", "Nota"])
+            for row in rows:
+                writer.writerow(row)
+            output.seek(0)
+            now = datetime.now()
+            await query.message.reply_document(
+                document=io.BytesIO(output.getvalue().encode("utf-8")),
+                filename=f"gastos_{now.strftime('%Y_%m')}.csv",
+                caption=f"📁 {now.strftime('%B %Y')} · {len(rows)} gastos"
+            )
+            return
+async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update.effective_user.id):
         return
-    rows = get_month_expenses()
-    if not rows:
-        await update.message.reply_text("No hay gastos registrados este mes.")
-        return
-
-    now = datetime.now()
-    by_cat = {}
-    total_usd = 0
-    for _, user, fecha, cop, usd, cat, nota in rows:
-        by_cat.setdefault(cat, 0)
-        by_cat[cat] += usd
-        total_usd += usd
-
-    total_cop = total_usd * TRM
-    pct = total_usd / BUDGET_LIMIT_USD
-    status = "🟢" if pct < 0.7 else "🟡" if pct < 1.0 else "🔴"
-
-    msg = f"📊 Resumen {now.strftime('%B %Y')}\n\n"
-    msg += f"{status} Total: ${total_usd:,.0f} / ${BUDGET_LIMIT_USD:,} USD ({pct:.0%})\n"
-    msg += f"{bar(pct)}\n"
-    msg += f"({format_cop(total_cop)} COP)\n\n"
-
-    for cat in sorted(by_cat.keys(), key=lambda c: by_cat[c], reverse=True):
-        cat_usd = by_cat[cat]
-        budget_usd = BUDGET.get(cat, {}).get("usd", 0)
-        cat_pct = cat_usd / budget_usd if budget_usd > 0 else 0
-        s = "🟢" if cat_pct < 0.7 else "🟡" if cat_pct < 1.0 else "🔴"
-        label = BUDGET.get(cat, {}).get("label", cat)
-        msg += f"{s} {label}: ${cat_usd:.0f}/${budget_usd} USD\n"
-
-    msg += f"\n💡 Disponible: ${BUDGET_LIMIT_USD - total_usd:,.0f} USD"
-    days_left = (datetime(now.year, now.month % 12 + 1, 1) - now).days if now.month < 12 else (datetime(now.year + 1, 1, 1) - now).days
-    if days_left > 0:
-        msg += f"\n📅 {days_left} días restantes → ${(BUDGET_LIMIT_USD - total_usd) / days_left:,.0f} USD/día"
-
-    await update.message.reply_text(msg)
-
-async def cmd_semana(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not is_allowed(update.effective_user.id):
-        return
-    rows = get_week_expenses()
-    if not rows:
-        await update.message.reply_text("No hay gastos esta semana.")
-        return
-
-    total_usd = sum(r[4] for r in rows)
-    weekly_budget = BUDGET_LIMIT_USD / 4.33
-    pct = total_usd / weekly_budget
-
-    msg = f"📅 Esta semana\n\n"
-    msg += f"Total: ${total_usd:,.0f} USD ({format_cop(total_usd * TRM)} COP)\n"
-    msg += f"Referencia semanal: ~${weekly_budget:,.0f} USD\n"
-    msg += f"{bar(pct)} ({pct:.0%})\n\n"
-
-    for _, user, fecha, cop, usd, cat, nota in rows[:15]:
-        label = BUDGET.get(cat, {}).get("label", cat)
-        msg += f"• {fecha} | {format_cop(cop)} | {label}"
-        if nota:
-            msg += f" ({nota})"
-        msg += "\n"
-
-    await update.message.reply_text(msg)
-
-async def cmd_presupuesto(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not is_allowed(update.effective_user.id):
-        return
-    rows = get_month_expenses()
-    by_cat = {}
-    for _, _, _, _, usd, cat, _ in rows:
-        by_cat.setdefault(cat, 0)
-        by_cat[cat] += usd
-
-    msg = "📋 Presupuesto vs Real\n\n"
-    msg += f"{'Categoría':<20} {'Budget':>7} {'Real':>7} {'Disp':>7}\n"
-    msg += "─" * 44 + "\n"
-
-    total_budget = 0
-    total_real = 0
-    for cat, info in sorted(BUDGET.items(), key=lambda x: x[1]["usd"], reverse=True):
-        if info["usd"] == 0 and cat not in by_cat:
-            continue
-        real = by_cat.get(cat, 0)
-        disp = info["usd"] - real
-        total_budget += info["usd"]
-        total_real += real
-        s = "🟢" if disp > 0 else "🔴"
-        msg += f"{s} {info['label'][:18]:<18} ${info['usd']:>5} ${real:>5.0f} ${disp:>5.0f}\n"
-
-    msg += "─" * 44 + "\n"
-    msg += f"{'TOTAL':<20} ${total_budget:>5} ${total_real:>5.0f} ${total_budget - total_real:>5.0f}\n"
-    msg += f"\n🎯 Tope: ${BUDGET_LIMIT_USD:,} USD | Gastado: ${total_real:,.0f} | Libre: ${BUDGET_LIMIT_USD - total_real:,.0f}"
-
-    await update.message.reply_text(msg, parse_mode=None)
-
-async def cmd_historial(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not is_allowed(update.effective_user.id):
-        return
-    rows = get_month_expenses()[:20]
-    if not rows:
-        await update.message.reply_text("No hay gastos este mes.")
-        return
-
-    msg = "📜 Últimos 20 gastos\n\n"
-    for eid, user, fecha, cop, usd, cat, nota in rows:
-        label = BUDGET.get(cat, {}).get("label", cat)
-        msg += f"#{eid} | {fecha} | {format_cop(cop)} (${usd:.0f}) | {label}"
-        if nota:
-            msg += f" | {nota}"
-        msg += f" | {user}\n"
-
-    await update.message.reply_text(msg)
+    text = month_summary_text()
+    await update.message.reply_text(text, reply_markup=make_main_menu())
 
 async def cmd_borrar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update.effective_user.id):
         return
     if not ctx.args:
-        await update.message.reply_text("Uso: /borrar ID\nEjemplo: /borrar 15")
+        await update.message.reply_text("Uso: /borrar ID")
         return
     try:
         eid = int(ctx.args[0])
     except ValueError:
-        await update.message.reply_text("ID debe ser un número.")
+        await update.message.reply_text("❌ ID debe ser número")
         return
-
     if delete_expense(eid):
-        await update.message.reply_text(f"🗑️ Gasto #{eid} eliminado.")
+        await update.message.reply_text(f"🗑️ Gasto #{eid} eliminado", reply_markup=make_main_menu())
     else:
-        await update.message.reply_text(f"Gasto #{eid} no encontrado.")
+        await update.message.reply_text(f"❌ #{eid} no encontrado")
 
-async def cmd_exportar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+async def cmd_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update.effective_user.id):
         return
-    rows = get_month_expenses()
-    if not rows:
-        await update.message.reply_text("No hay gastos este mes.")
-        return
+    await update.message.reply_text("── Menú GG ──", reply_markup=make_main_menu())
 
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["ID", "Usuario", "Fecha", "Monto_COP", "Monto_USD", "Categoría", "Nota"])
-    for row in rows:
-        writer.writerow(row)
-
-    output.seek(0)
-    now = datetime.now()
-    filename = f"gastos_{now.strftime('%Y_%m')}.csv"
-
-    await update.message.reply_document(
-        document=io.BytesIO(output.getvalue().encode("utf-8")),
-        filename=filename,
-        caption=f"📁 Exportación {now.strftime('%B %Y')} ({len(rows)} gastos)"
-    )
-
-async def cmd_categorias(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    if not is_allowed(update.effective_user.id):
-        return
-    msg = "📂 Categorías válidas\n\n"
-    for cat, info in sorted(BUDGET.items(), key=lambda x: x[1]["usd"], reverse=True):
-        aliases = [k for k, v in ALIASES.items() if v == cat]
-        alias_str = f" ({', '.join(aliases[:4])})" if aliases else ""
-        msg += f"• {cat} → {info['label']} [${info['usd']} USD]{alias_str}\n"
-
-    msg += "\n💡 Puedes usar el nombre de la categoría o cualquier alias."
-    await update.message.reply_text(msg)
-
-async def cmd_ayuda(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await cmd_start(update, ctx)
-
-# Quick expense via plain text: "50000 restaurante"
+# Quick expense: "50000 restaurante almuerzo"
 async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update.effective_user.id):
         return
     text = update.message.text.strip()
     parts = text.split()
-    if len(parts) >= 2:
+
+    if len(parts) >= 1:
         try:
             monto = float(parts[0].replace(".", "").replace(",", ""))
-            cat = resolve_category(parts[1])
-            if cat:
-                nota = " ".join(parts[2:]) if len(parts) > 2 else ""
-                user_name = update.effective_user.first_name or "Unknown"
-                exp_id, monto_usd = add_expense(update.effective_user.id, user_name, monto, cat, nota)
 
-                month_rows = get_month_expenses()
-                total_month_usd = sum(r[4] for r in month_rows)
-                global_pct = total_month_usd / BUDGET_LIMIT_USD
-                global_status = "🟢" if global_pct < 0.7 else "🟡" if global_pct < 1.0 else "🔴"
+            # If category provided
+            if len(parts) >= 2:
+                cat = resolve_category(parts[1])
+                if cat:
+                    nota = " ".join(parts[2:]) if len(parts) > 2 else ""
+                    await register_and_confirm(update.message, update.effective_user, monto, cat, nota)
+                    return
 
+            # Only amount → show category keyboard
+            if monto > 100:  # Probably COP
+                nota = " ".join(parts[1:]) if len(parts) > 1 else ""
                 await update.message.reply_text(
-                    f"✅ #{exp_id} | {format_cop(monto)} (${monto_usd:.0f} USD) → {BUDGET[cat]['label']}\n"
-                    f"{global_status} Mes: ${total_month_usd:.0f}/${BUDGET_LIMIT_USD} ({global_pct:.0%})"
+                    f"💸 **{fmt(monto)} COP** (${monto/TRM:.0f} USD)\n\n"
+                    f"Selecciona categoría:",
+                    reply_markup=make_category_keyboard(monto, nota),
+                    parse_mode="Markdown"
                 )
                 return
         except (ValueError, IndexError):
             pass
 
+# ════════════════════════════════════════
+# MAIN
+# ════════════════════════════════════════
 def main():
     init_db()
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("gasto", cmd_gasto))
-    app.add_handler(CommandHandler("resumen", cmd_resumen))
-    app.add_handler(CommandHandler("semana", cmd_semana))
-    app.add_handler(CommandHandler("presupuesto", cmd_presupuesto))
-    app.add_handler(CommandHandler("historial", cmd_historial))
+    app.add_handler(CommandHandler("resumen", cmd_status))
+    app.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CommandHandler("semana", cmd_menu))
+    app.add_handler(CommandHandler("presupuesto", cmd_menu))
+    app.add_handler(CommandHandler("historial", cmd_menu))
+    app.add_handler(CommandHandler("exportar", cmd_menu))
     app.add_handler(CommandHandler("borrar", cmd_borrar))
-    app.add_handler(CommandHandler("exportar", cmd_exportar))
-    app.add_handler(CommandHandler("categorias", cmd_categorias))
-    app.add_handler(CommandHandler("ayuda", cmd_ayuda))
-    app.add_handler(CommandHandler("help", cmd_ayuda))
+    app.add_handler(CommandHandler("menu", cmd_menu))
+    app.add_handler(CommandHandler("ayuda", cmd_start))
+    app.add_handler(CommandHandler("help", cmd_start))
+    app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    print(f"🤖 Bot iniciado | TRM: {TRM} | Budget: ${BUDGET_LIMIT_USD} USD | DB: {DB_PATH}")
+    print(f"🤖 Bot v2 iniciado | TRM: {TRM} | Budget: ${BUDGET_LIMIT_USD} USD")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
