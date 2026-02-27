@@ -1,12 +1,16 @@
 """
-Expense Tracker Bot v3 · González-Guevara
+Expense Tracker Bot v5 · González-Guevara
 Telegram bot con menú interactivo · $5,000 USD/mes · Multi-moneda (COP/USD/BOB)
+Reset automático el 1ro de cada mes 00:01 COL
 """
 
 import os, re, json, sqlite3, csv, io
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time as dtime, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
+
+# Zona horaria Colombia (UTC-5)
+COL_TZ = timezone(timedelta(hours=-5))
 
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 ALLOWED_USERS = [int(x) for x in os.environ.get("ALLOWED_USER_IDS", "").split(",") if x.strip()]
@@ -36,7 +40,7 @@ BUDGET = {
     "peajes":         {"usd": 50,   "tipo": "variable",  "icon": "🛣️", "label": "Peajes"},
     "uber":           {"usd": 50,   "tipo": "variable",  "icon": "🚕", "label": "Uber/Taxi"},
     "mantenimiento":  {"usd": 40,   "tipo": "variable",  "icon": "🔧", "label": "Mant. Vehículo"},
-    "mascotas":       {"usd": 35,   "tipo": "variable",  "icon": "🐾", "label": "Mascotas"},
+    "mascotas":       {"usd": 35,   "tipo": "varibble",  "icon": "🐾", "label": "Mascotas"},
     "comisiones":     {"usd": 15,   "tipo": "fijo",      "icon": "🏦", "label": "Comisiones"},
     "seguros":        {"usd": 15,   "tipo": "fijo",      "icon": "🛡️", "label": "Seguros"},
     "parqueadero":    {"usd": 12,   "tipo": "variable",  "icon": "🅿️", "label": "Parqueadero"},
@@ -80,19 +84,14 @@ ALIASES = {
 # ════════════════════════════════════════
 # MULTI-CURRENCY PARSER
 # ════════════════════════════════════════
-# Regex: number with optional currency suffix/prefix
-# Supports: 50000, 50000cop, 100usd, 50bob, usd100, bob50
+# ── Parse amount: supports 50000, 100usd, 50bob, usd100, bob50, "bob 45", "usd 100"
 AMOUNT_RE = re.compile(
-    r'^(cop|usd|bob)?[\s]?(\d[\d.,]*)[\s]?(cop|usd|bob)?$',
+    r'^(cop|usd|bob)?\s*(\d[\d.,]*)\s*(cop|usd|bob)?$',
     re.IGNORECASE
 )
 
 def parse_amount(raw: str):
-    """
-    Parse amount string with optional currency.
-    Returns (monto_cop, display_str, currency) or (None, None, None) on failure.
-    Default currency = COP.
-    """
+    """Parse amount with optional currency. Returns (monto_cop, display, currency) or (None,None,None)."""
     raw = raw.strip()
     m = AMOUNT_RE.match(raw)
     if not m:
@@ -119,9 +118,34 @@ def parse_amount(raw: str):
         display = f"{amount:,.0f} BOB"
         return monto_cop, display, "bob"
     else:
-        # Default: COP
         display = f"${amount:,.0f}".replace(",", ".") + " COP"
         return amount, display, "cop"
+
+def smart_parse(parts):
+    """
+    Try to parse amount from parts list. Handles:
+    - ["50000", ...] -> COP
+    - ["100usd", ...] -> USD
+    - ["bob", "45", ...] -> BOB (space separated)
+    - ["bob45", ...] -> BOB (concatenated)
+    Returns (monto_cop, display, currency, remaining_parts) or (None,None,None,parts)
+    """
+    if not parts:
+        return None, None, None, parts
+
+    # Try first token directly
+    monto_cop, display, currency = parse_amount(parts[0])
+    if monto_cop is not None:
+        return monto_cop, display, currency, parts[1:]
+
+    # Try "bob 45" / "usd 100" / "cop 50000" (space-separated currency prefix)
+    if len(parts) >= 2 and parts[0].lower() in ("bob", "usd", "cop"):
+        combined = parts[0] + parts[1]
+        monto_cop, display, currency = parse_amount(combined)
+        if monto_cop is not None:
+            return monto_cop, display, currency, parts[2:]
+
+    return None, None, None, parts
 
 # ════════════════════════════════════════
 # DATABASE
@@ -330,7 +354,7 @@ def make_confirm_keyboard(expense_id):
 # ════════════════════════════════════════
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update.effective_user.id):
-        await update.message.reply_text("⟔ No autorizado. Pide a Daniel que agregue tu ID.")
+        await update.message.reply_text("⛔ No autorizado. Pide a Daniel que agregue tu ID.")
         return
 
     name = update.effective_user.first_name
@@ -368,28 +392,22 @@ async def cmd_gasto(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    monto_cop, display, currency = parse_amount(args[0])
-
-    # If first arg is a currency prefix (bob, usd, cop), combine with second arg
-    if monto_cop is None and len(args) >= 2 and args[0].lower() in ("bob", "usd", "cop"):
-        monto_cop, display, currency = parse_amount(args[0] + args[1])
-        if monto_cop is not None:
-            args = [args[0] + args[1]] + list(args[2:])  # rebuild args
+    monto_cop, display, currency, rest = smart_parse(list(args))
 
     if monto_cop is None:
         await update.message.reply_text(f"❌ '{args[0]}' no es un monto válido\n\nFormatos: 50000, 100usd, 350bob, bob 45")
         return
 
     # If category provided, register directly
-    if len(args) >= 2:
-        cat = resolve_category(args[1])
+    if rest:
+        cat = resolve_category(rest[0])
         if cat:
-            nota = " ".join(args[2:]) if len(args) > 2 else ""
+            nota = " ".join(rest[1:]) if len(rest) > 1 else ""
             await register_and_confirm(update.message, update.effective_user, monto_cop, cat, nota, display)
             return
 
     # Otherwise show category menu
-    nota = " ".join(args[1:]) if len(args) > 1 else ""
+    nota = " ".join(rest) if rest else ""
     monto_usd = monto_cop / TRM
     await update.message.reply_text(
         f"💸 Monto: **{display}** (${monto_usd:.0f} USD)\n\n"
@@ -629,27 +647,20 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not parts:
         return
 
-    # Try to parse first token as amount (with optional currency)
-    monto_cop, display, currency = parse_amount(parts[0])
-
-    # If first token is a currency prefix (bob, usd, cop), combine with second token
-    if monto_cop is None and len(parts) >= 2 and parts[0].lower() in ("bob", "usd", "cop"):
-        monto_cop, display, currency = parse_amount(parts[0] + parts[1])
-        if monto_cop is not None:
-            parts = [parts[0] + parts[1]] + parts[2:]  # rebuild parts
+    monto_cop, display, currency, rest = smart_parse(parts)
 
     if monto_cop is not None:
-        # If category provided as second token
-        if len(parts) >= 2:
-            cat = resolve_category(parts[1])
+        # If category provided
+        if rest:
+            cat = resolve_category(rest[0])
             if cat:
-                nota = " ".join(parts[2:]) if len(parts) > 2 else ""
+                nota = " ".join(rest[1:]) if len(rest) > 1 else ""
                 await register_and_confirm(update.message, update.effective_user, monto_cop, cat, nota, display)
                 return
 
         # Only amount → show category keyboard (if reasonable amount)
         if monto_cop > 100:
-            nota = " ".join(parts[1:]) if len(parts) > 1 else ""
+            nota = " ".join(rest) if rest else ""
             monto_usd = monto_cop / TRM
             await update.message.reply_text(
                 f"💸 **{display}** (${monto_usd:.0f} USD)\n\n"
@@ -658,6 +669,71 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown"
             )
             return
+
+# ════════════════════════════════════════
+# MONTHLY RESET JOB (1ro de cada mes 00:01 COL)
+# ════════════════════════════════════════
+async def monthly_reset(context: ContextTypes.DEFAULT_TYPE):
+    """Runs daily at 00:01 COL. On the 1st, sends month summary to all users."""
+    now_col = datetime.now(COL_TZ)
+    if now_col.day != 1:
+        return  # Only act on the 1st
+
+    # Get PREVIOUS month's data
+    if now_col.month == 1:
+        prev_year, prev_month = now_col.year - 1, 12
+    else:
+        prev_year, prev_month = now_col.year, now_col.month - 1
+
+    rows = get_month_expenses(prev_year, prev_month)
+    total_usd = sum(r[4] for r in rows)
+    total_cop = total_usd * TRM
+    pct = total_usd / BUDGET_LIMIT_USD if BUDGET_LIMIT_USD > 0 else 0
+    available = BUDGET_LIMIT_USD - total_usd
+
+    by_cat = {}
+    for _, _, _, _, usd, cat, _ in rows:
+        by_cat.setdefault(cat, 0)
+        by_cat[cat] += usd
+
+    month_name = datetime(prev_year, prev_month, 1).strftime("%B %Y")
+
+    msg = (
+        f"╔══════════════════════════════╗\n"
+        f"  🔄  CIERRE DE MES\n"
+        f"  {month_name.upper()}\n"
+        f"╚══════════════════════════════╝\n\n"
+        f"  {traffic(pct)} Total: ${total_usd:,.0f} / ${BUDGET_LIMIT_USD:,} USD\n"
+        f"  {bar(pct)} {pct:.0%}\n\n"
+    )
+
+    if available > 0:
+        msg += f"  ✅ Ahorraste ${available:,.0f} USD\n\n"
+    else:
+        msg += f"  🔴 Excediste ${abs(available):,.0f} USD\n\n"
+
+    # Top 5 categories
+    top_cats = sorted(by_cat.items(), key=lambda x: x[1], reverse=True)[:5]
+    if top_cats:
+        msg += "  ── Top categorías ──\n"
+        for cat, usd in top_cats:
+            info = BUDGET.get(cat, {})
+            icon = info.get("icon", "📦")
+            label = info.get("label", cat)
+            msg += f"  {icon} {label}: ${usd:,.0f} USD\n"
+
+    msg += (
+        f"\n  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"  🆕 ¡Nuevo mes! Budget reiniciado.\n"
+        f"  💰 ${BUDGET_LIMIT_USD:,} USD disponibles\n"
+    )
+
+    # Send to all allowed users
+    for uid in ALLOWED_USERS:
+        try:
+            await context.bot.send_message(chat_id=uid, text=msg)
+        except Exception as e:
+            print(f"⚠️ No pude enviar reset a {uid}: {e}")
 
 # ════════════════════════════════════════
 # MAIN
@@ -681,7 +757,12 @@ def main():
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    print(f"🤖 Bot v3 iniciado | TRM: {TRM} | BOB: {BOB_RATE} | Budget: ${BUDGET_LIMIT_USD} USD")
+    # Schedule monthly reset: runs daily at 00:01 COL (05:01 UTC)
+    job_queue = app.job_queue
+    reset_time = dtime(hour=5, minute=1, second=0)  # 00:01 COL = 05:01 UTC
+    job_queue.run_daily(monthly_reset, time=reset_time, name="monthly_reset")
+
+    print(f"🤖 Bot v5 iniciado | TRM: {TRM} | BOB: {BOB_RATE} | Budget: ${BUDGET_LIMIT_USD} USD | Reset: 1ro 00:01 COL")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
