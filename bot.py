@@ -23,7 +23,7 @@ BUDGET = {
     "supermercado":   {"usd": 450,  "tipo": "variable",  "icon": "🛒", "label": "Supermercado"},
     "restaurante":    {"usd": 400,  "tipo": "variable",  "icon": "🍽️", "label": "Restaurante"},
     "admin":          {"usd": 371,  "tipo": "fijo",      "icon": "🏢", "label": "Admin Nuvó"},
-    "gasolina":       {"usd": 300,  "tipo": "variable",  "icon": "⟽", "label": "Gasolina"},
+    "gasolina":       {"usd": 300,  "tipo": "variable",  "icon": "⛽", "label": "Gasolina"},
     "viaje":          {"usd": 250,  "tipo": "variable",  "icon": "✈️", "label": "Viaje"},
     "rappi":          {"usd": 200,  "tipo": "variable",  "icon": "🛵", "label": "Rappi/Domicilio"},
     "otro":           {"usd": 200,  "tipo": "variable",  "icon": "📦", "label": "Otro"},
@@ -369,8 +369,15 @@ async def cmd_gasto(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     monto_cop, display, currency = parse_amount(args[0])
+
+    # If first arg is a currency prefix (bob, usd, cop), combine with second arg
+    if monto_cop is None and len(args) >= 2 and args[0].lower() in ("bob", "usd", "cop"):
+        monto_cop, display, currency = parse_amount(args[0] + args[1])
+        if monto_cop is not None:
+            args = [args[0] + args[1]] + list(args[2:])  # rebuild args
+
     if monto_cop is None:
-        await update.message.reply_text(f"❌ '{args[0]}' no es un monto válido\n\nFormatos: 50000, 100usd, 350bob")
+        await update.message.reply_text(f"❌ '{args[0]}' no es un monto válido\n\nFormatos: 50000, 100usd, 350bob, bob 45")
         return
 
     # If category provided, register directly
@@ -612,7 +619,7 @@ async def cmd_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text("── Menú GG ──", reply_markup=make_main_menu())
 
-# Quick expense: "50000 restaurante almuerzo" or "100usd hotel miami"
+# Quick expense: "50000 restaurante almuerzo" or "100usd hotel miami" or "bob 45 restaurante"
 async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update.effective_user.id):
         return
@@ -624,6 +631,12 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     # Try to parse first token as amount (with optional currency)
     monto_cop, display, currency = parse_amount(parts[0])
+
+    # If first token is a currency prefix (bob, usd, cop), combine with second token
+    if monto_cop is None and len(parts) >= 2 and parts[0].lower() in ("bob", "usd", "cop"):
+        monto_cop, display, currency = parse_amount(parts[0] + parts[1])
+        if monto_cop is not None:
+            parts = [parts[0] + parts[1]] + parts[2:]  # rebuild parts
 
     if monto_cop is not None:
         # If category provided as second token
