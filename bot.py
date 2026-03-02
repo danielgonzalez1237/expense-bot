@@ -1,7 +1,7 @@
 """
-Expense Tracker Bot v5 Â· GonzÃ¡lez-Guevara
-Telegram bot con menÃº interactivo Â· $5,000 USD/mes Â· Multi-moneda (COP/USD/BOB)
-Reset automÃ¡tico el 1ro de cada mes 00:01 COL
+Expense Tracker Bot v6.2 · González-Guevara
+Telegram bot con menú interactivo · $5,000 USD/mes · Multi-moneda (COP/USD/BOB)
+Reset automático el 1ro de cada mes 00:01 COL
 """
 
 import os, re, json, sqlite3, csv, io
@@ -18,9 +18,9 @@ TRM = int(os.environ.get("TRM", "3700"))
 BOB_RATE = float(os.environ.get("BOB_RATE", "9"))
 DB_PATH = os.environ.get("DB_PATH", "expenses.db")
 
-# ââââââââââââââââââââââââââââââââââââââââ
-# PRESUPUESTO (USD/mes) Â· $5,000
-# ââââââââââââââââââââââââââââââââââââââââ
+# ════════════════════════════════════════
+# PRESUPUESTO (USD/mes) · $5,000
+# ════════════════════════════════════════
 BUDGET = {
     "hipoteca":       {"usd": 1000, "tipo": "fijo",      "icon": "🏠", "label": "Hipoteca"},
     "admin":          {"usd": 446,  "tipo": "fijo",      "icon": "🏢", "label": "Admin Nuvó"},
@@ -29,39 +29,39 @@ BUDGET = {
     "viaje":          {"usd": 400,  "tipo": "variable",  "icon": "✈️", "label": "Viaje"},
     "empleada":       {"usd": 350,  "tipo": "fijo",      "icon": "🧹", "label": "Empleada"},
     "restaurante":    {"usd": 350,  "tipo": "variable",  "icon": "🍽️", "label": "Restaurante"},
-    "salud":          {"usd": 309,  "tipo": "variable",  "icon": "🏥", "label": "Salud"},
+    "salud":          {"usd": 309,  "tipo": "variable",  "icon": "💊", "label": "Salud"},
     "gasolina":       {"usd": 270,  "tipo": "variable",  "icon": "⛽", "label": "Gasolina"},
-    "rappi":          {"usd": 232,  "tipo": "variable",  "icon": "🛵", "label": "Rappi/Domicilio"},
-    "telecom":        {"usd": 181,  "tipo": "fijo",      "icon": "📡", "label": "Telecom"},
-    "trainer":        {"usd": 150,  "tipo": "semi-fijo", "icon": "💪", "label": "Trainer"},
+    "rappi":          {"usd": 232,  "tipo": "variable",  "icon": "📦", "label": "Rappi/Domicilio"},
+    "telecom":        {"usd": 181,  "tipo": "fijo",      "icon": "📱", "label": "Telecom"},
+    "trainer":        {"usd": 150,  "tipo": "semi-fijo", "icon": "🏋️", "label": "Trainer"},
     "claude":         {"usd": 100,  "tipo": "fijo",      "icon": "🤖", "label": "Claude Pro"},
     "cafe":           {"usd": 97,   "tipo": "variable",  "icon": "☕", "label": "Café"},
-    "suscripciones":  {"usd": 92,   "tipo": "fijo",      "icon": "📱", "label": "Suscripciones"},
+    "suscripciones":  {"usd": 92,   "tipo": "fijo",      "icon": "📺", "label": "Suscripciones"},
     "mascotas":       {"usd": 81,   "tipo": "variable",  "icon": "🐾", "label": "Mascotas"},
     "peajes":         {"usd": 45,   "tipo": "variable",  "icon": "🛣️", "label": "Peajes"},
-    "uber":           {"usd": 30,   "tipo": "variable",  "icon": "🚗", "label": "Uber/Taxi"},
+    "uber":           {"usd": 30,   "tipo": "variable",  "icon": "🚕", "label": "Uber/Taxi"},
     "mantenimiento":  {"usd": 30,   "tipo": "variable",  "icon": "🔧", "label": "Mant. Vehículo"},
-    "comisiones":     {"usd": 15,   "tipo": "fijo",      "icon": "🏦", "label": "Comisiones"},
+    "comisiones":     {"usd": 15,   "tipo": "fijo",      "icon": "💳", "label": "Comisiones"},
     "seguros":        {"usd": 12,   "tipo": "fijo",      "icon": "🛡️", "label": "Seguros"},
     "parqueadero":    {"usd": 10,   "tipo": "variable",  "icon": "🅿️", "label": "Parqueadero"},
-    "otro":           {"usd": 0,    "tipo": "variable",  "icon": "📦", "label": "Otro"},
+    "otro":           {"usd": 0,    "tipo": "variable",  "icon": "📌", "label": "Otro"},
 }
 
 TOTAL_BUDGET_USD = sum(v["usd"] for v in BUDGET.values())
 BUDGET_LIMIT_USD = 5000
 
-# CategorÃ­as agrupadas para el menÃº
+# Categorías agrupadas para el menú
 CAT_GROUPS = {
-    "ð  Hogar": ["hipoteca", "admin", "empleada", "telecom"],
-    "ð½ï¸ Comida": ["supermercado", "restaurante", "rappi", "cafe"],
-    "ð Transporte": ["gasolina", "peajes", "uber", "parqueadero", "mantenimiento"],
-    "ð Personal": ["salud", "trainer", "mascotas", "seguros"],
-    "ð» Digital": ["claude", "suscripciones", "comisiones"],
+    "🏠 Hogar": ["hipoteca", "admin", "empleada", "telecom"],
+    "🍽️ Comida": ["supermercado", "restaurante", "rappi", "cafe"],
+    "🚗 Transporte": ["gasolina", "peajes", "uber", "parqueadero", "mantenimiento"],
+    "💊 Personal": ["salud", "trainer", "mascotas", "seguros"],
+    "💻 Digital": ["claude", "suscripciones", "comisiones"],
     "👪 Familia": ["mado"],
     "📦 Otro": ["viaje", "otro"],
 }
 
-# Aliases para texto rÃ¡pido
+# Aliases para texto rápido
 ALIASES = {
     "rest": "restaurante", "restaurantes": "restaurante", "comida": "restaurante", "almuerzo": "restaurante", "cena": "restaurante",
     "super": "supermercado", "mercado": "supermercado", "pricesmart": "supermercado", "exito": "supermercado", "jumbo": "supermercado",
@@ -73,21 +73,21 @@ ALIASES = {
     "netflix": "suscripciones", "spotify": "suscripciones", "apple": "suscripciones", "amazon": "suscripciones", "streaming": "suscripciones",
     "parking": "parqueadero", "parqueo": "parqueadero",
     "peaje": "peajes", "gopass": "peajes",
-    "cafeteria": "cafe", "cafÃ©": "cafe", "coffee": "cafe", "starbucks": "cafe",
+    "cafeteria": "cafe", "café": "cafe", "coffee": "cafe", "starbucks": "cafe",
     "veterinario": "mascotas", "vet": "mascotas", "perro": "mascotas", "gato": "mascotas",
     "vuelo": "viaje", "hotel": "viaje", "airbnb": "viaje", "avion": "viaje",
     "ropa": "otro", "tech": "otro", "compras": "otro",
     "hipoteca": "hipoteca", "mortgage": "hipoteca",
-    "administracion": "admin", "administraciÃ³n": "admin",
+    "administracion": "admin", "administración": "admin",
     "internet": "telecom", "une": "telecom", "du": "telecom",
     "seguro": "seguros",
     "mado": "mado", "madeline": "mado", "mesada": "mado", "usdt": "mado", "wio": "mado",
 }
 
-# ââââââââââââââââââââââââââââââââââââââââ
+# ════════════════════════════════════════
 # MULTI-CURRENCY PARSER
-# ââââââââââââââââââââââââââââââââââââââââ
-# ââ Parse amount: supports 50000, 100usd, 50bob, usd100, bob50, "bob 45", "usd 100"
+# ════════════════════════════════════════
+# ── Parse amount: supports 50000, 100usd, 50bob, usd100, bob50, "bob 45", "usd 100"
 AMOUNT_RE = re.compile(
     r'^(cop|usd|bob)?\s*(\d[\d.,]*)\s*(cop|usd|bob)?$',
     re.IGNORECASE
@@ -150,9 +150,9 @@ def smart_parse(parts):
 
     return None, None, None, parts
 
-# ââââââââââââââââââââââââââââââââââââââââ
+# ════════════════════════════════════════
 # DATABASE
-# ââââââââââââââââââââââââââââââââââââââââ
+# ════════════════════════════════════════
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     conn.execute("""CREATE TABLE IF NOT EXISTS expenses (
@@ -214,9 +214,9 @@ def delete_expense(expense_id):
     conn.close()
     return deleted > 0
 
-# ââââââââââââââââââââââââââââââââââââââââ
+# ════════════════════════════════════════
 # HELPERS
-# ââââââââââââââââââââââââââââââââââââââââ
+# ════════════════════════════════════════
 def is_allowed(user_id):
     return not ALLOWED_USERS or user_id in ALLOWED_USERS
 
@@ -231,13 +231,13 @@ def fmt(n):
 
 def bar(pct, length=12):
     filled = int(min(pct, 1.0) * length)
-    return "â" * filled + "â" * (length - filled)
+    return "▓" * filled + "░" * (length - filled)
 
 def traffic(pct):
-    if pct < 0.5: return "ð¢"
-    if pct < 0.75: return "ð¡"
-    if pct < 1.0: return "ð "
-    return "ð´"
+    if pct < 0.5: return "🟢"
+    if pct < 0.75: return "🟡"
+    if pct < 1.0: return "🟠"
+    return "🔴"
 
 def month_summary_text():
     rows = get_month_expenses()
@@ -256,9 +256,9 @@ def month_summary_text():
         by_cat[cat] += usd
 
     header = (
-        f"ââââââââââââââââââââââââââââââââ\n"
-        f"  ð  {now.strftime('%B %Y').upper()}\n"
-        f"ââââââââââââââââââââââââââââââââ\n\n"
+        f"╔══════════════════════════════╗\n"
+        f"  📊  {now.strftime('%B %Y').upper()}\n"
+        f"╚══════════════════════════════╝\n\n"
     )
 
     # Main gauge
@@ -270,19 +270,19 @@ def month_summary_text():
 
     # Pace check
     if pct > ideal_pct + 0.1:
-        pace = f"  â¡ Vas rÃ¡pido â llevas {pct:.0%} del budget en dÃ­a {day_of_month}/{days_in_month}\n\n"
+        pace = f"  ⚡ Vas rápido — llevas {pct:.0%} del budget en día {day_of_month}/{days_in_month}\n\n"
     elif pct < ideal_pct - 0.1:
-        pace = f"  â¨ Buen ritmo â vas por debajo del ideal\n\n"
+        pace = f"  ✨ Buen ritmo — vas por debajo del ideal\n\n"
     else:
-        pace = f"  ð En lÃ­nea con el ritmo esperado\n\n"
+        pace = f"  👌 En línea con el ritmo esperado\n\n"
 
     # Category breakdown
-    cats_text = "  ââ CategorÃ­as con gasto ââ\n"
+    cats_text = "  ── Categorías con gasto ──\n"
     for cat in sorted(by_cat.keys(), key=lambda c: by_cat[c], reverse=True):
         cat_usd = by_cat[cat]
         info = BUDGET.get(cat, {})
         budget_usd = info.get("usd", 0)
-        icon = info.get("icon", "ð¦")
+        icon = info.get("icon", "📦")
         label = info.get("label", cat)
         cat_pct = cat_usd / budget_usd if budget_usd > 0 else 0
         cats_text += f"  {traffic(cat_pct)} {icon} {label}: ${cat_usd:.0f}/${budget_usd}\n"
@@ -290,22 +290,22 @@ def month_summary_text():
     # Footer
     available = BUDGET_LIMIT_USD - total_usd
     footer = (
-        f"\n  ââ Disponible ââ\n"
-        f"  ð° ${available:,.0f} USD ({fmt(available * TRM)} COP)\n"
+        f"\n  ── Disponible ──\n"
+        f"  💰 ${available:,.0f} USD ({fmt(available * TRM)} COP)\n"
     )
     if days_left > 0:
-        footer += f"  ð {days_left} dÃ­as â ${available / days_left:,.0f} USD/dÃ­a\n"
+        footer += f"  📅 {days_left} días → ${available / days_left:,.0f} USD/día\n"
 
     return header + gauge + pace + cats_text + footer
 
-# ââââââââââââââââââââââââââââââââââââââââ
+# ════════════════════════════════════════
 # INLINE KEYBOARDS
-# ââââââââââââââââââââââââââââââââââââââââ
+# ════════════════════════════════════════
 def make_category_keyboard(monto_cop, nota=""):
     """Build grouped category selection keyboard."""
     keyboard = []
     for group_name, cats in CAT_GROUPS.items():
-        keyboard.append([InlineKeyboardButton(f"ââ {group_name} ââ", callback_data="noop")])
+        keyboard.append([InlineKeyboardButton(f"── {group_name} ──", callback_data="noop")])
         row = []
         for cat in cats:
             info = BUDGET[cat]
@@ -321,23 +321,23 @@ def make_category_keyboard(monto_cop, nota=""):
                 row = []
         if row:
             keyboard.append(row)
-    keyboard.append([InlineKeyboardButton("â Cancelar", callback_data="cancel")])
+    keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancel")])
     return InlineKeyboardMarkup(keyboard)
 
 def make_main_menu():
     """Main action keyboard."""
     keyboard = [
         [
-            InlineKeyboardButton("ð¸ Registrar gasto", callback_data="action:gasto"),
-            InlineKeyboardButton("ð Estado del mes", callback_data="action:status"),
+            InlineKeyboardButton("💸 Registrar gasto", callback_data="action:gasto"),
+            InlineKeyboardButton("📊 Estado del mes", callback_data="action:status"),
         ],
         [
-            InlineKeyboardButton("ð Esta semana", callback_data="action:semana"),
-            InlineKeyboardButton("ð Budget vs Real", callback_data="action:budget"),
+            InlineKeyboardButton("📅 Esta semana", callback_data="action:semana"),
+            InlineKeyboardButton("📋 Budget vs Real", callback_data="action:budget"),
         ],
         [
-            InlineKeyboardButton("ð Ãltimos gastos", callback_data="action:historial"),
-            InlineKeyboardButton("ð Exportar CSV", callback_data="action:exportar"),
+            InlineKeyboardButton("📜 Últimos gastos", callback_data="action:historial"),
+            InlineKeyboardButton("📁 Exportar CSV", callback_data="action:exportar"),
         ],
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -345,38 +345,38 @@ def make_main_menu():
 def make_confirm_keyboard(expense_id):
     keyboard = [
         [
-            InlineKeyboardButton("ð Ver estado", callback_data="action:status"),
-            InlineKeyboardButton("ð¸ Otro gasto", callback_data="action:gasto"),
+            InlineKeyboardButton("📊 Ver estado", callback_data="action:status"),
+            InlineKeyboardButton("💸 Otro gasto", callback_data="action:gasto"),
         ],
-        [InlineKeyboardButton(f"ðï¸ Borrar #{expense_id}", callback_data=f"del:{expense_id}")],
+        [InlineKeyboardButton(f"🗑️ Borrar #{expense_id}", callback_data=f"del:{expense_id}")],
     ]
     return InlineKeyboardMarkup(keyboard)
 
-# ââââââââââââââââââââââââââââââââââââââââ
+# ════════════════════════════════════════
 # HANDLERS
-# ââââââââââââââââââââââââââââââââââââââââ
+# ════════════════════════════════════════
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update.effective_user.id):
-        await update.message.reply_text("â No autorizado. Pide a Daniel que agregue tu ID.")
+        await update.message.reply_text("⛔ No autorizado. Pide a Daniel que agregue tu ID.")
         return
 
     name = update.effective_user.first_name
     welcome = (
-        f"ââââââââââââââââââââââââââââââââ\n"
-        f"  ð Â¡Hola {name}!\n"
-        f"ââââââââââââââââââââââââââââââââ\n\n"
+        f"╔══════════════════════════════╗\n"
+        f"  👋 ¡Hola {name}!\n"
+        f"╚══════════════════════════════╝\n\n"
         f"Soy tu asistente de gastos GG\n"
         f"Budget: ${BUDGET_LIMIT_USD:,} USD/mes\n"
         f"TRM: {fmt(TRM)} COP/USD\n"
         f"BOB: {BOB_RATE:.0f} BOB/USD\n\n"
-        f"ââ Formas de registrar ââ\n\n"
-        f"1ï¸â£ BotÃ³n â selecciona categorÃ­a\n"
-        f"2ï¸â£ Texto rÃ¡pido:\n"
+        f"── Formas de registrar ──\n\n"
+        f"1️⃣ Botón → selecciona categoría\n"
+        f"2️⃣ Texto rápido:\n"
         f"     50000 restaurante\n"
         f"     100usd hotel miami\n"
         f"     350bob almuerzo\n"
         f"     240000cop gas\n\n"
-        f"ââ MenÃº ââ"
+        f"── Menú ──"
     )
     await update.message.reply_text(welcome, reply_markup=make_main_menu())
 
@@ -386,7 +386,7 @@ async def cmd_gasto(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     args = ctx.args
     if not args:
         await update.message.reply_text(
-            "ð¸ Â¿CuÃ¡nto gastaste?\n\n"
+            "💸 ¿Cuánto gastaste?\n\n"
             "Escribe el monto (COP por defecto):\n"
             "  /gasto 50000\n"
             "  /gasto 100usd hotel\n"
@@ -398,7 +398,7 @@ async def cmd_gasto(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     monto_cop, display, currency, rest = smart_parse(list(args))
 
     if monto_cop is None:
-        await update.message.reply_text(f"â '{args[0]}' no es un monto vÃ¡lido\n\nFormatos: 50000, 100usd, 350bob, bob 45")
+        await update.message.reply_text(f"❌ '{args[0]}' no es un monto válido\n\nFormatos: 50000, 100usd, 350bob, bob 45")
         return
 
     # If category provided, register directly
@@ -413,8 +413,8 @@ async def cmd_gasto(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     nota = " ".join(rest) if rest else ""
     monto_usd = monto_cop / TRM
     await update.message.reply_text(
-        f"ð¸ Monto: **{display}** (${monto_usd:.0f} USD)\n\n"
-        f"Selecciona la categorÃ­a:",
+        f"💸 Monto: **{display}** (${monto_usd:.0f} USD)\n\n"
+        f"Selecciona la categoría:",
         reply_markup=make_category_keyboard(monto_cop, nota),
         parse_mode="Markdown"
     )
@@ -436,28 +436,28 @@ async def register_and_confirm(message, user, monto_cop, categoria, nota="", dis
     global_pct = total_usd / BUDGET_LIMIT_USD
 
     msg = (
-        f"ââââââââââââââââââââââââââââââââ\n"
-        f"  â  GASTO #{exp_id} REGISTRADO\n"
-        f"ââââââââââââââââââââââââââââââââ\n\n"
+        f"╔══════════════════════════════╗\n"
+        f"  ✅  GASTO #{exp_id} REGISTRADO\n"
+        f"╚══════════════════════════════╝\n\n"
         f"  {info['icon']} {info['label']}\n"
-        f"  ð° {display}  (${monto_usd:.0f} USD)\n"
+        f"  💰 {display}  (${monto_usd:.0f} USD)\n"
     )
     if nota:
-        msg += f"  ð {nota}\n"
+        msg += f"  📝 {nota}\n"
 
     msg += (
-        f"\n  ââ {info['label']} ââ\n"
+        f"\n  ── {info['label']} ──\n"
         f"  {traffic(cat_pct)} {bar(cat_pct)} {cat_pct:.0%}\n"
         f"  ${cat_total:.0f} / ${cat_budget} USD\n"
-        f"\n  ââ Mes total ââ\n"
+        f"\n  ── Mes total ──\n"
         f"  {traffic(global_pct)} {bar(global_pct)} {global_pct:.0%}\n"
         f"  ${total_usd:,.0f} / ${BUDGET_LIMIT_USD:,} USD\n"
     )
 
     if cat_pct >= 1.0:
-        msg += f"\n  â ï¸ Â¡{info['label']} al lÃ­mite!"
+        msg += f"\n  ⚠️ ¡{info['label']} al límite!"
     if global_pct >= 0.9:
-        msg += f"\n  ð¨ Â¡{global_pct:.0%} del tope mensual!"
+        msg += f"\n  🚨 ¡{global_pct:.0%} del tope mensual!"
 
     await message.reply_text(msg, reply_markup=make_confirm_keyboard(exp_id))
 
@@ -474,7 +474,7 @@ async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "cancel":
-        await query.edit_message_text("â Cancelado")
+        await query.edit_message_text("❌ Cancelado")
         return
 
     # Category selection: cat:CATEGORY:MONTO_COP:NOTA
@@ -483,7 +483,7 @@ async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         cat = parts[1]
         monto_cop = float(parts[2])
         nota = parts[3] if len(parts) > 3 else ""
-        await query.edit_message_text(f"â³ Registrando...")
+        await query.edit_message_text(f"⏳ Registrando...")
         await register_and_confirm(query.message, query.from_user, monto_cop, cat, nota)
         return
 
@@ -491,9 +491,9 @@ async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if data.startswith("del:"):
         eid = int(data.split(":")[1])
         if delete_expense(eid):
-            await query.edit_message_text(f"ðï¸ Gasto #{eid} eliminado")
+            await query.edit_message_text(f"🗑️ Gasto #{eid} eliminado")
         else:
-            await query.edit_message_text(f"â Gasto #{eid} no encontrado")
+            await query.edit_message_text(f"❌ Gasto #{eid} no encontrado")
         return
 
     # Actions
@@ -502,11 +502,11 @@ async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         if action == "gasto":
             await query.edit_message_text(
-                "ð¸ Escribe el monto:\n\n"
+                "💸 Escribe el monto:\n\n"
                 "  50000 restaurante\n"
                 "  100usd hotel\n"
                 "  350bob almuerzo\n\n"
-                "O solo el monto â menÃº de categorÃ­as"
+                "O solo el monto → menú de categorías"
             )
             return
 
@@ -518,25 +518,25 @@ async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if action == "semana":
             rows = get_week_expenses()
             if not rows:
-                await query.message.reply_text("ð No hay gastos esta semana", reply_markup=make_main_menu())
+                await query.message.reply_text("📅 No hay gastos esta semana", reply_markup=make_main_menu())
                 return
             total_usd = sum(r[4] for r in rows)
             weekly_budget = BUDGET_LIMIT_USD / 4.33
             pct = total_usd / weekly_budget
 
             msg = (
-                f"ââââââââââââââââââââââââââââââââ\n"
-                f"  ð  ESTA SEMANA\n"
-                f"ââââââââââââââââââââââââââââââââ\n\n"
+                f"╔══════════════════════════════╗\n"
+                f"  📅  ESTA SEMANA\n"
+                f"╚══════════════════════════════╝\n\n"
                 f"  {traffic(pct)} {bar(pct)} {pct:.0%}\n"
                 f"  ${total_usd:,.0f} / ~${weekly_budget:,.0f} USD\n\n"
-                f"  ââ Detalle ââ\n"
+                f"  ── Detalle ──\n"
             )
             for _, user, fecha, cop, usd, cat, nota in rows[:12]:
                 info = BUDGET.get(cat, {})
-                icon = info.get("icon", "ð¦")
+                icon = info.get("icon", "📦")
                 label = info.get("label", cat)
-                msg += f"  {icon} {fecha[5:]} Â· {fmt(cop)} Â· {label}"
+                msg += f"  {icon} {fecha[5:]} · {fmt(cop)} · {label}"
                 if nota:
                     msg += f" ({nota})"
                 msg += "\n"
@@ -551,9 +551,9 @@ async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 by_cat[cat] += usd
 
             msg = (
-                f"ââââââââââââââââââââââââââââââââ\n"
-                f"  ð  BUDGET vs REAL\n"
-                f"ââââââââââââââââââââââââââââââââ\n\n"
+                f"╔══════════════════════════════╗\n"
+                f"  📋  BUDGET vs REAL\n"
+                f"╚══════════════════════════════╝\n\n"
             )
             total_real = 0
             for cat, info in sorted(BUDGET.items(), key=lambda x: x[1]["usd"], reverse=True):
@@ -563,13 +563,13 @@ async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 disp = info["usd"] - real
                 total_real += real
                 icon = info["icon"]
-                s = "â" if disp > 0 else "ð´"
-                msg += f"  {s} {icon} {info['label'][:14]:<14} ${info['usd']:>4} â ${real:>4.0f}\n"
+                s = "✅" if disp > 0 else "🔴"
+                msg += f"  {s} {icon} {info['label'][:14]:<14} ${info['usd']:>4} → ${real:>4.0f}\n"
 
             msg += (
-                f"\n  ââââââââââââââââââââââââââââ\n"
-                f"  ð° Gastado: ${total_real:,.0f} USD\n"
-                f"  ð¯ Libre: ${BUDGET_LIMIT_USD - total_real:,.0f} USD\n"
+                f"\n  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"  💰 Gastado: ${total_real:,.0f} USD\n"
+                f"  🎯 Libre: ${BUDGET_LIMIT_USD - total_real:,.0f} USD\n"
             )
             await query.message.reply_text(msg, reply_markup=make_main_menu())
             return
@@ -577,19 +577,19 @@ async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if action == "historial":
             rows = get_month_expenses()[:15]
             if not rows:
-                await query.message.reply_text("ð No hay gastos este mes", reply_markup=make_main_menu())
+                await query.message.reply_text("📜 No hay gastos este mes", reply_markup=make_main_menu())
                 return
             msg = (
-                f"ââââââââââââââââââââââââââââââââ\n"
-                f"  ð  ÃLTIMOS GASTOS\n"
-                f"ââââââââââââââââââââââââââââââââ\n\n"
+                f"╔══════════════════════════════╗\n"
+                f"  📜  ÚLTIMOS GASTOS\n"
+                f"╚══════════════════════════════╝\n\n"
             )
             for eid, user, fecha, cop, usd, cat, nota in rows:
                 info = BUDGET.get(cat, {})
-                icon = info.get("icon", "ð¦")
-                msg += f"  #{eid} {icon} {fecha[5:]} Â· {fmt(cop)} Â· {user}"
+                icon = info.get("icon", "📦")
+                msg += f"  #{eid} {icon} {fecha[5:]} · {fmt(cop)} · {user}"
                 if nota:
-                    msg += f"\n       ð {nota}"
+                    msg += f"\n       📝 {nota}"
                 msg += "\n"
             await query.message.reply_text(msg, reply_markup=make_main_menu())
             return
@@ -597,11 +597,11 @@ async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         if action == "exportar":
             rows = get_month_expenses()
             if not rows:
-                await query.message.reply_text("ð No hay gastos este mes")
+                await query.message.reply_text("📁 No hay gastos este mes")
                 return
             output = io.StringIO()
             writer = csv.writer(output)
-            writer.writerow(["ID", "Usuario", "Fecha", "Monto_COP", "Monto_USD", "CategorÃ­a", "Nota"])
+            writer.writerow(["ID", "Usuario", "Fecha", "Monto_COP", "Monto_USD", "Categoría", "Nota"])
             for row in rows:
                 writer.writerow(row)
             output.seek(0)
@@ -609,7 +609,7 @@ async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             await query.message.reply_document(
                 document=io.BytesIO(output.getvalue().encode("utf-8")),
                 filename=f"gastos_{now.strftime('%Y_%m')}.csv",
-                caption=f"ð {now.strftime('%B %Y')} Â· {len(rows)} gastos"
+                caption=f"📁 {now.strftime('%B %Y')} · {len(rows)} gastos"
             )
             return
 
@@ -628,17 +628,17 @@ async def cmd_borrar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     try:
         eid = int(ctx.args[0])
     except ValueError:
-        await update.message.reply_text("â ID debe ser nÃºmero")
+        await update.message.reply_text("❌ ID debe ser número")
         return
     if delete_expense(eid):
-        await update.message.reply_text(f"ðï¸ Gasto #{eid} eliminado", reply_markup=make_main_menu())
+        await update.message.reply_text(f"🗑️ Gasto #{eid} eliminado", reply_markup=make_main_menu())
     else:
-        await update.message.reply_text(f"â #{eid} no encontrado")
+        await update.message.reply_text(f"❌ #{eid} no encontrado")
 
 async def cmd_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update.effective_user.id):
         return
-    await update.message.reply_text("ââ MenÃº GG ââ", reply_markup=make_main_menu())
+    await update.message.reply_text("── Menú GG ──", reply_markup=make_main_menu())
 
 # Quick expense: "50000 restaurante almuerzo" or "100usd hotel miami" or "bob 45 restaurante"
 async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -661,21 +661,21 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 await register_and_confirm(update.message, update.effective_user, monto_cop, cat, nota, display)
                 return
 
-        # Only amount â show category keyboard (if reasonable amount)
+        # Only amount → show category keyboard (if reasonable amount)
         if monto_cop > 100:
             nota = " ".join(rest) if rest else ""
             monto_usd = monto_cop / TRM
             await update.message.reply_text(
-                f"ð¸ **{display}** (${monto_usd:.0f} USD)\n\n"
-                f"Selecciona categorÃ­a:",
+                f"💸 **{display}** (${monto_usd:.0f} USD)\n\n"
+                f"Selecciona categoría:",
                 reply_markup=make_category_keyboard(monto_cop, nota),
                 parse_mode="Markdown"
             )
             return
 
-# ââââââââââââââââââââââââââââââââââââââââ
+# ════════════════════════════════════════
 # MONTHLY RESET JOB (1ro de cada mes 00:01 COL)
-# ââââââââââââââââââââââââââââââââââââââââ
+# ════════════════════════════════════════
 async def monthly_reset(context: ContextTypes.DEFAULT_TYPE):
     """Runs daily at 00:01 COL. On the 1st, sends month summary to all users."""
     now_col = datetime.now(COL_TZ)
@@ -702,33 +702,33 @@ async def monthly_reset(context: ContextTypes.DEFAULT_TYPE):
     month_name = datetime(prev_year, prev_month, 1).strftime("%B %Y")
 
     msg = (
-        f"ââââââââââââââââââââââââââââââââ\n"
-        f"  ð  CIERRE DE MES\n"
+        f"╔══════════════════════════════╗\n"
+        f"  🔄  CIERRE DE MES\n"
         f"  {month_name.upper()}\n"
-        f"ââââââââââââââââââââââââââââââââ\n\n"
+        f"╚══════════════════════════════╝\n\n"
         f"  {traffic(pct)} Total: ${total_usd:,.0f} / ${BUDGET_LIMIT_USD:,} USD\n"
         f"  {bar(pct)} {pct:.0%}\n\n"
     )
 
     if available > 0:
-        msg += f"  â Ahorraste ${available:,.0f} USD\n\n"
+        msg += f"  ✅ Ahorraste ${available:,.0f} USD\n\n"
     else:
-        msg += f"  ð´ Excediste ${abs(available):,.0f} USD\n\n"
+        msg += f"  🔴 Excediste ${abs(available):,.0f} USD\n\n"
 
     # Top 5 categories
     top_cats = sorted(by_cat.items(), key=lambda x: x[1], reverse=True)[:5]
     if top_cats:
-        msg += "  ââ Top categorÃ­as ââ\n"
+        msg += "  ── Top categorías ──\n"
         for cat, usd in top_cats:
             info = BUDGET.get(cat, {})
-            icon = info.get("icon", "ð¦")
+            icon = info.get("icon", "📦")
             label = info.get("label", cat)
             msg += f"  {icon} {label}: ${usd:,.0f} USD\n"
 
     msg += (
-        f"\n  ââââââââââââââââââââââââââââ\n"
-        f"  ð Â¡Nuevo mes! Budget reiniciado.\n"
-        f"  ð° ${BUDGET_LIMIT_USD:,} USD disponibles\n"
+        f"\n  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"  🆕 ¡Nuevo mes! Budget reiniciado.\n"
+        f"  💰 ${BUDGET_LIMIT_USD:,} USD disponibles\n"
     )
 
     # Send to all allowed users
@@ -736,11 +736,11 @@ async def monthly_reset(context: ContextTypes.DEFAULT_TYPE):
         try:
             await context.bot.send_message(chat_id=uid, text=msg)
         except Exception as e:
-            print(f"â ï¸ No pude enviar reset a {uid}: {e}")
+            print(f"⚠️ No pude enviar reset a {uid}: {e}")
 
-# ââââââââââââââââââââââââââââââââââââââââ
+# ════════════════════════════════════════
 # MAIN
-# ââââââââââââââââââââââââââââââââââââââââ
+# ════════════════════════════════════════
 def main():
     init_db()
     app = Application.builder().token(TOKEN).build()
@@ -765,7 +765,7 @@ def main():
     reset_time = dtime(hour=5, minute=1, second=0)  # 00:01 COL = 05:01 UTC
     job_queue.run_daily(monthly_reset, time=reset_time, name="monthly_reset")
 
-    print(f"ð¤ Bot v5 iniciado | TRM: {TRM} | BOB: {BOB_RATE} | Budget: ${BUDGET_LIMIT_USD} USD | Reset: 1ro 00:01 COL")
+    print(f"🤖 Bot v5 iniciado | TRM: {TRM} | BOB: {BOB_RATE} | Budget: ${BUDGET_LIMIT_USD} USD | Reset: 1ro 00:01 COL")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
