@@ -1,5 +1,5 @@
 """
-Expense Tracker Bot v6.2 · González-Guevara
+Expense Tracker Bot v6.3 · González-Guevara
 Telegram bot con menú interactivo · $5,000 USD/mes · Multi-moneda (COP/USD/BOB)
 Reset automático el 1ro de cada mes 00:01 COL
 """
@@ -120,14 +120,19 @@ def parse_amount(raw: str):
         monto_cop = monto_usd * TRM
         display = f"{amount:,.0f} BOB"
         return monto_cop, display, "bob"
-    else:
+    elif currency == "cop":
         display = f"${amount:,.0f}".replace(",", ".") + " COP"
         return amount, display, "cop"
+    else:
+        # Default: USD
+        monto_cop = amount * TRM
+        display = f"${amount:,.0f} USD"
+        return monto_cop, display, "usd"
 
 def smart_parse(parts):
     """
     Try to parse amount from parts list. Handles:
-    - ["50000", ...] -> COP
+    - ["50000", ...] -> USD (default)
     - ["100usd", ...] -> USD
     - ["bob", "45", ...] -> BOB (space separated)
     - ["bob45", ...] -> BOB (concatenated)
@@ -136,10 +141,26 @@ def smart_parse(parts):
     if not parts:
         return None, None, None, parts
 
-    # Try first token directly
-    monto_cop, display, currency = parse_amount(parts[0])
+    # Scan for currency keyword (cop/bob) anywhere in parts
+    currency_override = None
+    clean_parts = []
+    for p in parts:
+        if p.lower().strip() in ("cop", "bob") and currency_override is None:
+            currency_override = p.lower().strip()
+        else:
+            clean_parts.append(p)
+
+    if not clean_parts:
+        return None, None, None, parts
+
+    # If currency found in message, prepend to amount token
+    token = clean_parts[0]
+    if currency_override:
+        token = currency_override + token
+
+    monto_cop, display, currency = parse_amount(token)
     if monto_cop is not None:
-        return monto_cop, display, currency, parts[1:]
+        return monto_cop, display, currency, clean_parts[1:]
 
     # Try "bob 45" / "usd 100" / "cop 50000" (space-separated currency prefix)
     if len(parts) >= 2 and parts[0].lower() in ("bob", "usd", "cop"):
@@ -387,7 +408,7 @@ async def cmd_gasto(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not args:
         await update.message.reply_text(
             "💸 ¿Cuánto gastaste?\n\n"
-            "Escribe el monto (COP por defecto):\n"
+            "Escribe el monto (USD por defecto):\n"
             "  /gasto 50000\n"
             "  /gasto 100usd hotel\n"
             "  /gasto 350bob almuerzo\n"
