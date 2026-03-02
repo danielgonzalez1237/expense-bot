@@ -57,7 +57,7 @@ CAT_GROUPS = {
     "ð Transporte": ["gasolina", "peajes", "uber", "parqueadero", "mantenimiento"],
     "ð Personal": ["salud", "trainer", "mascotas", "seguros"],
     "ð» Digital": ["claude", "suscripciones", "comisiones"],
-    "ð     "👩 Familia": ["mado"],
+    "👪 Familia": ["mado"],
     "📦 Otro": ["viaje", "otro"],
 }
 
