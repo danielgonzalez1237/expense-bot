@@ -196,7 +196,7 @@ def init_db():
         nota TEXT,
         created_at TEXT
     )""")
-conn.execute("""CREATE TABLE IF NOT EXISTS custom_categories (
+    conn.execute("""CREATE TABLE IF NOT EXISTS custom_categories (
         name TEXT PRIMARY KEY,
         icon TEXT DEFAULT '📌',
         label TEXT,
@@ -209,7 +209,6 @@ conn.execute("""CREATE TABLE IF NOT EXISTS custom_categories (
             BUDGET[row[0]] = {"usd": 0, "tipo": "variable", "icon": row[1], "label": row[2]}
             if row[0] not in ALIASES:
                 ALIASES[row[0]] = row[0]
-        conn.commit()
     conn.close()
 
 def add_expense(user_id, user_name, monto_cop, categoria, nota=""):
