@@ -1,5 +1,5 @@
 """
-Expense Tracker Bot v6.3 · González-Guevara
+Expense Tracker Bot v7 · González-Guevara
 Telegram bot con menú interactivo · $5,000 USD/mes · Multi-moneda (COP/USD/BOB)
 Reset automático el 1ro de cada mes 00:01 COL
 """
@@ -15,50 +15,54 @@ COL_TZ = timezone(timedelta(hours=-5))
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 ALLOWED_USERS = [int(x) for x in os.environ.get("ALLOWED_USER_IDS", "").split(",") if x.strip()]
 TRM = int(os.environ.get("TRM", "3700"))
-BOB_RATE = float(os.environ.get("BOB_RATE", "9"))
+BOB_RATE = float(os.environ.get("BOB_RATE", "9.20"))
 DB_PATH = os.environ.get("DB_PATH", "expenses.db")
 
 # ════════════════════════════════════════
 # PRESUPUESTO (USD/mes) · $5,000
 # ════════════════════════════════════════
 BUDGET = {
-    "hipoteca":       {"usd": 1000, "tipo": "fijo",      "icon": "🏠", "label": "Hipoteca"},
+    "hipoteca":       {"usd": 1486, "tipo": "fijo",      "icon": "🏠", "label": "Hipoteca"},
     "admin":          {"usd": 446,  "tipo": "fijo",      "icon": "🏢", "label": "Admin Nuvó"},
+    "empleada":       {"usd": 659,  "tipo": "fijo",      "icon": "🧹", "label": "Empleada"},
     "mado":           {"usd": 400,  "tipo": "fijo",      "icon": "👩", "label": "Mado USDT"},
-    "supermercado":   {"usd": 400,  "tipo": "variable",  "icon": "🛒", "label": "Supermercado"},
-    "viaje":          {"usd": 400,  "tipo": "variable",  "icon": "✈️", "label": "Viaje"},
-    "empleada":       {"usd": 350,  "tipo": "fijo",      "icon": "🧹", "label": "Empleada"},
-    "restaurante":    {"usd": 350,  "tipo": "variable",  "icon": "🍽️", "label": "Restaurante"},
-    "salud":          {"usd": 309,  "tipo": "variable",  "icon": "💊", "label": "Salud"},
+    "supermercado":   {"usd": 350,  "tipo": "variable",  "icon": "🛒", "label": "Supermercado"},
+    "restaurante":    {"usd": 300,  "tipo": "variable",  "icon": "🍽️", "label": "Restaurante"},
     "gasolina":       {"usd": 270,  "tipo": "variable",  "icon": "⛽", "label": "Gasolina"},
-    "rappi":          {"usd": 232,  "tipo": "variable",  "icon": "📦", "label": "Rappi/Domicilio"},
+    "servicios":      {"usd": 212,  "tipo": "fijo",      "icon": "💡", "label": "Servicios Básicos"},
+    "viaje":          {"usd": 200,  "tipo": "variable",  "icon": "✈️", "label": "Viaje"},
     "telecom":        {"usd": 181,  "tipo": "fijo",      "icon": "📱", "label": "Telecom"},
-    "trainer":        {"usd": 150,  "tipo": "semi-fijo", "icon": "🏋️", "label": "Trainer"},
+    "salud":          {"usd": 150,  "tipo": "variable",  "icon": "💊", "label": "Salud"},
+    "trainer":        {"usd": 130,  "tipo": "semi-fijo", "icon": "🏋️", "label": "Trainer"},
     "claude":         {"usd": 100,  "tipo": "fijo",      "icon": "🤖", "label": "Claude Pro"},
-    "cafe":           {"usd": 97,   "tipo": "variable",  "icon": "☕", "label": "Café"},
     "suscripciones":  {"usd": 92,   "tipo": "fijo",      "icon": "📺", "label": "Suscripciones"},
-    "mascotas":       {"usd": 81,   "tipo": "variable",  "icon": "🐾", "label": "Mascotas"},
-    "peajes":         {"usd": 45,   "tipo": "variable",  "icon": "🛣️", "label": "Peajes"},
-    "uber":           {"usd": 30,   "tipo": "variable",  "icon": "🚕", "label": "Uber/Taxi"},
-    "mantenimiento":  {"usd": 30,   "tipo": "variable",  "icon": "🔧", "label": "Mant. Vehículo"},
+    "cafe":           {"usd": 60,   "tipo": "variable",  "icon": "☕", "label": "Café"},
+    "uber":           {"usd": 50,   "tipo": "variable",  "icon": "🚕", "label": "Uber/Taxi"},
+    "mascotas":       {"usd": 25,   "tipo": "variable",  "icon": "🐾", "label": "Mascotas"},
+    "rappi":          {"usd": 20,   "tipo": "variable",  "icon": "📦", "label": "Rappi/Domicilio"},
+    "parqueadero":    {"usd": 20,   "tipo": "variable",  "icon": "🅿️", "label": "Parqueadero"},
     "comisiones":     {"usd": 15,   "tipo": "fijo",      "icon": "💳", "label": "Comisiones"},
+    "peajes":         {"usd": 15,   "tipo": "variable",  "icon": "🛣️", "label": "Peajes"},
+    "mantenimiento":  {"usd": 15,   "tipo": "variable",  "icon": "🔧", "label": "Mant. Vehículo"},
     "seguros":        {"usd": 12,   "tipo": "fijo",      "icon": "🛡️", "label": "Seguros"},
-    "parqueadero":    {"usd": 10,   "tipo": "variable",  "icon": "🅿️", "label": "Parqueadero"},
+    "tecnologia":     {"usd": 0,    "tipo": "variable",  "icon": "💻", "label": "Tecnología"},
+    "muebles":        {"usd": 0,    "tipo": "variable",  "icon": "🪑", "label": "Muebles"},
+    "ropa":           {"usd": 0,    "tipo": "variable",  "icon": "👕", "label": "Ropa"},
+    "obsequio":       {"usd": 0,    "tipo": "variable",  "icon": "🎁", "label": "Obsequio"},
     "otro":           {"usd": 0,    "tipo": "variable",  "icon": "📌", "label": "Otro"},
 }
 
 TOTAL_BUDGET_USD = sum(v["usd"] for v in BUDGET.values())
 BUDGET_LIMIT_USD = 5000
-
 # Categorías agrupadas para el menú
 CAT_GROUPS = {
-    "🏠 Hogar": ["hipoteca", "admin", "empleada", "telecom"],
+    "🏠 Hogar": ["hipoteca", "admin", "empleada", "telecom", "servicios"],
     "🍽️ Comida": ["supermercado", "restaurante", "rappi", "cafe"],
     "🚗 Transporte": ["gasolina", "peajes", "uber", "parqueadero", "mantenimiento"],
-    "💊 Personal": ["salud", "trainer", "mascotas", "seguros"],
-    "💻 Digital": ["claude", "suscripciones", "comisiones"],
+    "💊 Personal": ["salud", "trainer", "mascotas", "seguros", "ropa"],
+    "💻 Digital": ["claude", "suscripciones", "comisiones", "tecnologia"],
     "👪 Familia": ["mado"],
-    "📦 Otro": ["viaje", "otro"],
+    "📌 Otro": ["viaje", "muebles", "obsequio", "otro"],
 }
 
 # Aliases para texto rápido
@@ -82,6 +86,11 @@ ALIASES = {
     "internet": "telecom", "une": "telecom", "du": "telecom",
     "seguro": "seguros",
     "mado": "mado", "madeline": "mado", "mesada": "mado", "usdt": "mado", "wio": "mado",
+    "servicios": "servicios", "agua": "servicios", "luz": "servicios", "basura": "servicios", "internet": "servicios", "acueducto": "servicios",
+    "tech": "tecnologia", "tecnologia": "tecnologia", "electronica": "tecnologia", "computador": "tecnologia",
+    "mueble": "muebles", "muebles": "muebles", "decoracion": "muebles",
+    "regalo": "obsequio", "obsequio": "obsequio", "gift": "obsequio",
+    "ropa": "ropa", "vestimenta": "ropa", "zapatos": "ropa", "clothing": "ropa"
 }
 
 # ════════════════════════════════════════
@@ -187,7 +196,20 @@ def init_db():
         nota TEXT,
         created_at TEXT
     )""")
+conn.execute("""CREATE TABLE IF NOT EXISTS custom_categories (
+        name TEXT PRIMARY KEY,
+        icon TEXT DEFAULT '📌',
+        label TEXT,
+        created_at TEXT
+    )""")
     conn.commit()
+    # Load custom categories into BUDGET at startup
+    for row in conn.execute("SELECT name, icon, label FROM custom_categories").fetchall():
+        if row[0] not in BUDGET:
+            BUDGET[row[0]] = {"usd": 0, "tipo": "variable", "icon": row[1], "label": row[2]}
+            if row[0] not in ALIASES:
+                ALIASES[row[0]] = row[0]
+        conn.commit()
     conn.close()
 
 def add_expense(user_id, user_name, monto_cop, categoria, nota=""):
@@ -508,7 +530,43 @@ async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await register_and_confirm(query.message, query.from_user, monto_cop, cat, nota)
         return
 
-    # Delete
+    # Create new category from unknown input
+    if data.startswith("newcat|"):
+        parts = data.split("|", 4)
+        cat_name = parts[1].lower().strip()
+        monto_cop = float(parts[2])
+        nota = parts[3] if len(parts) > 3 else ""
+        display = parts[4] if len(parts) > 4 else ""
+        icon = "\U0001f4cc"
+        label = cat_name.capitalize()
+        conn = sqlite3.connect(DB)
+        conn.execute("INSERT OR IGNORE INTO custom_categories (name, icon, label, created_at) VALUES (?, ?, ?, ?)", (cat_name, icon, label, datetime.now().isoformat()))
+        conn.commit()
+        conn.close()
+        if cat_name not in BUDGET:
+            BUDGET[cat_name] = {"usd": 0, "tipo": "variable", "icon": icon, "label": label}
+        if cat_name not in ALIASES:
+            ALIASES[cat_name] = cat_name
+        in_group = any(cat_name in cats for cats in CAT_GROUPS.values())
+        if not in_group:
+            CAT_GROUPS["\U0001f4cc Otro"].append(cat_name)
+        await query.edit_message_text(f"\u2705 Categor\u00eda \"{label}\" creada. Registrando gasto...")
+        await register_and_confirm(query.message, query.from_user, monto_cop, cat_name, nota, display)
+        return
+
+    # Re-categorize: show keyboard for unknown category expense
+    if data.startswith("recat|"):
+        parts = data.split("|", 3)
+        monto_cop = float(parts[1])
+        nota = parts[2] if len(parts) > 2 else ""
+        await query.edit_message_text(
+            "Selecciona categor\u00eda:",
+            reply_markup=make_category_keyboard(monto_cop, nota),
+            parse_mode="Markdown"
+        )
+        return
+
+        # Delete
     if data.startswith("del:"):
         eid = int(data.split(":")[1])
         if delete_expense(eid):
@@ -681,6 +739,29 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 nota = " ".join(rest[1:]) if len(rest) > 1 else ""
                 await register_and_confirm(update.message, update.effective_user, monto_cop, cat, nota, display)
                 return
+            else:
+                # Unknown category - offer to create or reassign
+                unknown = rest[0]
+                nota = " ".join(rest[1:]) if len(rest) > 1 else ""
+                monto_usd = monto_cop / TRM
+                keyboard = [
+                    [InlineKeyboardButton(
+                        f"\u2795 Crear \"{unknown}\" como categor\u00eda",
+                        callback_data=f"newcat|{unknown}|{monto_cop}|{nota}|{display}"
+                    )],
+                    [InlineKeyboardButton(
+                        "\U0001f504 Elegir categor\u00eda existente",
+                        callback_data=f"recat|{monto_cop}|{nota}|{display}"
+                    )]
+                ]
+                await update.message.reply_text(
+                    f"\u2753 No conozco la categor\u00eda *\"{unknown}\"*\n\n"
+                    f"Monto: {display} (${monto_usd:.0f} USD)\n\n"
+                    f"\u00bfQu\u00e9 deseas hacer?",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode="Markdown"
+                )
+                return
 
         # Only amount → show category keyboard (if reasonable amount)
         if monto_cop > 100:
@@ -762,6 +843,268 @@ async def monthly_reset(context: ContextTypes.DEFAULT_TYPE):
 # ════════════════════════════════════════
 # MAIN
 # ════════════════════════════════════════
+# ════════════════════════════════════════
+# CSV MENSUAL AUTOMÁTICO (1ro de cada mes)
+# ════════════════════════════════════════
+
+async def send_monthly_csv(context: ContextTypes.DEFAULT_TYPE):
+    """Send monthly expense CSV report via Telegram on the 1st."""
+    import calendar
+    now = datetime.now()
+    if now.day != 1:
+        return
+    if now.month == 1:
+        year, month = now.year - 1, 12
+    else:
+        year, month = now.year, now.month - 1
+    month_name = calendar.month_name[month]
+    first_day = f"{year}-{month:02d}-01"
+    last_day = f"{year}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
+
+    conn = sqlite3.connect(DB)
+    rows = conn.execute(
+        "SELECT fecha, monto_cop, monto_usd, categoria, nota, usuario "
+        "FROM gastos WHERE fecha BETWEEN ? AND ? ORDER BY fecha",
+        (first_day, last_day)
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        for cid in ALLOWED:
+            await context.bot.send_message(cid, f"No hay gastos registrados en {month_name} {year}.")
+        return
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Fecha", "Usuario", "Categoría", "Monto_COP", "Monto_USD", "Nota"])
+    total_usd = 0
+    totals_by_user = {}
+    totals_by_cat = {}
+    for fecha, cop, usd, cat, nota, usuario in rows:
+        user_label = "Dani" if usuario == "Daniel" else usuario
+        writer.writerow([fecha, user_label, cat, f"{cop:.0f}", f"{usd:.2f}", nota or ""])
+        total_usd += usd
+        totals_by_user[user_label] = totals_by_user.get(user_label, 0) + usd
+        totals_by_cat[cat] = totals_by_cat.get(cat, 0) + usd
+
+    writer.writerow([])
+    writer.writerow(["=== RESUMEN PRESUPUESTO vs REAL ==="])
+    writer.writerow(["Categoría", "Presupuesto USD", "Gastado USD", "Diferencia", "Estado"])
+    budget_total = 0
+    for cat_key, info in sorted(BUDGET.items(), key=lambda x: -x[1]["usd"]):
+        budgeted = info["usd"]
+        spent = totals_by_cat.get(cat_key, 0)
+        diff = budgeted - spent
+        status = "✅" if diff >= 0 else "⚠️"
+        if budgeted > 0 or spent > 0:
+            writer.writerow([info["label"], f"{budgeted:.0f}", f"{spent:.2f}", f"{diff:.2f}", status])
+            budget_total += budgeted
+
+    writer.writerow([])
+    writer.writerow(["TOTAL", f"{budget_total:.0f}", f"{total_usd:.2f}", f"{budget_total - total_usd:.2f}"])
+    writer.writerow([])
+    writer.writerow(["=== POR USUARIO ==="])
+    for u, t in sorted(totals_by_user.items()):
+        writer.writerow([u, "", f"{t:.2f}"])
+
+    csv_bytes = buf.getvalue().encode("utf-8-sig")
+    buf.close()
+
+    summary = f"📊 *Resumen {month_name} {year}*\nTotal: *${total_usd:,.2f} USD*\nPresupuesto: *${budget_total:,.0f} USD*"
+    diff = budget_total - total_usd
+    summary += f"\n{'✅ Ahorro' if diff >= 0 else '⚠️ Exceso'}: *${abs(diff):,.2f} USD*"
+    for u, t in sorted(totals_by_user.items()):
+        summary += f"\n  {u}: ${t:,.2f}"
+
+    for cid in ALLOWED:
+        await context.bot.send_message(cid, summary, parse_mode="Markdown")
+        await context.bot.send_document(cid, document=io.BytesIO(csv_bytes), filename=f"gastos_{year}_{month:02d}.csv", caption=f"Detalle gastos {month_name} {year}")
+
+# ════════════════════════════════════════
+# CREAR CATEGORÍA CUSTOM: /nuevacat
+# ════════════════════════════════════════
+
+async def cmd_nuevacat(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Create custom category: /nuevacat nombre [emoji] [label]"""
+    if not is_allowed(update.effective_user.id):
+        return
+    args = ctx.args
+    if not args:
+        await update.message.reply_text("❓ Uso: /nuevacat nombre [emoji] [label]\nEjemplo: /nuevacat gimnasio 🏋️ Gimnasio")
+        return
+    name = args[0].lower().strip()
+    if name in BUDGET:
+        info = BUDGET[name]
+        await update.message.reply_text(f"⚠️ La categoría \"{name}\" ya existe: {info['icon']} {info['label']}")
+        return
+    icon = args[1] if len(args) > 1 and len(args[1]) <= 4 else "📌"
+    label = " ".join(args[2:]) if len(args) > 2 else name.capitalize()
+    conn = sqlite3.connect(DB)
+    conn.execute("INSERT OR IGNORE INTO custom_categories (name, icon, label, created_at) VALUES (?, ?, ?, ?)", (name, icon, label, datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+    BUDGET[name] = {"usd": 0, "tipo": "variable", "icon": icon, "label": label}
+    ALIASES[name] = name
+    in_group = any(name in cats for cats in CAT_GROUPS.values())
+    if not in_group:
+        CAT_GROUPS["📌 Otro"].append(name)
+    await update.message.reply_text(f"✅ Categoría creada: {icon} *{label}* (\"{name}\")\nYa puedes usarla: `50 {name}`", parse_mode="Markdown")
+
+# ════════════════════════════════════════
+# DASHBOARD HTML INTERACTIVO: /dashboard
+# ════════════════════════════════════════
+
+async def cmd_dashboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Generate interactive HTML dashboard: /dashboard [mes]"""
+    if not is_allowed(update.effective_user.id):
+        return
+    import calendar
+    now = datetime.now()
+    # Parse optional month arg
+    month, year = now.month, now.year
+    if ctx.args:
+        try:
+            month = int(ctx.args[0])
+        except ValueError:
+            month_names = {"enero":1,"febrero":2,"marzo":3,"abril":4,"mayo":5,"junio":6,"julio":7,"agosto":8,"septiembre":9,"octubre":10,"noviembre":11,"diciembre":12}
+            month = month_names.get(ctx.args[0].lower(), now.month)
+        if len(ctx.args) > 1:
+            try: year = int(ctx.args[1])
+            except: pass
+
+    month_name = calendar.month_name[month]
+    first_day = f"{year}-{month:02d}-01"
+    last_day = f"{year}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
+
+    conn = sqlite3.connect(DB)
+    rows = conn.execute(
+        "SELECT id, fecha, monto_cop, monto_usd, categoria, nota, usuario "
+        "FROM gastos WHERE fecha BETWEEN ? AND ? ORDER BY categoria, fecha",
+        (first_day, last_day)
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        await update.message.reply_text(f"No hay gastos en {month_name} {year}.")
+        return
+
+    await update.message.reply_text(f"📊 Generando dashboard {month_name} {year}...")
+
+    # Group data by category
+    by_cat = {}
+    total_usd = 0
+    by_user = {}
+    for eid, fecha, cop, usd, cat, nota, usuario in rows:
+        if cat not in by_cat:
+            by_cat[cat] = []
+        by_cat[cat].append({"id": eid, "fecha": fecha, "cop": cop, "usd": usd, "nota": nota or "", "usuario": usuario})
+        total_usd += usd
+        user_label = "Dani" if usuario == "Daniel" else usuario
+        by_user[user_label] = by_user.get(user_label, 0) + usd
+
+    # Build HTML
+    cat_rows_html = ""
+    for cat_key in sorted(by_cat.keys(), key=lambda k: -sum(e["usd"] for e in by_cat[k])):
+        info = BUDGET.get(cat_key, {"icon": "📌", "label": cat_key, "usd": 0})
+        spent = sum(e["usd"] for e in by_cat[cat_key])
+        budgeted = info["usd"]
+        pct = (spent / budgeted * 100) if budgeted > 0 else 0
+        bar_color = "#4caf50" if pct <= 80 else "#ff9800" if pct <= 100 else "#f44336"
+        count = len(by_cat[cat_key])
+
+        detail_rows = ""
+        for e in by_cat[cat_key]:
+            detail_rows += f'<tr><td>{e["fecha"]}</td><td>{e["usuario"]}</td><td style="text-align:right">${e["usd"]:.2f}</td><td style="text-align:right">{e["cop"]:,.0f}</td><td>{e["nota"]}</td></tr>'
+
+        cat_rows_html += f"""
+        <div class="cat-card" onclick="this.querySelector('.details').classList.toggle('open')">
+            <div class="cat-header">
+                <span class="cat-icon">{info["icon"]}</span>
+                <span class="cat-name">{info["label"]}</span>
+                <span class="cat-count">{count} gastos</span>
+                <span class="cat-spent">${spent:,.2f}</span>
+                <span class="cat-budget">/ ${budgeted:,.0f}</span>
+            </div>
+            <div class="bar-bg"><div class="bar-fill" style="width:{min(pct,100):.0f}%;background:{bar_color}"></div></div>
+            <div class="details">
+                <table><thead><tr><th>Fecha</th><th>Quién</th><th>USD</th><th>COP</th><th>Nota</th></tr></thead>
+                <tbody>{detail_rows}</tbody></table>
+            </div>
+        </div>"""
+    # User breakdown
+    user_html = ""
+    for u, t in sorted(by_user.items()):
+        pct_total = t / total_usd * 100 if total_usd > 0 else 0
+        user_html += f'<div class="user-row"><span>{u}</span><span>${t:,.2f} ({pct_total:.0f}%)</span></div>'
+
+    budget_total = sum(v["usd"] for v in BUDGET.values() if v["usd"] > 0)
+    diff = budget_total - total_usd
+    diff_class = "positive" if diff >= 0 else "negative"
+
+    html = f"""<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gastos {month_name} {year}</title>
+<style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0d1117;color:#c9d1d9;padding:12px;max-width:600px;margin:auto}}
+h1{{font-size:1.3em;text-align:center;padding:16px 0;color:#58a6ff}}
+.summary{{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}}
+.summary-card{{background:#161b22;border-radius:10px;padding:14px;text-align:center}}
+.summary-card .num{{font-size:1.5em;font-weight:700;color:#f0f6fc}}
+.summary-card .lbl{{font-size:0.75em;color:#8b949e;margin-top:4px}}
+.positive{{color:#3fb950}} .negative{{color:#f85149}}
+.user-row{{display:flex;justify-content:space-between;background:#161b22;padding:10px 14px;border-radius:8px;margin:4px 0}}
+.cat-card{{background:#161b22;border-radius:10px;margin:8px 0;padding:14px;cursor:pointer}}
+.cat-header{{display:flex;align-items:center;gap:8px;flex-wrap:wrap}}
+.cat-icon{{font-size:1.3em}}
+.cat-name{{font-weight:600;flex:1}}
+.cat-count{{font-size:0.75em;color:#8b949e}}
+.cat-spent{{font-weight:700;color:#f0f6fc}}
+.cat-budget{{font-size:0.8em;color:#8b949e}}
+.bar-bg{{height:6px;background:#21262d;border-radius:3px;margin-top:8px;overflow:hidden}}
+.bar-fill{{height:100%;border-radius:3px;transition:width .3s}}
+.details{{max-height:0;overflow:hidden;transition:max-height .3s}}
+.details.open{{max-height:2000px}}
+table{{width:100%;margin-top:10px;font-size:0.8em;border-collapse:collapse}}
+th{{text-align:left;color:#8b949e;border-bottom:1px solid #30363d;padding:6px 4px}}
+td{{padding:6px 4px;border-bottom:1px solid #21262d}}
+.filter-bar{{display:flex;gap:6px;justify-content:center;margin:12px 0}}
+.filter-btn{{background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:20px;padding:6px 14px;cursor:pointer;font-size:0.85em}}
+.filter-btn.active{{background:#1f6feb;border-color:#1f6feb;color:#fff}}
+</style></head><body>
+<h1>\U0001f4ca Gastos {month_name} {year}</h1>
+<div class="summary">
+<div class="summary-card"><div class="num">${total_usd:,.2f}</div><div class="lbl">Total Gastado</div></div>
+<div class="summary-card"><div class="num">${budget_total:,.0f}</div><div class="lbl">Presupuesto</div></div>
+<div class="summary-card"><div class="num {diff_class}">${abs(diff):,.2f}</div><div class="lbl">{"Ahorro" if diff >= 0 else "Exceso"}</div></div>
+<div class="summary-card"><div class="num">{len(rows)}</div><div class="lbl">Transacciones</div></div>
+</div>
+<h3 style="color:#8b949e;font-size:0.9em;margin:8px 0">Por usuario</h3>
+{user_html}
+<div class="filter-bar">
+<button class="filter-btn active" onclick="filterUser('all')">Todos</button>
+<button class="filter-btn" onclick="filterUser('Dani')">Dani</button>
+<button class="filter-btn" onclick="filterUser('Mado')">Mado</button>
+</div>
+<h3 style="color:#8b949e;font-size:0.9em;margin:8px 0">Por categor\u00eda (tap para detalle)</h3>
+{cat_rows_html}
+<script>
+function filterUser(u){{
+  document.querySelectorAll(".filter-btn").forEach(b=>b.classList.remove("active"));
+  event.target.classList.add("active");
+  document.querySelectorAll("tbody tr").forEach(tr=>{{
+    tr.style.display=(u==="all"||tr.children[1].textContent===u)?"":"none";
+  }});
+}}
+</script></body></html>"""
+
+    html_bytes = html.encode("utf-8")
+    await update.message.reply_document(
+        document=io.BytesIO(html_bytes),
+        filename=f"dashboard_{year}_{month:02d}.html",
+        caption=f"\U0001f4ca Dashboard {month_name} {year} \u2014 \u00e1brelo en el navegador"
+    )
+
 def main():
     init_db()
     app = Application.builder().token(TOKEN).build()
@@ -778,6 +1121,8 @@ def main():
     app.add_handler(CommandHandler("menu", cmd_menu))
     app.add_handler(CommandHandler("ayuda", cmd_start))
     app.add_handler(CommandHandler("help", cmd_start))
+    app.add_handler(CommandHandler("nuevacat", cmd_nuevacat))
+    app.add_handler(CommandHandler("dashboard", cmd_dashboard))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
@@ -785,8 +1130,11 @@ def main():
     job_queue = app.job_queue
     reset_time = dtime(hour=5, minute=1, second=0)  # 00:01 COL = 05:01 UTC
     job_queue.run_daily(monthly_reset, time=reset_time, name="monthly_reset")
+    # Monthly CSV report: 1st of each month at 08:00 COL (13:00 UTC)
+    csv_time = dtime(hour=13, minute=0, second=0)
+    job_queue.run_daily(send_monthly_csv, time=csv_time, name="monthly_csv")
 
-    print(f"🤖 Bot v5 iniciado | TRM: {TRM} | BOB: {BOB_RATE} | Budget: ${BUDGET_LIMIT_USD} USD | Reset: 1ro 00:01 COL")
+    print(f"🤖 Bot v7 iniciado | TRM: {TRM} | BOB: {BOB_RATE} | Budget: ${TOTAL_BUDGET_USD} USD | Reset: 1ro 00:01 COL")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
