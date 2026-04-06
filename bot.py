@@ -4,7 +4,7 @@ Telegram bot con menú interactivo · $5,000 USD/mes · Multi-moneda (COP/USD/BO
 Reset automático el 1ro de cada mes 00:01 COL
 """
 
-import os, re, json, sqlite3, csv, io
+import os, re, json, sqlite3, csv, io, traceback
 from datetime import datetime, timedelta, time as dtime, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
@@ -957,153 +957,61 @@ async def cmd_dashboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Generate interactive HTML dashboard: /dashboard [mes]"""
     if not is_allowed(update.effective_user.id):
         return
-    import calendar
-    now = datetime.now()
-    # Parse optional month arg
-    month, year = now.month, now.year
-    if ctx.args:
-        try:
-            month = int(ctx.args[0])
-        except ValueError:
-            month_names = {"enero":1,"febrero":2,"marzo":3,"abril":4,"mayo":5,"junio":6,"julio":7,"agosto":8,"septiembre":9,"octubre":10,"noviembre":11,"diciembre":12}
-            month = month_names.get(ctx.args[0].lower(), now.month)
-        if len(ctx.args) > 1:
-            try: year = int(ctx.args[1])
-            except: pass
-
-    month_name = calendar.month_name[month]
-    first_day = f"{year}-{month:02d}-01"
-    last_day = f"{year}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
-
-    conn = sqlite3.connect(DB_PATH)
-    rows = conn.execute(
-        "SELECT id, fecha, monto_cop, monto_usd, categoria, nota, usuario "
-        "FROM gastos WHERE fecha BETWEEN ? AND ? ORDER BY categoria, fecha",
-        (first_day, last_day)
-    ).fetchall()
-    conn.close()
-
-    if not rows:
-        await update.message.reply_text(f"No hay gastos en {month_name} {year}.")
-        return
-
-    await update.message.reply_text(f"📊 Generando dashboard {month_name} {year}...")
-
-    # Group data by category
-    by_cat = {}
-    total_usd = 0
-    by_user = {}
-    for eid, fecha, cop, usd, cat, nota, usuario in rows:
-        if cat not in by_cat:
-            by_cat[cat] = []
-        by_cat[cat].append({"id": eid, "fecha": fecha, "cop": cop, "usd": usd, "nota": nota or "", "usuario": usuario})
-        total_usd += usd
-        user_label = "Dani" if usuario == "Daniel" else usuario
-        by_user[user_label] = by_user.get(user_label, 0) + usd
-
-    # Build HTML
-    cat_rows_html = ""
-    for cat_key in sorted(by_cat.keys(), key=lambda k: -sum(e["usd"] for e in by_cat[k])):
-        info = BUDGET.get(cat_key, {"icon": "📌", "label": cat_key, "usd": 0})
-        spent = sum(e["usd"] for e in by_cat[cat_key])
-        budgeted = info["usd"]
-        pct = (spent / budgeted * 100) if budgeted > 0 else 0
-        bar_color = "#4caf50" if pct <= 80 else "#ff9800" if pct <= 100 else "#f44336"
-        count = len(by_cat[cat_key])
-
-        detail_rows = ""
-        for e in by_cat[cat_key]:
-            detail_rows += f'<tr><td>{e["fecha"]}</td><td>{e["usuario"]}</td><td style="text-align:right">${e["usd"]:.2f}</td><td style="text-align:right">{e["cop"]:,.0f}</td><td>{e["nota"]}</td></tr>'
-
-        cat_rows_html += f"""
-        <div class="cat-card" onclick="this.querySelector('.details').classList.toggle('open')">
-            <div class="cat-header">
-                <span class="cat-icon">{info["icon"]}</span>
-                <span class="cat-name">{info["label"]}</span>
-                <span class="cat-count">{count} gastos</span>
-                <span class="cat-spent">${spent:,.2f}</span>
-                <span class="cat-budget">/ ${budgeted:,.0f}</span>
-            </div>
-            <div class="bar-bg"><div class="bar-fill" style="width:{min(pct,100):.0f}%;background:{bar_color}"></div></div>
-            <div class="details">
-                <table><thead><tr><th>Fecha</th><th>Quién</th><th>USD</th><th>COP</th><th>Nota</th></tr></thead>
-                <tbody>{detail_rows}</tbody></table>
-            </div>
-        </div>"""
-    # User breakdown
-    user_html = ""
-    for u, t in sorted(by_user.items()):
-        pct_total = t / total_usd * 100 if total_usd > 0 else 0
-        user_html += f'<div class="user-row"><span>{u}</span><span>${t:,.2f} ({pct_total:.0f}%)</span></div>'
-
-    budget_total = sum(v["usd"] for v in BUDGET.values() if v["usd"] > 0)
-    diff = budget_total - total_usd
-    diff_class = "positive" if diff >= 0 else "negative"
-
-    html = f"""<!DOCTYPE html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Gastos {month_name} {year}</title>
-<style>
-*{{margin:0;padding:0;box-sizing:border-box}}
-body{{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0d1117;color:#c9d1d9;padding:12px;max-width:600px;margin:auto}}
-h1{{font-size:1.3em;text-align:center;padding:16px 0;color:#58a6ff}}
-.summary{{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}}
-.summary-card{{background:#161b22;border-radius:10px;padding:14px;text-align:center}}
-.summary-card .num{{font-size:1.5em;font-weight:700;color:#f0f6fc}}
-.summary-card .lbl{{font-size:0.75em;color:#8b949e;margin-top:4px}}
-.positive{{color:#3fb950}} .negative{{color:#f85149}}
-.user-row{{display:flex;justify-content:space-between;background:#161b22;padding:10px 14px;border-radius:8px;margin:4px 0}}
-.cat-card{{background:#161b22;border-radius:10px;margin:8px 0;padding:14px;cursor:pointer}}
-.cat-header{{display:flex;align-items:center;gap:8px;flex-wrap:wrap}}
-.cat-icon{{font-size:1.3em}}
-.cat-name{{font-weight:600;flex:1}}
-.cat-count{{font-size:0.75em;color:#8b949e}}
-.cat-spent{{font-weight:700;color:#f0f6fc}}
-.cat-budget{{font-size:0.8em;color:#8b949e}}
-.bar-bg{{height:6px;background:#21262d;border-radius:3px;margin-top:8px;overflow:hidden}}
-.bar-fill{{height:100%;border-radius:3px;transition:width .3s}}
-.details{{max-height:0;overflow:hidden;transition:max-height .3s}}
-.details.open{{max-height:2000px}}
-table{{width:100%;margin-top:10px;font-size:0.8em;border-collapse:collapse}}
-th{{text-align:left;color:#8b949e;border-bottom:1px solid #30363d;padding:6px 4px}}
-td{{padding:6px 4px;border-bottom:1px solid #21262d}}
-.filter-bar{{display:flex;gap:6px;justify-content:center;margin:12px 0}}
-.filter-btn{{background:#21262d;color:#c9d1d9;border:1px solid #30363d;border-radius:20px;padding:6px 14px;cursor:pointer;font-size:0.85em}}
-.filter-btn.active{{background:#1f6feb;border-color:#1f6feb;color:#fff}}
-</style></head><body>
-<h1>\U0001f4ca Gastos {month_name} {year}</h1>
-<div class="summary">
-<div class="summary-card"><div class="num">${total_usd:,.2f}</div><div class="lbl">Total Gastado</div></div>
-<div class="summary-card"><div class="num">${budget_total:,.0f}</div><div class="lbl">Presupuesto</div></div>
-<div class="summary-card"><div class="num {diff_class}">${abs(diff):,.2f}</div><div class="lbl">{"Ahorro" if diff >= 0 else "Exceso"}</div></div>
-<div class="summary-card"><div class="num">{len(rows)}</div><div class="lbl">Transacciones</div></div>
-</div>
-<h3 style="color:#8b949e;font-size:0.9em;margin:8px 0">Por usuario</h3>
-{user_html}
-<div class="filter-bar">
-<button class="filter-btn active" onclick="filterUser('all')">Todos</button>
-<button class="filter-btn" onclick="filterUser('Dani')">Dani</button>
-<button class="filter-btn" onclick="filterUser('Mado')">Mado</button>
-</div>
-<h3 style="color:#8b949e;font-size:0.9em;margin:8px 0">Por categor\u00eda (tap para detalle)</h3>
-{cat_rows_html}
-<script>
-function filterUser(u){{
-  document.querySelectorAll(".filter-btn").forEach(b=>b.classList.remove("active"));
-  event.target.classList.add("active");
-  document.querySelectorAll("tbody tr").forEach(tr=>{{
-    tr.style.display=(u==="all"||tr.children[1].textContent===u)?"":"none";
-  }});
-}}
-</script></body></html>"""
-
-    html_bytes = html.encode("utf-8")
-    await update.message.reply_document(
-        document=io.BytesIO(html_bytes),
-        filename=f"dashboard_{year}_{month:02d}.html",
-        caption=f"\U0001f4ca Dashboard {month_name} {year} \u2014 \u00e1brelo en el navegador"
-    )
-
+    try:
+        import calendar
+        now = datetime.now(COL_TZ)
+        month, year = now.month, now.year
+        if ctx.args:
+            try:
+                month = int(ctx.args[0])
+            except ValueError:
+                mn = {"enero":1,"febrero":2,"marzo":3,"abril":4,"mayo":5,"junio":6,"julio":7,"agosto":8,"septiembre":9,"octubre":10,"noviembre":11,"diciembre":12}
+                month = mn.get(ctx.args[0].lower(), now.month)
+        month_label = calendar.month_name[month]
+        first_day = f"{year}-{month:02d}-01"
+        last_day = f"{year}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
+        conn = sqlite3.connect(DB_PATH)
+        rows = conn.execute("SELECT id, fecha, monto_cop, monto_usd, categoria, nota, usuario FROM expenses WHERE fecha BETWEEN ? AND ?", (first_day, last_day)).fetchall()
+        conn.close()
+        total_usd = sum(r[3] for r in rows)
+        budget_total = sum(v["usd"] for v in BUDGET.values())
+        diff = budget_total - total_usd
+        by_cat = {}
+        by_user = {}
+        for eid, fecha, cop, usd, cat, nota, usuario in rows:
+            by_cat.setdefault(cat, []).append({"fecha": fecha, "cop": cop, "usd": usd, "nota": nota or "", "usuario": usuario})
+            by_user[usuario] = by_user.get(usuario, 0) + usd
+        cat_html = ""
+        for ck in sorted(by_cat, key=lambda k: -sum(e["usd"] for e in by_cat[k])):
+            info = BUDGET.get(ck, {"icon": "\U0001f4cc", "label": ck, "usd": 0})
+            sp = sum(e["usd"] for e in by_cat[ck])
+            bd = info["usd"]
+            pct = (sp/bd*100) if bd > 0 else 0
+            color = "#238636" if pct < 70 else "#d29922" if pct < 100 else "#f85149"
+            det = ""
+            for e in by_cat[ck]:
+                det += f'<tr><td>{e["fecha"]}</td><td>{e["usuario"]}</td><td>${e["usd"]:.2f}</td><td>{e["cop"]:,.0f}</td><td>{e["nota"]}</td></tr>'
+            cat_html += f'<details style="margin:8px 0;background:#161b22;border-radius:8px;padding:8px"><summary style="cursor:pointer;font-weight:bold">{info["icon"]} {info["label"]} — ${sp:,.2f} / ${bd:,.0f} ({pct:.0f}%)</summary><div style="background:#0d1117;border-radius:4px;height:6px;margin:6px 0"><div style="background:{color};height:6px;border-radius:4px;width:{min(pct,100):.0f}%"></div></div><table style="width:100%;font-size:12px;border-collapse:collapse"><tr style="color:#8b949e"><th>Fecha</th><th>User</th><th>USD</th><th>COP</th><th>Nota</th></tr>{det}</table></details>'
+        user_html = ""
+        for u, t in sorted(by_user.items(), key=lambda x: -x[1]):
+            user_html += f'<div style="display:flex;justify-content:space-between;padding:4px 0"><span>{u}</span><span>${t:,.2f}</span></div>'
+        dc = "color:#238636" if diff >= 0 else "color:#f85149"
+        dl = "Ahorro" if diff >= 0 else "Exceso"
+        page = f'''<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dashboard {month_label} {year}</title>'''
+        page += '''<style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:system-ui;background:#0d1117;color:#c9d1d9;padding:16px;max-width:600px;margin:auto}h1{font-size:18px;margin-bottom:12px}h2{font-size:14px;color:#8b949e;margin:16px 0 8px}.card{background:#161b22;border-radius:8px;padding:12px;margin:8px 0}</style>'''
+        page += f'''</head><body><h1>Dashboard {month_label} {year}</h1>'''
+        page += f'''<div class="card"><div style="display:flex;justify-content:space-between"><span>Total gastado</span><span style="font-size:20px;font-weight:bold">${total_usd:,.2f}</span></div><div style="display:flex;justify-content:space-between;margin-top:4px"><span>Presupuesto</span><span>${budget_total:,.0f}</span></div><div style="display:flex;justify-content:space-between;margin-top:4px"><span>{dl}</span><span style="{dc};font-weight:bold">${abs(diff):,.2f}</span></div><div style="margin-top:8px;font-size:12px;color:#8b949e">{len(rows)} gastos registrados</div></div>'''
+        page += f'''<h2>Por usuario</h2><div class="card">{user_html}</div>'''
+        page += f'''<h2>Por categoria</h2>{cat_html}'''
+        page += '''</body></html>'''
+        html_bytes = page.encode("utf-8")
+        await update.message.reply_document(
+            document=io.BytesIO(html_bytes),
+            filename=f"dashboard_{year}_{month:02d}.html",
+            caption=f"Dashboard {month_label} {year} - ${total_usd:,.2f} / ${budget_total:,.0f}"
+        )
+    except Exception as ex:
+        await update.message.reply_text(f"Error en /dashboard: {type(ex).__name__}: {ex}\n{traceback.format_exc()[-500:]}")
 def main():
     init_db()
     app = Application.builder().token(TOKEN).build()
