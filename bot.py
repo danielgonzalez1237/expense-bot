@@ -538,7 +538,7 @@ async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         display = parts[4] if len(parts) > 4 else ""
         icon = "\U0001f4cc"
         label = cat_name.capitalize()
-        conn = sqlite3.connect(DB)
+        conn = sqlite3.connect(DB_PATH)
         conn.execute("INSERT OR IGNORE INTO custom_categories (name, icon, label, created_at) VALUES (?, ?, ?, ?)", (cat_name, icon, label, datetime.now().isoformat()))
         conn.commit()
         conn.close()
@@ -860,7 +860,7 @@ async def send_monthly_csv(context: ContextTypes.DEFAULT_TYPE):
     first_day = f"{year}-{month:02d}-01"
     last_day = f"{year}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
 
-    conn = sqlite3.connect(DB)
+    conn = sqlite3.connect(DB_PATH)
     rows = conn.execute(
         "SELECT fecha, monto_cop, monto_usd, categoria, nota, usuario "
         "FROM gastos WHERE fecha BETWEEN ? AND ? ORDER BY fecha",
@@ -938,7 +938,7 @@ async def cmd_nuevacat(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     icon = args[1] if len(args) > 1 and len(args[1]) <= 4 else "📌"
     label = " ".join(args[2:]) if len(args) > 2 else name.capitalize()
-    conn = sqlite3.connect(DB)
+    conn = sqlite3.connect(DB_PATH)
     conn.execute("INSERT OR IGNORE INTO custom_categories (name, icon, label, created_at) VALUES (?, ?, ?, ?)", (name, icon, label, datetime.now().isoformat()))
     conn.commit()
     conn.close()
@@ -975,7 +975,7 @@ async def cmd_dashboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     first_day = f"{year}-{month:02d}-01"
     last_day = f"{year}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
 
-    conn = sqlite3.connect(DB)
+    conn = sqlite3.connect(DB_PATH)
     rows = conn.execute(
         "SELECT id, fecha, monto_cop, monto_usd, categoria, nota, usuario "
         "FROM gastos WHERE fecha BETWEEN ? AND ? ORDER BY categoria, fecha",
