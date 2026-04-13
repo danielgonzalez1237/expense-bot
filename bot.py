@@ -1,6 +1,6 @@
 """
 Expense Tracker Bot v7 · González-Guevara
-Telegram bot con menú interactivo · $5,000 USD/mes · Multi-moneda (COP/USD/BOB)
+Telegram bot con menú interactivo · $5,000 USD/mes · Multi-moneda (COP/USD/BOB/AED)
 Reset automático el 1ro de cada mes 00:01 COL
 """
 
@@ -16,6 +16,19 @@ TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 ALLOWED_USERS = [int(x) for x in os.environ.get("ALLOWED_USER_IDS", "").split(",") if x.strip()]
 TRM = int(os.environ.get("TRM", "3700"))
 BOB_RATE = float(os.environ.get("BOB_RATE", "9.20"))
+AED_RATE = float(os.environ.get("AED_RATE", "3.67"))
+
+# ════════════════════════════════════════
+# MÉTODOS DE PAGO
+# ════════════════════════════════════════
+PAYMENT_METHODS = {
+    "BDB": ["Visa Latam Dani", "Visa Latam Mado", "MC Dani"],
+    "BBVA": ["MC Dani", "MC Mado"],
+    "WIO": ["MC Dani", "MC Mado"],
+    "ENBD": ["Visa AED", "Visa USD"],
+    "Transferencia": ["BBVA", "BDB", "BANCOLOMBIA", "WIO", "ENBD", "CHASE"],
+    "Efectivo": ["Efectivo"],
+}
 DB_PATH = os.environ.get("DB_PATH", "expenses.db")
 
 # ════════════════════════════════════════
@@ -98,7 +111,7 @@ ALIASES = {
 # ════════════════════════════════════════
 # ── Parse amount: supports 50000, 100usd, 50bob, usd100, bob50, "bob 45", "usd 100"
 AMOUNT_RE = re.compile(
-    r'^(cop|usd|bob)?\s*(\d[\d.,]*)\s*(cop|usd|bob)?$',
+    r'^(cop|usd|bob|aed)?\s*(\d[\d.,]*)\s*(cop|usd|bob|aed)?$',
     re.IGNORECASE
 )
 
@@ -129,6 +142,11 @@ def parse_amount(raw: str):
         monto_cop = monto_usd * TRM
         display = f"{amount:,.0f} BOB"
         return monto_cop, display, "bob"
+    elif currency == "aed":
+        monto_usd = amount / AED_RATE
+        monto_cop = monto_usd * TRM
+        display = f"{amount:,.0f} AED"
+        return monto_cop, display, "aed"
     elif currency == "cop":
         display = f"${amount:,.0f}".replace(",", ".") + " COP"
         return amount, display, "cop"
@@ -154,7 +172,7 @@ def smart_parse(parts):
     currency_override = None
     clean_parts = []
     for p in parts:
-        if p.lower().strip() in ("cop", "bob") and currency_override is None:
+        if p.lower().strip() in ("cop", "bob", "aed") and currency_override is None:
             currency_override = p.lower().strip()
         else:
             clean_parts.append(p)
@@ -203,6 +221,12 @@ def init_db():
         created_at TEXT
     )""")
     conn.commit()
+    # Migration: add metodo_pago column if missing
+    try:
+        conn.execute("ALTER TABLE expenses ADD COLUMN metodo_pago TEXT DEFAULT 'Sin especificar'")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # column already exists
     # Load custom categories into BUDGET at startup
     for row in conn.execute("SELECT name, icon, label FROM custom_categories").fetchall():
         if row[0] not in BUDGET:
@@ -384,6 +408,26 @@ def make_main_menu():
     ]
     return InlineKeyboardMarkup(keyboard)
 
+def make_payment_keyboard(expense_id):
+    """Build inline keyboard for payment method selection, organized by bank."""
+    rows = []
+    for bank, methods in PAYMENT_METHODS.items():
+        if bank == "Efectivo":
+            rows.append([InlineKeyboardButton("💵 Efectivo", callback_data=f"pago|{expense_id}|Efectivo")])
+        else:
+            btns = []
+            for m in methods:
+                label = f"{m}"
+                cb = f"pago|{expense_id}|{bank} {m}"
+                btns.append(InlineKeyboardButton(label, callback_data=cb))
+            # Bank header row
+            rows.append([InlineKeyboardButton(f"── {bank} ──", callback_data="noop")])
+            # Methods in pairs
+            for i in range(0, len(btns), 2):
+                rows.append(btns[i:i+2])
+    rows.append([InlineKeyboardButton("⏭️ Sin especificar", callback_data=f"pago|{expense_id}|Sin especificar")])
+    return InlineKeyboardMarkup(rows)
+
 def make_confirm_keyboard(expense_id):
     keyboard = [
         [
@@ -433,7 +477,8 @@ async def cmd_gasto(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             "  /gasto 50000\n"
             "  /gasto 100usd hotel\n"
             "  /gasto 350bob almuerzo\n"
-            "  /gasto 240000cop nota"
+            "  /gasto 240000cop nota\n"
+            "  /gasto 50aed taxi"
         )
         return
 
@@ -501,7 +546,9 @@ async def register_and_confirm(message, user, monto_cop, categoria, nota="", dis
     if global_pct >= 0.9:
         msg += f"\n  🚨 ¡{global_pct:.0%} del tope mensual!"
 
-    await message.reply_text(msg, reply_markup=make_confirm_keyboard(exp_id))
+    await message.reply_text(msg)
+    # Show payment method selector
+    await message.reply_text("💳 Selecciona método de pago:", reply_markup=make_payment_keyboard(exp_id))
 
 async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -517,6 +564,21 @@ async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if data == "cancel":
         await query.edit_message_text("❌ Cancelado")
+        return
+
+    # Payment method selection: pago|EXPENSE_ID|METHOD
+    if data.startswith("pago|"):
+        parts = data.split("|", 2)
+        exp_id = int(parts[1])
+        metodo = parts[2]
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute("UPDATE expenses SET metodo_pago = ? WHERE id = ?", (metodo, exp_id))
+            conn.commit()
+            conn.close()
+            await query.edit_message_text(f"✅ Pago #{exp_id}: {metodo}", reply_markup=make_confirm_keyboard(exp_id))
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error guardando pago: {e}")
         return
 
     # Category selection: cat:CATEGORY:MONTO_COP:NOTA
