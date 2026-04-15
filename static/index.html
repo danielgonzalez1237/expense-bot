@@ -246,72 +246,117 @@
       </div>
     </div>
 
-    <!-- Two mini gauges side by side -->
-    <div class="grid grid-cols-2 gap-3 mt-4">
-      <!-- 🎯 PLAN INGRESOS — sum of expected_usd across active income sources (× n_months) -->
-      <div class="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-3 border border-slate-200 dark:border-slate-800">
-        <div class="flex items-baseline justify-between mb-1.5">
-          <div class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">🎯 Plan ingresos</div>
+    <!-- Three mini gauges side by side: Ideal / Plan ingresos / Configurado -->
+    <div class="grid grid-cols-3 gap-2 mt-4">
+      <!-- 🎯 IDEAL — lifestyle cap ($5,000/mo fixed) × n_months. Motivational
+           target; when spending is below this, the 'sobrante' becomes visible
+           savings. -->
+      <div class="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-2.5 border border-slate-200 dark:border-slate-800">
+        <div class="flex items-baseline justify-between mb-1">
+          <div class="text-[9px] uppercase tracking-wide text-slate-500 font-semibold" title="Tope lifestyle aspiracional">🎯 Ideal</div>
+          <div class="text-base font-bold" :class="idealTextColor" x-text="Math.round(pctIdeal * 100) + '%'"></div>
+        </div>
+        <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
           <div
-            class="text-lg font-bold"
-            :class="planIncomeTextColor"
-            x-text="planIncome > 0 ? Math.round(pctPlan * 100) + '%' : '—'"
+            class="h-full rounded-full bar"
+            :class="catBarColor(pctIdeal)"
+            :style="'width:' + Math.min(Math.max(pctIdeal, 0) * 100, 100) + '%'"
           ></div>
         </div>
-        <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+        <div class="text-[9px] text-slate-500 mt-1 truncate" x-text="fmtUsd(summary.budget_limit_usd)"></div>
+        <div class="text-[9px] truncate" :class="idealTextColor">
+          <span x-show="pctIdeal <= 1">libre <span x-text="fmtUsd(summary.budget_limit_usd - summary.total_usd)"></span></span>
+          <span x-show="pctIdeal > 1">sobre <span x-text="fmtUsd(summary.total_usd - summary.budget_limit_usd)"></span></span>
+        </div>
+      </div>
+
+      <!-- 💰 PLAN INGRESOS — sum of expected_usd across active income sources -->
+      <div class="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-2.5 border border-slate-200 dark:border-slate-800">
+        <div class="flex items-baseline justify-between mb-1">
+          <div class="text-[9px] uppercase tracking-wide text-slate-500 font-semibold" title="Plan de ingresos del mes">💰 Plan</div>
+          <div class="text-base font-bold" :class="planIncomeTextColor" x-text="planIncome > 0 ? Math.round(pctPlan * 100) + '%' : '—'"></div>
+        </div>
+        <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
           <div
             class="h-full rounded-full bar"
             :class="catBarColor(pctPlan)"
             :style="'width:' + Math.min(Math.max(pctPlan, 0) * 100, 100) + '%'"
           ></div>
         </div>
-        <div class="text-[10px] text-slate-500 mt-1 flex justify-between">
-          <span x-show="planIncome > 0" x-text="fmtUsd(planIncome) + ' plan'"></span>
-          <span x-show="planIncome === 0" class="italic text-slate-400 dark:text-slate-600">sin plan</span>
-          <span x-show="planIncome > 0" :class="planIncomeTextColor">
-            <span x-show="pctPlan <= 1">libre <span x-text="fmtUsd(planIncome - summary.total_usd)"></span></span>
-            <span x-show="pctPlan > 1">sobre <span x-text="fmtUsd(summary.total_usd - planIncome)"></span></span>
-          </span>
+        <div class="text-[9px] text-slate-500 mt-1 truncate">
+          <span x-show="planIncome > 0" x-text="fmtUsd(planIncome)"></span>
+          <span x-show="planIncome === 0" class="italic">sin plan</span>
+        </div>
+        <div class="text-[9px] truncate" :class="planIncomeTextColor">
+          <span x-show="planIncome > 0 && pctPlan <= 1">libre <span x-text="fmtUsd(planIncome - summary.total_usd)"></span></span>
+          <span x-show="planIncome > 0 && pctPlan > 1">sobre <span x-text="fmtUsd(summary.total_usd - planIncome)"></span></span>
+          <span x-show="planIncome === 0" class="italic text-slate-400 dark:text-slate-600">—</span>
         </div>
       </div>
 
-      <!-- ⚙️ CONFIGURADO — sum of all configured category budgets for the window -->
-      <div class="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-3 border border-slate-200 dark:border-slate-800">
-        <div class="flex items-baseline justify-between mb-1.5">
-          <div class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">⚙️ Configurado</div>
-          <div
-            class="text-lg font-bold"
-            :class="configuredTextColor"
-            x-text="configuredBudget > 0 ? Math.round(pctConfigured * 100) + '%' : '—'"
-          ></div>
+      <!-- ⚙️ CONFIGURADO — sum of configured category budgets -->
+      <div class="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-2.5 border border-slate-200 dark:border-slate-800">
+        <div class="flex items-baseline justify-between mb-1">
+          <div class="text-[9px] uppercase tracking-wide text-slate-500 font-semibold" title="Suma de budgets por categoría">⚙️ Config</div>
+          <div class="text-base font-bold" :class="configuredTextColor" x-text="configuredBudget > 0 ? Math.round(pctConfigured * 100) + '%' : '—'"></div>
         </div>
-        <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+        <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
           <div
             class="h-full rounded-full bar"
             :class="catBarColor(pctConfigured)"
             :style="'width:' + Math.min(Math.max(pctConfigured, 0) * 100, 100) + '%'"
           ></div>
         </div>
-        <div class="text-[10px] text-slate-500 mt-1 flex justify-between">
-          <span x-show="configuredBudget > 0" x-text="fmtUsd(configuredBudget) + ' plan'"></span>
-          <span x-show="configuredBudget === 0" class="italic">sin configurar</span>
-          <span x-show="configuredBudget > 0" :class="configuredTextColor">
-            <span x-show="pctConfigured <= 1">libre <span x-text="fmtUsd(configuredBudget - summary.total_usd)"></span></span>
-            <span x-show="pctConfigured > 1">sobre <span x-text="fmtUsd(summary.total_usd - configuredBudget)"></span></span>
-          </span>
+        <div class="text-[9px] text-slate-500 mt-1 truncate">
+          <span x-show="configuredBudget > 0" x-text="fmtUsd(configuredBudget)"></span>
+          <span x-show="configuredBudget === 0" class="italic">sin config</span>
+        </div>
+        <div class="text-[9px] truncate" :class="configuredTextColor">
+          <span x-show="configuredBudget > 0 && pctConfigured <= 1">libre <span x-text="fmtUsd(configuredBudget - summary.total_usd)"></span></span>
+          <span x-show="configuredBudget > 0 && pctConfigured > 1">sobre <span x-text="fmtUsd(summary.total_usd - configuredBudget)"></span></span>
+          <span x-show="configuredBudget === 0" class="italic text-slate-400 dark:text-slate-600">—</span>
         </div>
       </div>
     </div>
 
+    <!-- Motivational sobrante line — prominent when spending is under the Ideal cap.
+         This is the visual signal Daniel asked for: 'gastar menos cada mes' → see
+         the leftover turn into potential savings. -->
+    <div
+      x-show="pctIdeal < 1"
+      class="mt-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-lg px-3 py-2 flex items-center justify-between gap-2"
+    >
+      <div class="flex items-center gap-2">
+        <span class="text-lg">✨</span>
+        <div>
+          <div class="text-[10px] uppercase tracking-wide text-emerald-700 dark:text-emerald-400 font-semibold">Sobrante vs ideal</div>
+          <div class="text-[11px] text-slate-600 dark:text-slate-400">Si no gastas más, esto se ahorra este mes</div>
+        </div>
+      </div>
+      <div class="text-xl font-bold text-emerald-700 dark:text-emerald-400" x-text="'+' + fmtUsd(summary.budget_limit_usd - summary.total_usd)"></div>
+    </div>
+    <!-- Over-ideal warning (when pctIdeal > 1) -->
+    <div
+      x-show="pctIdeal > 1"
+      class="mt-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-lg px-3 py-2 flex items-center justify-between gap-2"
+    >
+      <div class="flex items-center gap-2">
+        <span class="text-lg">⚠️</span>
+        <div>
+          <div class="text-[10px] uppercase tracking-wide text-red-700 dark:text-red-400 font-semibold">Por encima del ideal</div>
+          <div class="text-[11px] text-slate-600 dark:text-slate-400">Estás gastando más que tu tope aspiracional</div>
+        </div>
+      </div>
+      <div class="text-xl font-bold text-red-700 dark:text-red-400" x-text="'−' + fmtUsd(summary.total_usd - summary.budget_limit_usd)"></div>
+    </div>
+
     <!-- Context line: plan vs plan + days remaining -->
     <div class="flex justify-between text-xs mt-3 text-slate-500">
-      <!-- No plan set yet -->
-      <span x-show="planIncome === 0" class="italic text-slate-400 dark:text-slate-600">
-        Define ingresos esperados en 💼 Editar ingresos → Fuentes
+      <span x-show="planIncome === 0 && configuredBudget > 0" class="italic text-slate-400 dark:text-slate-600">
+        Define ingresos en 💼 Fuentes
       </span>
-      <!-- Plan set: compare configured vs plan -->
       <span x-show="planIncome > 0 && configuredBudget > 0">
-        Gasto vs ingreso planeado:
+        Plan gasto vs plan ingreso:
         <span
           class="font-medium"
           :class="configuredBudget <= planIncome
