@@ -263,45 +263,104 @@
     <div class="text-xs text-slate-400 dark:text-slate-600 mt-1">Abre Telegram y registra uno con <code>@gastos_gg_bot</code></div>
   </section>
 
-  <!-- ──────────────── Categories ──────────────── -->
+  <!-- ──────────────── Categories (rollup: parents with indented children) ──────────────── -->
   <section
     x-show="summary.categories && summary.categories.length"
     class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm"
   >
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-sm font-semibold">Categorías con gasto</h2>
-      <span class="text-xs text-slate-400 dark:text-slate-600"><span x-text="summary.categories.length"></span> activas</span>
+      <span class="text-xs text-slate-400 dark:text-slate-600">
+        <span x-text="rolledCategories.length"></span> agrupadas · <span x-text="summary.categories.length"></span> activas
+      </span>
     </div>
-    <div class="space-y-3">
-      <template x-for="c in summary.categories" :key="c.categoria">
+    <div class="space-y-4">
+      <template x-for="group in rolledCategories" :key="group.key">
         <div>
+          <!-- Parent / top-level row — shows rolled-up total (direct + all subs) -->
           <div class="flex justify-between text-sm">
             <span class="truncate min-w-0 mr-2">
-              <span x-text="c.icon"></span>
-              <span class="font-medium" x-text="c.label"></span>
-              <span class="text-slate-400 dark:text-slate-600 text-xs" x-text="' · ' + c.count + (c.count === 1 ? ' gasto' : ' gastos')"></span>
+              <span x-text="group.icon"></span>
+              <span class="font-medium" x-text="group.label"></span>
+              <span class="text-slate-400 dark:text-slate-600 text-xs" x-text="' · ' + group.totalCount + (group.totalCount === 1 ? ' gasto' : ' gastos')"></span>
+              <span
+                x-show="group.children && group.children.length"
+                class="text-[10px] text-slate-400 dark:text-slate-600 ml-1"
+              >▾ <span x-text="group.children.length"></span> subs</span>
             </span>
             <span class="whitespace-nowrap">
-              <span class="font-semibold" x-text="fmtUsd(c.spent_usd)"></span>
-              <span class="text-slate-400 dark:text-slate-600 text-xs" x-show="c.budget_usd > 0">
-                / <span x-text="fmtUsd(c.budget_usd)"></span>
+              <span class="font-semibold" x-text="fmtUsd(group.totalSpent)"></span>
+              <span class="text-slate-400 dark:text-slate-600 text-xs" x-show="group.totalBudget > 0">
+                / <span x-text="fmtUsd(group.totalBudget)"></span>
               </span>
             </span>
           </div>
+          <!-- Parent progress bar -->
           <div
             class="mt-1.5 w-full bg-slate-100 dark:bg-slate-800/80 rounded-full h-1.5 overflow-hidden"
-            x-show="c.budget_usd > 0"
+            x-show="group.totalBudget > 0"
           >
             <div
               class="h-full rounded-full bar"
-              :class="catBarColor(c.pct_of_budget)"
-              :style="'width:' + Math.min((c.pct_of_budget || 0) * 100, 100) + '%'"
+              :class="catBarColor(group.totalSpent / group.totalBudget)"
+              :style="'width:' + Math.min((group.totalSpent / group.totalBudget) * 100, 100) + '%'"
             ></div>
           </div>
           <div
             class="mt-1 text-[10px] text-slate-400 dark:text-slate-600 italic"
-            x-show="!c.budget_usd"
+            x-show="!group.totalBudget"
           >sin presupuesto asignado</div>
+
+          <!-- Children rows: direct + each sub. Only render when group has >=1 sub. -->
+          <div
+            x-show="group.children && group.children.length"
+            class="mt-2 ml-4 pl-3 border-l-2 border-slate-100 dark:border-slate-800 space-y-2"
+          >
+            <!-- Direct parent spending (if any) — shown as its own child row when parent also has direct gastos -->
+            <template x-if="group.directSpent > 0 || group.directCount > 0">
+              <div class="text-xs">
+                <div class="flex justify-between">
+                  <span class="text-slate-500 dark:text-slate-500">
+                    <span class="text-[10px]">↳</span>
+                    <span x-text="group.icon"></span>
+                    <span x-text="group.label"></span>
+                    <span class="text-slate-400 dark:text-slate-600 text-[10px]">(directo · <span x-text="group.directCount"></span>)</span>
+                  </span>
+                  <span class="text-slate-600 dark:text-slate-400" x-text="fmtUsd(group.directSpent)"></span>
+                </div>
+              </div>
+            </template>
+            <!-- Each sub -->
+            <template x-for="child in group.children" :key="child.categoria">
+              <div class="text-xs">
+                <div class="flex justify-between">
+                  <span class="text-slate-500 dark:text-slate-500 truncate min-w-0 mr-2">
+                    <span class="text-[10px]">↳</span>
+                    <span x-text="child.icon"></span>
+                    <span x-text="child.label"></span>
+                    <span class="text-slate-400 dark:text-slate-600 text-[10px]" x-text="' · ' + child.count"></span>
+                  </span>
+                  <span class="whitespace-nowrap">
+                    <span class="text-slate-600 dark:text-slate-400 font-medium" x-text="fmtUsd(child.spent_usd)"></span>
+                    <span class="text-slate-400 dark:text-slate-600 text-[10px]" x-show="child.budget_usd > 0">
+                      / <span x-text="fmtUsd(child.budget_usd)"></span>
+                    </span>
+                  </span>
+                </div>
+                <!-- Sub progress bar (mini) -->
+                <div
+                  class="mt-1 w-full bg-slate-100 dark:bg-slate-800/80 rounded-full h-1 overflow-hidden"
+                  x-show="child.budget_usd > 0"
+                >
+                  <div
+                    class="h-full rounded-full bar"
+                    :class="catBarColor(child.pct_of_budget)"
+                    :style="'width:' + Math.min((child.pct_of_budget || 0) * 100, 100) + '%'"
+                  ></div>
+                </div>
+              </div>
+            </template>
+          </div>
         </div>
       </template>
     </div>
@@ -2233,6 +2292,79 @@ function dashboard() {
     get filteredExpenses() {
       if (!this.userFilter) return this.expenses;
       return this.expenses.filter(e => e.user_name === this.userFilter);
+    },
+
+    // Build a parent→children rollup from the flat summary.categories array.
+    // - Each top-level (parent is null) becomes a group
+    // - Each sub gets nested under its parent
+    // - Parent total = direct parent spending + sum of all children's spending
+    // - Parent budget = parent's own budget + sum of children's budgets
+    // - Children with NO activity aren't rendered
+    // - An orphan child (parent missing from summary.categories) is hoisted
+    //   to top-level under its own name as a fallback
+    get rolledCategories() {
+      const bySlug = {};
+      const cats = this.summary.categories || [];
+
+      // First pass: materialize every active category with its metadata.
+      // summary.categories already contains only categories that have gastos
+      // this month (from /api/summary), so "active" == in this list.
+      for (const c of cats) {
+        const meta = this.budget[c.categoria] || {};
+        bySlug[c.categoria] = {
+          ...c,
+          parent: meta.parent || null,
+        };
+      }
+
+      // Second pass: build groups. Iterate categories and attach children to
+      // their parents. Parents missing from the active list still become
+      // groups if any of their children are active (we synthesize a zero-
+      // direct-spending parent row so the grouping is visible).
+      const groups = {};
+
+      const ensureGroup = (key) => {
+        if (groups[key]) return groups[key];
+        const meta = this.budget[key] || {};
+        // If this parent is in the active list, seed from its entry;
+        // otherwise create a synthetic empty group with metadata-only info.
+        const active = bySlug[key];
+        groups[key] = {
+          key,
+          icon: (active && active.icon) || meta.icon || '📦',
+          label: (active && active.label) || meta.label || key,
+          directSpent: active ? (active.spent_usd || 0) : 0,
+          directCount: active ? (active.count || 0) : 0,
+          directBudget: active ? (active.budget_usd || 0) : (meta.usd || 0),
+          children: [],
+          totalSpent: 0,
+          totalCount: 0,
+          totalBudget: 0,
+        };
+        return groups[key];
+      };
+
+      for (const c of cats) {
+        const parent = (this.budget[c.categoria] || {}).parent;
+        if (parent) {
+          const g = ensureGroup(parent);
+          g.children.push(c);
+        } else {
+          ensureGroup(c.categoria);
+        }
+      }
+
+      // Third pass: compute totals per group.
+      for (const g of Object.values(groups)) {
+        g.totalSpent = g.directSpent + g.children.reduce((s, c) => s + (c.spent_usd || 0), 0);
+        g.totalCount = g.directCount + g.children.reduce((s, c) => s + (c.count || 0), 0);
+        g.totalBudget = g.directBudget + g.children.reduce((s, c) => s + (c.budget_usd || 0), 0);
+        // Sort children by spending desc
+        g.children.sort((a, b) => (b.spent_usd || 0) - (a.spent_usd || 0));
+      }
+
+      // Return groups sorted by total spent desc.
+      return Object.values(groups).sort((a, b) => b.totalSpent - a.totalSpent);
     },
 
     // ── Helpers ─────────────────────────────────

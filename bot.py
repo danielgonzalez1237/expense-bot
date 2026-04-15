@@ -98,32 +98,106 @@ CAT_GROUPS = {
     "📌 Otro": ["viaje", "muebles", "obsequio", "otro"],
 }
 
-# Aliases para texto rápido
+# Aliases para texto rápido desde Telegram.
+#
+# IMPORTANTE: un alias ya NO implica que la key target tenga que ser top-level.
+# Con la introducción de subcategorías (parent), los aliases pueden apuntar a
+# un sub (ej. "fotomulta" → "multas" que es sub de "carro"). El bot resuelve
+# via BUDGET (que incluye todos los keys, top-level y subs) y el dashboard
+# muestra el gasto bajo su sub + rollea el total al padre.
+#
+# Orden de diccionario MATTERS: Python dicts preservan orden; si hay duplicados
+# el último gana. He agrupado por destino final y puesto lo específico primero.
 ALIASES = {
-    "rest": "restaurante", "restaurantes": "restaurante", "comida": "restaurante", "almuerzo": "restaurante", "cena": "restaurante",
-    "super": "supermercado", "mercado": "supermercado", "pricesmart": "supermercado", "exito": "supermercado", "jumbo": "supermercado",
+    # ── Comida ──
+    "rest": "restaurante", "restaurante": "restaurante", "restaurantes": "restaurante",
+    "comida": "restaurante", "almuerzo": "restaurante", "cena": "restaurante", "desayuno": "restaurante",
+    "super": "supermercado", "mercado": "supermercado", "supermercado": "supermercado",
+    "pricesmart": "supermercado", "exito": "supermercado", "jumbo": "supermercado",
+    "olimpica": "supermercado", "d1": "supermercado", "ara": "supermercado",
     "domicilio": "rappi", "domicilios": "rappi", "delivery": "rappi", "ifood": "rappi",
-    "gas": "gasolina", "tanqueo": "gasolina", "combustible": "gasolina",
-    "taxi": "uber", "didi": "uber", "indriver": "uber",
-    "gym": "trainer", "entreno": "trainer", "entrenamiento": "trainer",
-    "medico": "salud", "medicina": "salud", "farmacia": "salud", "drogueria": "salud",
-    "netflix": "suscripciones", "spotify": "suscripciones", "apple": "suscripciones", "amazon": "suscripciones", "streaming": "suscripciones",
-    "parking": "parqueadero", "parqueo": "parqueadero",
-    "peaje": "peajes", "gopass": "peajes",
-    "cafeteria": "cafe", "café": "cafe", "coffee": "cafe", "starbucks": "cafe",
-    "veterinario": "mascotas", "vet": "mascotas", "perro": "mascotas", "gato": "mascotas",
-    "vuelo": "viaje", "hotel": "viaje", "airbnb": "viaje", "avion": "viaje",
-    "ropa": "otro", "tech": "otro", "compras": "otro",
-    "hipoteca": "hipoteca", "mortgage": "hipoteca",
-    "administracion": "admin", "administración": "admin",
-    "internet": "telecom", "une": "telecom", "du": "telecom",
-    "seguro": "seguros",
+    "didifood": "rappi", "rappi": "rappi",
+    "cafe": "cafe", "cafeteria": "cafe", "café": "cafe", "coffee": "cafe",
+    "starbucks": "cafe", "juanvaldez": "cafe", "tostao": "cafe",
+
+    # ── Transporte / carro (subs de carro) ──
+    "gas": "gasolina", "gasolina": "gasolina", "tanqueo": "gasolina",
+    "combustible": "gasolina", "terpel": "gasolina", "mobil": "gasolina", "esso": "gasolina",
+    "taxi": "uber", "uber": "uber", "didi": "uber", "indriver": "uber", "cabify": "uber",
+    "parking": "parqueadero", "parqueo": "parqueadero", "parqueadero": "parqueadero",
+    "cityparking": "parqueadero",
+    "peaje": "peajes", "peajes": "peajes", "gopass": "peajes",
+    "multa": "multas", "multas": "multas", "fotomulta": "multas",
+    "fotomultas": "multas", "comparendo": "multas", "infraccion": "multas",
+    "taller": "mecanica", "mecanica": "mecanica", "mecanico": "mecanica",
+    "arreglocarro": "mecanica", "aceite": "mecanica", "cambioaceite": "mecanica",
+    "llantas": "mantenimiento", "lavado": "mantenimiento", "mantenimiento": "mantenimiento",
+    "lavada": "mantenimiento", "revision": "mantenimiento",
+    "carro": "carro", "gastosvarios_carro": "carro",
+
+    # ── Hogar (subs de hogar) ──
+    "hipoteca": "hipoteca", "mortgage": "hipoteca", "creditohipotecario": "hipoteca",
+    "hogar": "hogar", "casa": "hogar", "casita": "hogar",
+    "mueble": "muebles", "muebles": "muebles", "mobiliario": "muebles",
+    "decoracion": "muebles", "silla": "muebles", "mesa": "muebles",
+    "sofa": "muebles", "cama": "muebles", "colchon": "muebles",
+    "escritorio": "muebles", "closet": "muebles", "lampara": "muebles",
+    "reparacion": "reparaciones", "reparaciones": "reparaciones", "arreglo": "reparaciones",
+    "fontanero": "reparaciones", "plomero": "reparaciones", "electricista": "reparaciones",
+    "goteo": "reparaciones", "pintor": "reparaciones", "albañil": "reparaciones",
+    "cerrajero": "reparaciones", "manoobra": "reparaciones",
+    "predial": "prediales", "prediales": "prediales", "impuestocasa": "prediales",
+    "catastro": "prediales", "impuestohogar": "prediales",
+    "empleada": "empleada", "muchacha": "empleada", "aseadora": "empleada",
+    "limpieza": "empleada", "servicio": "empleada",
+    "admin": "admin", "administracion": "admin", "administración": "admin",
+    "cuota": "admin", "conjunto": "admin", "nuvo": "admin",
     "mado": "mado", "madeline": "mado", "mesada": "mado", "usdt": "mado", "wio": "mado",
-    "servicios": "servicios", "agua": "servicios", "luz": "servicios", "basura": "servicios", "internet": "servicios", "acueducto": "servicios",
-    "tech": "tecnologia", "tecnologia": "tecnologia", "electronica": "tecnologia", "computador": "tecnologia",
-    "mueble": "muebles", "muebles": "muebles", "decoracion": "muebles",
-    "regalo": "obsequio", "obsequio": "obsequio", "gift": "obsequio",
-    "ropa": "ropa", "vestimenta": "ropa", "zapatos": "ropa", "clothing": "ropa"
+    "servicios": "servicios", "agua": "servicios", "luz": "servicios",
+    "basura": "servicios", "acueducto": "servicios", "gas_servicio": "servicios",
+    "energia": "servicios",
+
+    # ── Salud (subs de salud) ──
+    "medico": "salud", "medicina": "salud", "farmacia": "salud",
+    "drogueria": "salud", "cruzverde": "salud", "farmatodo": "salud",
+    "colsanitas": "salud", "exámen": "salud", "examen": "salud",
+    "segurosalud": "segurosalud", "medicinaprepagada": "segurosalud", "sanitas": "segurosalud",
+    "gym": "trainer", "entreno": "trainer", "entrenamiento": "trainer",
+    "trainer": "trainer", "crossfit": "trainer", "pesas": "trainer",
+
+    # ── Mascotas (subs) ──
+    "veterinario": "bubba", "vet": "bubba", "perro": "bubba",
+    "bubba": "bubba", "gato": "bubba", "mascotas": "mascotas",
+
+    # ── Suscripciones digitales ──
+    "netflix": "suscripciones", "spotify": "suscripciones", "streaming": "suscripciones",
+    "amazon": "suscripciones", "apple": "suscripciones", "suscripciones": "suscripciones",
+    "claude": "claude", "claudepro": "claude", "anthropic": "claude",
+    "tech": "tecnologia", "tecnologia": "tecnologia", "electronica": "tecnologia",
+    "computador": "tecnologia", "laptop": "tecnologia", "celular": "tecnologia",
+
+    # ── Telecom ──
+    "telecom": "telecom", "internet": "telecom", "claro": "telecom",
+    "movistar": "telecom", "etb": "telecom", "du": "telecom",
+    "une": "telecom", "plancelular": "telecom",
+
+    # ── Viajes ──
+    "viaje": "viaje", "vuelo": "viaje", "hotel": "viaje",
+    "airbnb": "viaje", "avion": "viaje", "latam": "viaje",
+    "avianca": "viaje", "vueling": "viaje",
+
+    # ── Seguros (subs) ──
+    "seguro": "seguros", "seguros": "seguros",
+
+    # ── Entretenimiento (top-level nuevo de Daniel) ──
+    "entretenimiento": "entretenimiento", "cine": "entretenimiento",
+    "teatro": "entretenimiento", "concierto": "entretenimiento", "evento": "entretenimiento",
+
+    # ── Otros / genéricos ──
+    "comisiones": "comisiones", "comision": "comisiones", "cuota_manejo": "comisiones",
+    "regalo": "obsequio", "obsequio": "obsequio", "gift": "obsequio", "cumpleaños": "obsequio",
+    "ropa": "ropa", "vestimenta": "ropa", "zapatos": "ropa", "clothing": "ropa",
+    "otro": "otro", "otros": "otro", "varios": "otro",
 }
 
 # ════════════════════════════════════════
