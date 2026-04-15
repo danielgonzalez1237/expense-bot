@@ -422,17 +422,24 @@ def make_api_app() -> FastAPI:
 
     @api.post("/api/income/entries")
     def create_income_entry(entry: IncomeEntryCreate):
-        if not _VALID_PERIOD.match(entry.period):
-            raise HTTPException(400, f"period inválido: {entry.period!r} (usa YYYY-MM)")
         if entry.currency not in _SUPPORTED_CURRENCIES:
             raise HTTPException(400, f"moneda inválida: {entry.currency!r}")
         if entry.monto is None or entry.monto <= 0:
             raise HTTPException(400, "monto debe ser > 0")
+        # period is INFORMATIONAL — the authoritative assignment comes from fecha.
+        # If fecha is missing, we fall back to `period`'s first day.
+        if not _VALID_PERIOD.match(entry.period or ""):
+            raise HTTPException(400, f"period inválido: {entry.period!r} (usa YYYY-MM)")
         fecha = entry.fecha or (entry.period + "-01")
         try:
             datetime.strptime(fecha, "%Y-%m-%d")
         except ValueError:
             raise HTTPException(400, f"fecha inválida: {fecha!r}")
+
+        # Derive the canonical period from the fecha. The user's intent when
+        # picking a date is "count this in that date's month" — regardless of
+        # which month they had open in the modal.
+        effective_period = fecha[:7]
 
         conn = sqlite3.connect(bot.DB_PATH)
         try:
@@ -441,19 +448,20 @@ def make_api_app() -> FastAPI:
             ).fetchone()
             if not src:
                 raise HTTPException(404, f"source {entry.source_key!r} no existe")
-            rates = _rates_for_period(conn, entry.period)
+            rates = _rates_for_period(conn, effective_period)
             monto_usd, rate_used = _to_usd(entry.monto, entry.currency, rates)
             now = datetime.now().isoformat()
             cur = conn.execute(
                 "INSERT INTO income_entries "
                 "(source_key, period, fecha, monto, currency, monto_usd, rate_used, nota, created_at, updated_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (entry.source_key, entry.period, fecha, float(entry.monto),
+                (entry.source_key, effective_period, fecha, float(entry.monto),
                  entry.currency, monto_usd, rate_used, entry.nota or "", now, now),
             )
             conn.commit()
             return {
                 "ok": True, "id": cur.lastrowid,
+                "period": effective_period,
                 "monto_usd": monto_usd, "rate_used": rate_used,
             }
         finally:
@@ -461,14 +469,14 @@ def make_api_app() -> FastAPI:
 
     @api.put("/api/income/entries/{entry_id}")
     def update_income_entry(entry_id: int, updates: dict = Body(...)):
-        allowed = {"monto", "currency", "fecha", "nota", "period", "source_key"}
+        # period is NOT directly editable — it is derived from fecha. Edit
+        # fecha instead if you want to move an entry to a different month.
+        allowed = {"monto", "currency", "fecha", "nota", "source_key"}
         bad = set(updates.keys()) - allowed
         if bad:
             raise HTTPException(400, f"campos no editables: {bad}")
         if "currency" in updates and updates["currency"] not in _SUPPORTED_CURRENCIES:
             raise HTTPException(400, f"moneda inválida")
-        if "period" in updates and not _VALID_PERIOD.match(updates["period"]):
-            raise HTTPException(400, f"period inválido")
         if "fecha" in updates and updates["fecha"]:
             try:
                 datetime.strptime(updates["fecha"], "%Y-%m-%d")
@@ -478,18 +486,23 @@ def make_api_app() -> FastAPI:
         conn = sqlite3.connect(bot.DB_PATH)
         try:
             existing = conn.execute(
-                "SELECT period, monto, currency FROM income_entries WHERE id = ?",
+                "SELECT period, fecha, monto, currency FROM income_entries WHERE id = ?",
                 (entry_id,),
             ).fetchone()
             if not existing:
                 raise HTTPException(404, f"entry {entry_id} no existe")
-            new_period = updates.get("period", existing[0])
-            new_monto = float(updates.get("monto", existing[1]))
-            new_currency = updates.get("currency", existing[2])
+            new_fecha = updates.get("fecha", existing[1])
+            new_monto = float(updates.get("monto", existing[2]))
+            new_currency = updates.get("currency", existing[3])
             if new_monto <= 0:
                 raise HTTPException(400, "monto debe ser > 0")
+            # period follows fecha
+            new_period = (new_fecha or "")[:7] if new_fecha else existing[0]
+            if not _VALID_PERIOD.match(new_period):
+                raise HTTPException(400, f"fecha inválida derivó period {new_period!r}")
             rates = _rates_for_period(conn, new_period)
             monto_usd, rate_used = _to_usd(new_monto, new_currency, rates)
+            updates["period"] = new_period
             updates["monto_usd"] = monto_usd
             updates["rate_used"] = rate_used
             now = datetime.now().isoformat()
@@ -502,7 +515,7 @@ def make_api_app() -> FastAPI:
             conn.commit()
         finally:
             conn.close()
-        return {"ok": True, "id": entry_id, "monto_usd": monto_usd}
+        return {"ok": True, "id": entry_id, "period": new_period, "monto_usd": monto_usd}
 
     @api.delete("/api/income/entries/{entry_id}")
     def delete_income_entry(entry_id: int):

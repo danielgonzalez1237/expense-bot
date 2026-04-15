@@ -1609,13 +1609,14 @@ document.addEventListener('alpine:init', () => {
       this.busy = true;
       this.error = null;
       try {
+        const fecha = this.form.fecha || (this.month + '-01');
         const resp = await fetch('/api/income/entries', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             source_key: this.form.source_key,
-            period: this.month,
-            fecha: this.form.fecha || (this.month + '-01'),
+            period: this.month,   // informational only — backend derives period from fecha
+            fecha,
             monto: Number(this.form.monto),
             currency: this.form.currency,
             nota: this.form.nota || '',
@@ -1624,7 +1625,15 @@ document.addEventListener('alpine:init', () => {
         if (!resp.ok) {
           throw new Error('No se pudo agregar (' + resp.status + '): ' + (await resp.text()).slice(0, 200));
         }
-        // Reset form
+        const saved = await resp.json();
+        // If the backend filed this in a different period than the one the
+        // modal is showing (because the user picked a date in another month),
+        // tell the user so they don't think it vanished.
+        if (saved.period && saved.period !== this.month) {
+          const savedMonthLabel = new Date(saved.period + '-01').toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
+          this.error = 'ℹ️ Este ingreso se registró en ' + savedMonthLabel + ' (según la fecha). Cambia el selector del dashboard a ese mes para verlo.';
+        }
+        // Reset form (keep fecha so the user can add more entries in the same day)
         this.form = {
           source_key: '',
           currency: 'USD',

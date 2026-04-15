@@ -384,6 +384,34 @@ def init_db():
 
     _run_migration("002_create_income_tables", _migration_002_create_income_tables)
 
+    def _migration_003_fix_income_period_from_fecha(conn):
+        """Align income_entries.period with income_entries.fecha.
+
+        Earlier versions of the POST /api/income/entries endpoint accepted
+        whatever `period` the frontend sent (which was the modal's active
+        month), even if the `fecha` was in a different month. Result: some
+        entries were filed under the wrong month's P&L. This migration
+        fixes that by setting period = substr(fecha, 1, 7) whenever they
+        disagree. No data loss — entries just move to the correct bucket.
+        """
+        rows = conn.execute(
+            "SELECT id, period, fecha FROM income_entries "
+            "WHERE fecha IS NOT NULL AND fecha != '' "
+            "  AND substr(fecha, 1, 7) != period"
+        ).fetchall()
+        if not rows:
+            return
+        now = datetime.now().isoformat()
+        for eid, old_period, fecha in rows:
+            new_period = fecha[:7]
+            print(f"[migration] entry #{eid}: period {old_period} → {new_period} (fecha {fecha})")
+            conn.execute(
+                "UPDATE income_entries SET period = ?, updated_at = ? WHERE id = ?",
+                (new_period, now, eid),
+            )
+
+    _run_migration("003_fix_income_period_from_fecha", _migration_003_fix_income_period_from_fecha)
+
     conn.close()
 
 
