@@ -329,6 +329,61 @@ def init_db():
 
     _run_migration("001_add_hogar_carro_subcategories", _migration_001_add_subcategories)
 
+    def _migration_002_create_income_tables(conn):
+        """Create the P&L tracking tables: income_sources, income_entries,
+        exchange_rates_history. Seed 4 default income sources with Daniel's
+        examples from the product request. Idempotent — uses INSERT OR IGNORE.
+        """
+        conn.execute("""CREATE TABLE IF NOT EXISTS income_sources (
+            key TEXT PRIMARY KEY,
+            label TEXT NOT NULL,
+            icon TEXT DEFAULT '💰',
+            currency TEXT DEFAULT 'USD',
+            expected_usd REAL DEFAULT 0,
+            active INTEGER DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS income_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_key TEXT NOT NULL,
+            period TEXT NOT NULL,
+            fecha TEXT,
+            monto REAL NOT NULL,
+            currency TEXT NOT NULL,
+            monto_usd REAL NOT NULL,
+            rate_used REAL,
+            nota TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_income_entries_period ON income_entries(period)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_income_entries_source ON income_entries(source_key)")
+        conn.execute("""CREATE TABLE IF NOT EXISTS exchange_rates_history (
+            period TEXT PRIMARY KEY,
+            trm REAL NOT NULL,
+            bob_rate REAL NOT NULL,
+            aed_rate REAL NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        # Seed default income sources
+        now = datetime.now().isoformat()
+        defaults = [
+            ("alquiler_quito",  "Alquiler Quito",  "🏠", "USD"),
+            ("alquiler_dubai",  "Alquiler Dubai",  "🏖️", "AED"),
+            ("clp",             "CLP Yield",        "🌊", "USD"),
+            ("ib_dividends",    "IB Dividends",     "📈", "USD"),
+        ]
+        for key, label, icon, currency in defaults:
+            conn.execute(
+                "INSERT OR IGNORE INTO income_sources "
+                "(key, label, icon, currency, expected_usd, active, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, 0, 1, ?, ?)",
+                (key, label, icon, currency, now, now),
+            )
+
+    _run_migration("002_create_income_tables", _migration_002_create_income_tables)
+
     conn.close()
 
 

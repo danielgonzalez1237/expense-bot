@@ -227,10 +227,433 @@ def make_api_app() -> FastAPI:
         out.sort(key=lambda r: r["budget_usd"], reverse=True)
         return {"categories": out}
 
-    # ──────────────── Write endpoints: config ────────────────
+    # ──────────────── Helpers shared by income + P&L ────────────────
 
     import re as _re
     _VALID_KEY = _re.compile(r"^[a-z_][a-z0-9_]*$")
+    _VALID_PERIOD = _re.compile(r"^\d{4}-\d{2}$")
+    _SUPPORTED_CURRENCIES = ("COP", "USD", "BOB", "AED")
+
+    def _rates_for_period(conn, period: str) -> dict:
+        """Return the rates applicable to a given YYYY-MM period.
+
+        Prefers a row in exchange_rates_history; falls back to the current
+        globals (bot.TRM/BOB_RATE/AED_RATE) if no historical row exists.
+        Read-only — does NOT write a history row automatically.
+        """
+        row = conn.execute(
+            "SELECT trm, bob_rate, aed_rate FROM exchange_rates_history WHERE period = ?",
+            (period,),
+        ).fetchone()
+        if row:
+            return {"TRM": row[0], "BOB_RATE": row[1], "AED_RATE": row[2]}
+        return {"TRM": bot.TRM, "BOB_RATE": bot.BOB_RATE, "AED_RATE": bot.AED_RATE}
+
+    def _to_usd(monto: float, currency: str, rates: dict) -> tuple[float, float]:
+        """Convert an amount from its currency to USD using the given rates.
+        Returns (monto_usd, rate_used)."""
+        if currency == "USD":
+            return round(float(monto), 2), 1.0
+        if currency == "COP":
+            rate = float(rates.get("TRM") or 1)
+            return round(float(monto) / rate, 2), rate
+        if currency == "BOB":
+            rate = float(rates.get("BOB_RATE") or 1)
+            return round(float(monto) / rate, 2), rate
+        if currency == "AED":
+            rate = float(rates.get("AED_RATE") or 1)
+            return round(float(monto) / rate, 2), rate
+        raise HTTPException(400, f"unsupported currency: {currency!r}")
+
+    # ──────────────── Income sources (master list) ────────────────
+
+    @api.get("/api/income/sources")
+    def list_income_sources():
+        conn = sqlite3.connect(bot.DB_PATH)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                "SELECT key, label, icon, currency, expected_usd, active, created_at, updated_at "
+                "FROM income_sources ORDER BY label"
+            ).fetchall()
+            return {"sources": [dict(r) for r in rows]}
+        finally:
+            conn.close()
+
+    class IncomeSourceCreate(BaseModel):
+        key: str
+        label: str
+        icon: Optional[str] = "💰"
+        currency: Optional[str] = "USD"
+        expected_usd: Optional[float] = 0.0
+        active: Optional[int] = 1
+
+    @api.post("/api/income/sources")
+    def create_income_source(src: IncomeSourceCreate):
+        if not _VALID_KEY.match(src.key):
+            raise HTTPException(400, f"clave inválida: {src.key!r}")
+        if src.currency not in _SUPPORTED_CURRENCIES:
+            raise HTTPException(400, f"moneda inválida: {src.currency}")
+        now = datetime.now().isoformat()
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            try:
+                conn.execute(
+                    "INSERT INTO income_sources "
+                    "(key, label, icon, currency, expected_usd, active, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (src.key, src.label, src.icon or "💰", src.currency,
+                     float(src.expected_usd or 0), int(src.active or 1), now, now),
+                )
+                conn.commit()
+            except sqlite3.IntegrityError:
+                raise HTTPException(409, f"source {src.key!r} ya existe")
+        finally:
+            conn.close()
+        return {"ok": True, "key": src.key}
+
+    @api.put("/api/income/sources/{key}")
+    def update_income_source(key: str, updates: dict = Body(...)):
+        allowed = {"label", "icon", "currency", "expected_usd", "active"}
+        bad = set(updates.keys()) - allowed
+        if bad:
+            raise HTTPException(400, f"campos no editables: {bad}")
+        if "currency" in updates and updates["currency"] not in _SUPPORTED_CURRENCIES:
+            raise HTTPException(400, f"moneda inválida: {updates['currency']!r}")
+        if not updates:
+            raise HTTPException(400, "nada que actualizar")
+        now = datetime.now().isoformat()
+        sets = ", ".join(f"{k} = ?" for k in updates)
+        params = list(updates.values()) + [now, key]
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            r = conn.execute(
+                f"UPDATE income_sources SET {sets}, updated_at = ? WHERE key = ?",
+                params,
+            )
+            conn.commit()
+            if r.rowcount == 0:
+                raise HTTPException(404, f"source {key!r} not found")
+        finally:
+            conn.close()
+        return {"ok": True, "key": key}
+
+    @api.delete("/api/income/sources/{key}")
+    def delete_income_source(key: str):
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            n = conn.execute(
+                "SELECT COUNT(*) FROM income_entries WHERE source_key = ?", (key,)
+            ).fetchone()[0]
+            if n > 0:
+                raise HTTPException(
+                    409,
+                    f"{key!r} tiene {n} entradas. Bórralas o reasígnalas antes.",
+                )
+            r = conn.execute("DELETE FROM income_sources WHERE key = ?", (key,))
+            conn.commit()
+            if r.rowcount == 0:
+                raise HTTPException(404, f"source {key!r} not found")
+        finally:
+            conn.close()
+        return {"ok": True, "deleted": key}
+
+    # ──────────────── Income entries ────────────────
+
+    @api.get("/api/income/entries")
+    def list_income_entries(month: Optional[str] = Query(None)):
+        period = _month_prefix(month)
+        conn = sqlite3.connect(bot.DB_PATH)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                "SELECT e.id, e.source_key, e.period, e.fecha, e.monto, e.currency, "
+                "e.monto_usd, e.rate_used, e.nota, e.created_at, e.updated_at, "
+                "s.label AS source_label, s.icon AS source_icon "
+                "FROM income_entries e "
+                "LEFT JOIN income_sources s ON e.source_key = s.key "
+                "WHERE e.period = ? "
+                "ORDER BY e.fecha DESC NULLS LAST, e.id DESC",
+                (period,),
+            ).fetchall()
+            return {"month": period, "entries": [dict(r) for r in rows]}
+        finally:
+            conn.close()
+
+    class IncomeEntryCreate(BaseModel):
+        source_key: str
+        period: str  # YYYY-MM
+        fecha: Optional[str] = None  # YYYY-MM-DD
+        monto: float
+        currency: str
+        nota: Optional[str] = ""
+
+    @api.post("/api/income/entries")
+    def create_income_entry(entry: IncomeEntryCreate):
+        if not _VALID_PERIOD.match(entry.period):
+            raise HTTPException(400, f"period inválido: {entry.period!r} (usa YYYY-MM)")
+        if entry.currency not in _SUPPORTED_CURRENCIES:
+            raise HTTPException(400, f"moneda inválida: {entry.currency!r}")
+        if entry.monto is None or entry.monto <= 0:
+            raise HTTPException(400, "monto debe ser > 0")
+        fecha = entry.fecha or (entry.period + "-01")
+        try:
+            datetime.strptime(fecha, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(400, f"fecha inválida: {fecha!r}")
+
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            src = conn.execute(
+                "SELECT 1 FROM income_sources WHERE key = ?", (entry.source_key,)
+            ).fetchone()
+            if not src:
+                raise HTTPException(404, f"source {entry.source_key!r} no existe")
+            rates = _rates_for_period(conn, entry.period)
+            monto_usd, rate_used = _to_usd(entry.monto, entry.currency, rates)
+            now = datetime.now().isoformat()
+            cur = conn.execute(
+                "INSERT INTO income_entries "
+                "(source_key, period, fecha, monto, currency, monto_usd, rate_used, nota, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (entry.source_key, entry.period, fecha, float(entry.monto),
+                 entry.currency, monto_usd, rate_used, entry.nota or "", now, now),
+            )
+            conn.commit()
+            return {
+                "ok": True, "id": cur.lastrowid,
+                "monto_usd": monto_usd, "rate_used": rate_used,
+            }
+        finally:
+            conn.close()
+
+    @api.put("/api/income/entries/{entry_id}")
+    def update_income_entry(entry_id: int, updates: dict = Body(...)):
+        allowed = {"monto", "currency", "fecha", "nota", "period", "source_key"}
+        bad = set(updates.keys()) - allowed
+        if bad:
+            raise HTTPException(400, f"campos no editables: {bad}")
+        if "currency" in updates and updates["currency"] not in _SUPPORTED_CURRENCIES:
+            raise HTTPException(400, f"moneda inválida")
+        if "period" in updates and not _VALID_PERIOD.match(updates["period"]):
+            raise HTTPException(400, f"period inválido")
+        if "fecha" in updates and updates["fecha"]:
+            try:
+                datetime.strptime(updates["fecha"], "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(400, f"fecha inválida")
+
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            existing = conn.execute(
+                "SELECT period, monto, currency FROM income_entries WHERE id = ?",
+                (entry_id,),
+            ).fetchone()
+            if not existing:
+                raise HTTPException(404, f"entry {entry_id} no existe")
+            new_period = updates.get("period", existing[0])
+            new_monto = float(updates.get("monto", existing[1]))
+            new_currency = updates.get("currency", existing[2])
+            if new_monto <= 0:
+                raise HTTPException(400, "monto debe ser > 0")
+            rates = _rates_for_period(conn, new_period)
+            monto_usd, rate_used = _to_usd(new_monto, new_currency, rates)
+            updates["monto_usd"] = monto_usd
+            updates["rate_used"] = rate_used
+            now = datetime.now().isoformat()
+            sets = ", ".join(f"{k} = ?" for k in updates)
+            params = list(updates.values()) + [now, entry_id]
+            conn.execute(
+                f"UPDATE income_entries SET {sets}, updated_at = ? WHERE id = ?",
+                params,
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return {"ok": True, "id": entry_id, "monto_usd": monto_usd}
+
+    @api.delete("/api/income/entries/{entry_id}")
+    def delete_income_entry(entry_id: int):
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            r = conn.execute("DELETE FROM income_entries WHERE id = ?", (entry_id,))
+            conn.commit()
+            if r.rowcount == 0:
+                raise HTTPException(404, f"entry {entry_id} not found")
+        finally:
+            conn.close()
+        return {"ok": True, "deleted": entry_id}
+
+    # ──────────────── Exchange rates history (per-month) ────────────────
+
+    @api.get("/api/rates/history")
+    def list_rates_history():
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            rows = conn.execute(
+                "SELECT period, trm, bob_rate, aed_rate, updated_at "
+                "FROM exchange_rates_history ORDER BY period DESC"
+            ).fetchall()
+            return {
+                "history": [
+                    {"period": r[0], "TRM": r[1], "BOB_RATE": r[2],
+                     "AED_RATE": r[3], "updated_at": r[4]}
+                    for r in rows
+                ],
+                "current_globals": {
+                    "TRM": bot.TRM, "BOB_RATE": bot.BOB_RATE, "AED_RATE": bot.AED_RATE,
+                },
+            }
+        finally:
+            conn.close()
+
+    @api.get("/api/rates/history/{period}")
+    def get_rates_for_period(period: str):
+        if not _VALID_PERIOD.match(period):
+            raise HTTPException(400, f"period inválido: {period!r}")
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            rates = _rates_for_period(conn, period)
+            has_row = conn.execute(
+                "SELECT 1 FROM exchange_rates_history WHERE period = ?", (period,)
+            ).fetchone() is not None
+            return {"period": period, "rates": rates, "is_historical": has_row}
+        finally:
+            conn.close()
+
+    class RatesHistoryUpdate(BaseModel):
+        TRM: float
+        BOB_RATE: float
+        AED_RATE: float
+
+    @api.put("/api/rates/history/{period}")
+    def update_rates_history(period: str, rates: RatesHistoryUpdate):
+        if not _VALID_PERIOD.match(period):
+            raise HTTPException(400, f"period inválido: {period!r}")
+        if rates.TRM <= 0 or rates.BOB_RATE <= 0 or rates.AED_RATE <= 0:
+            raise HTTPException(400, "las tasas deben ser positivas")
+        now = datetime.now().isoformat()
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            conn.execute(
+                "INSERT INTO exchange_rates_history (period, trm, bob_rate, aed_rate, updated_at) "
+                "VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(period) DO UPDATE SET "
+                "  trm=excluded.trm, bob_rate=excluded.bob_rate, "
+                "  aed_rate=excluded.aed_rate, updated_at=excluded.updated_at",
+                (period, float(rates.TRM), float(rates.BOB_RATE),
+                 float(rates.AED_RATE), now),
+            )
+            conn.commit()
+
+            # Recompute monto_usd for all income entries in this period so the
+            # P&L for the month reflects the updated rates.
+            new_rates = {"TRM": rates.TRM, "BOB_RATE": rates.BOB_RATE, "AED_RATE": rates.AED_RATE}
+            entries = conn.execute(
+                "SELECT id, monto, currency FROM income_entries WHERE period = ?",
+                (period,),
+            ).fetchall()
+            for eid, monto, currency in entries:
+                monto_usd, rate_used = _to_usd(monto, currency, new_rates)
+                conn.execute(
+                    "UPDATE income_entries SET monto_usd = ?, rate_used = ?, updated_at = ? WHERE id = ?",
+                    (monto_usd, rate_used, now, eid),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+        return {
+            "ok": True, "period": period,
+            "rates": new_rates,
+            "recomputed_income_entries": len(entries),
+        }
+
+    # ──────────────── P&L — THE main view ────────────────
+
+    @api.get("/api/pnl")
+    def get_pnl(month: Optional[str] = Query(None)):
+        """Consolidated P&L for a month: income (from income_entries) vs
+        expenses (from expenses table). Uses the period's historical rates
+        if available, otherwise current globals.
+        """
+        period = _month_prefix(month)
+        conn = sqlite3.connect(bot.DB_PATH)
+        conn.row_factory = sqlite3.Row
+        try:
+            # Income side
+            income_rows = conn.execute(
+                "SELECT e.source_key, "
+                "  COALESCE(s.label, e.source_key) AS label, "
+                "  COALESCE(s.icon, '💰') AS icon, "
+                "  COALESCE(SUM(e.monto_usd), 0) AS total_usd, "
+                "  COUNT(*) AS n "
+                "FROM income_entries e "
+                "LEFT JOIN income_sources s ON e.source_key = s.key "
+                "WHERE e.period = ? "
+                "GROUP BY e.source_key, s.label, s.icon "
+                "ORDER BY total_usd DESC",
+                (period,),
+            ).fetchall()
+            income_by_source = [
+                {
+                    "source_key": r["source_key"],
+                    "label": r["label"],
+                    "icon": r["icon"],
+                    "total_usd": round(float(r["total_usd"] or 0), 2),
+                    "count": r["n"],
+                }
+                for r in income_rows
+            ]
+            income_total = round(sum(r["total_usd"] for r in income_by_source), 2)
+
+            # Expenses side — use stored monto_usd (historical)
+            exp_rows = conn.execute(
+                "SELECT categoria, SUM(monto_usd) AS total_usd, COUNT(*) AS n "
+                "FROM expenses WHERE fecha LIKE ? GROUP BY categoria "
+                "ORDER BY total_usd DESC",
+                (f"{period}%",),
+            ).fetchall()
+            expense_by_cat = []
+            for r in exp_rows:
+                cat = r["categoria"]
+                info = bot.BUDGET.get(cat, {})
+                expense_by_cat.append({
+                    "categoria": cat,
+                    "label": info.get("label", cat),
+                    "icon": info.get("icon", "📦"),
+                    "budget_usd": info.get("usd", 0),
+                    "total_usd": round(float(r["total_usd"] or 0), 2),
+                    "count": r["n"],
+                })
+            expense_total = round(sum(c["total_usd"] for c in expense_by_cat), 2)
+
+            rates = _rates_for_period(conn, period)
+
+            net = round(income_total - expense_total, 2)
+            pct_of_income = round(net / income_total, 4) if income_total > 0 else None
+
+            return {
+                "month": period,
+                "rates": rates,
+                "income": {
+                    "total_usd": income_total,
+                    "by_source": income_by_source,
+                },
+                "expenses": {
+                    "total_usd": expense_total,
+                    "by_category": expense_by_cat,
+                    "budget_limit_usd": bot.BUDGET_LIMIT_USD,
+                },
+                "net": {
+                    "usd": net,
+                    "pct_of_income": pct_of_income,
+                    "status": ("positive" if net > 0 else "negative" if net < 0 else "neutral"),
+                },
+            }
+        finally:
+            conn.close()
+
+    # ──────────────── Write endpoints: config ────────────────
 
     @api.put("/api/budget")
     def update_budget(new_budget: dict = Body(...)):

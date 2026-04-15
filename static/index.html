@@ -117,6 +117,77 @@
     x-text="error"
   ></div>
 
+  <!-- ──────────────── P&L card (bitácora familiar) ──────────────── -->
+  <section class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm">
+    <div class="flex items-start justify-between mb-3">
+      <div>
+        <div class="text-xs text-slate-500 uppercase tracking-wide">💼 P&G del mes · <span x-text="monthLabel"></span></div>
+        <div class="text-[11px] text-slate-400 dark:text-slate-600">Bitácora familiar — ingresos vs egresos</div>
+      </div>
+      <button
+        @click="openIncomeEditor()"
+        class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-1.5 font-medium transition"
+      >✏️ Editar ingresos</button>
+    </div>
+
+    <div class="grid grid-cols-3 gap-3">
+      <!-- Ingresos -->
+      <div class="bg-emerald-50 dark:bg-emerald-950/30 rounded-xl p-3 border border-emerald-200 dark:border-emerald-900">
+        <div class="text-[10px] uppercase tracking-wide text-emerald-700 dark:text-emerald-400 font-semibold">Ingresos</div>
+        <div class="text-lg font-bold mt-0.5" x-text="fmtUsd(pnl.income && pnl.income.total_usd)"></div>
+        <div class="text-[10px] text-slate-500 mt-0.5">
+          <span x-text="(pnl.income && pnl.income.by_source && pnl.income.by_source.length) || 0"></span> fuentes
+        </div>
+      </div>
+
+      <!-- Egresos -->
+      <div class="bg-rose-50 dark:bg-rose-950/30 rounded-xl p-3 border border-rose-200 dark:border-rose-900">
+        <div class="text-[10px] uppercase tracking-wide text-rose-700 dark:text-rose-400 font-semibold">Egresos</div>
+        <div class="text-lg font-bold mt-0.5" x-text="fmtUsd(pnl.expenses && pnl.expenses.total_usd)"></div>
+        <div class="text-[10px] text-slate-500 mt-0.5">
+          <span x-text="summary.count || 0"></span> gastos
+        </div>
+      </div>
+
+      <!-- Neto -->
+      <div
+        class="rounded-xl p-3 border"
+        :class="netPos
+          ? 'bg-sky-50 dark:bg-sky-950/30 border-sky-200 dark:border-sky-900'
+          : 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900'"
+      >
+        <div
+          class="text-[10px] uppercase tracking-wide font-semibold"
+          :class="netPos ? 'text-sky-700 dark:text-sky-400' : 'text-red-700 dark:text-red-400'"
+        >Neto</div>
+        <div class="text-lg font-bold mt-0.5" x-text="(netPos ? '+' : '') + fmtUsd(pnl.net && pnl.net.usd)"></div>
+        <div class="text-[10px] text-slate-500 mt-0.5" x-show="pnl.net && pnl.net.pct_of_income !== null && pnl.net.pct_of_income !== undefined">
+          <span x-text="Math.round(((pnl.net && pnl.net.pct_of_income) || 0) * 100)"></span>% del ingreso
+        </div>
+        <div class="text-[10px] text-slate-500 mt-0.5" x-show="!pnl.income || !pnl.income.total_usd">
+          sin ingresos aún
+        </div>
+      </div>
+    </div>
+
+    <!-- Mini breakdown by income source -->
+    <div class="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800" x-show="pnl.income && pnl.income.by_source && pnl.income.by_source.length">
+      <div class="text-[10px] text-slate-500 uppercase tracking-wide mb-1.5">Por fuente</div>
+      <div class="space-y-1">
+        <template x-for="s in pnl.income.by_source" :key="s.source_key">
+          <div class="flex justify-between text-xs">
+            <span class="truncate">
+              <span x-text="s.icon"></span>
+              <span x-text="s.label"></span>
+              <span class="text-slate-400 dark:text-slate-600" x-text="' · ' + s.count"></span>
+            </span>
+            <span class="font-semibold" x-text="fmtUsd(s.total_usd)"></span>
+          </div>
+        </template>
+      </div>
+    </div>
+  </section>
+
   <!-- ──────────────── Overall gauge ──────────────── -->
   <section class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm">
     <div class="flex items-start justify-between">
@@ -406,6 +477,317 @@
   </div>
 </div>
 
+<!-- ──────────────── Income editor modal ──────────────── -->
+<div
+  x-data
+  x-show="$store.income.open"
+  x-cloak
+  class="fixed inset-0 z-50 flex items-stretch sm:items-center justify-center modal-backdrop bg-slate-900/40 dark:bg-slate-950/70"
+  @click.self="$store.income.close()"
+  @keydown.escape.window="$store.income.close()"
+>
+  <div
+    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full sm:max-w-2xl sm:rounded-2xl sm:my-8 shadow-xl fade flex flex-col max-h-screen sm:max-h-[92vh]"
+    x-show="$store.income.open"
+    x-transition
+  >
+    <!-- Sticky header with live totals -->
+    <div class="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-5 pt-5 pb-3 sm:rounded-t-2xl z-10">
+      <div class="flex items-start justify-between">
+        <div>
+          <div class="text-xs text-slate-500 uppercase tracking-wide">P&G · Ingresos</div>
+          <div class="text-lg font-bold">Editar ingresos del mes</div>
+          <div class="text-[11px] text-slate-500" x-text="$store.income.month"></div>
+        </div>
+        <button
+          @click="$store.income.close()"
+          class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
+          aria-label="Cerrar"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <!-- Live totals row -->
+      <div class="grid grid-cols-3 gap-2 mt-3">
+        <div class="bg-emerald-50 dark:bg-emerald-950/30 rounded-lg p-2 border border-emerald-200 dark:border-emerald-900">
+          <div class="text-[9px] uppercase text-emerald-700 dark:text-emerald-400 font-semibold">Ingresos</div>
+          <div class="text-sm font-bold" x-text="'$' + Math.round($store.income.liveIncome).toLocaleString('en-US')"></div>
+        </div>
+        <div class="bg-rose-50 dark:bg-rose-950/30 rounded-lg p-2 border border-rose-200 dark:border-rose-900">
+          <div class="text-[9px] uppercase text-rose-700 dark:text-rose-400 font-semibold">Egresos</div>
+          <div class="text-sm font-bold" x-text="'$' + Math.round($store.income.expensesUsd).toLocaleString('en-US')"></div>
+        </div>
+        <div
+          class="rounded-lg p-2 border"
+          :class="$store.income.liveNet >= 0
+            ? 'bg-sky-50 dark:bg-sky-950/30 border-sky-200 dark:border-sky-900'
+            : 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900'"
+        >
+          <div class="text-[9px] uppercase font-semibold" :class="$store.income.liveNet >= 0 ? 'text-sky-700 dark:text-sky-400' : 'text-red-700 dark:text-red-400'">Neto</div>
+          <div class="text-sm font-bold" x-text="($store.income.liveNet >= 0 ? '+' : '') + '$' + Math.round($store.income.liveNet).toLocaleString('en-US')"></div>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="flex gap-1 mt-3 -mb-1 text-xs">
+        <button
+          @click="$store.income.tab = 'entries'"
+          :class="$store.income.tab === 'entries'
+            ? 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-300 border-emerald-500'
+            : 'text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-700'"
+          class="px-3 py-1.5 rounded-t-md border-b-2 whitespace-nowrap transition"
+        >📥 Entradas del mes</button>
+        <button
+          @click="$store.income.tab = 'sources'"
+          :class="$store.income.tab === 'sources'
+            ? 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-300 border-emerald-500'
+            : 'text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-700'"
+          class="px-3 py-1.5 rounded-t-md border-b-2 whitespace-nowrap transition"
+        >💰 Fuentes</button>
+        <button
+          @click="$store.income.tab = 'rates'"
+          :class="$store.income.tab === 'rates'
+            ? 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-300 border-emerald-500'
+            : 'text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-700'"
+          class="px-3 py-1.5 rounded-t-md border-b-2 whitespace-nowrap transition"
+        >💱 Tasas del mes</button>
+      </div>
+    </div>
+
+    <!-- Scrollable body -->
+    <div class="flex-1 overflow-y-auto px-5 py-4 scroll-area">
+
+      <!-- ── TAB: entries ── -->
+      <div x-show="$store.income.tab === 'entries'" class="space-y-3">
+        <div class="text-xs text-slate-500">
+          Añade cada ingreso material del mes (alquileres, dividendos, yield de CLP, etc.).
+          Cada entrada puede tener su propia moneda — se convierte a USD con la tasa del mes.
+        </div>
+
+        <!-- New entry form -->
+        <div class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 border border-slate-200 dark:border-slate-800">
+          <div class="text-[11px] uppercase tracking-wide text-slate-500 mb-2 font-semibold">+ Nuevo ingreso</div>
+          <div class="grid grid-cols-[1fr_auto] gap-2 mb-2">
+            <select
+              x-model="$store.income.form.source_key"
+              class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5 text-sm"
+            >
+              <option value="">— Fuente —</option>
+              <template x-for="s in $store.income.sources" :key="s.key">
+                <option :value="s.key" x-text="(s.icon || '💰') + ' ' + s.label"></option>
+              </template>
+            </select>
+            <select
+              x-model="$store.income.form.currency"
+              class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5 text-sm w-20"
+            >
+              <option value="USD">USD</option>
+              <option value="COP">COP</option>
+              <option value="AED">AED</option>
+              <option value="BOB">BOB</option>
+            </select>
+          </div>
+          <div class="grid grid-cols-[1fr_auto] gap-2 mb-2">
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              x-model.number="$store.income.form.monto"
+              placeholder="Monto en la moneda seleccionada"
+              class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5 text-sm"
+            />
+            <input
+              type="date"
+              x-model="$store.income.form.fecha"
+              class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5 text-sm w-36"
+            />
+          </div>
+          <input
+            type="text"
+            x-model="$store.income.form.nota"
+            placeholder="Nota (opcional)"
+            class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5 text-sm mb-2"
+          />
+          <div class="flex items-center justify-between">
+            <div class="text-[11px] text-slate-500">
+              ≈ <span x-text="'$' + Math.round($store.income.previewUsd).toLocaleString('en-US')"></span> USD
+              · tasa <span x-text="$store.income.previewRateLabel"></span>
+            </div>
+            <button
+              @click="$store.income.addEntry()"
+              :disabled="$store.income.busy || !$store.income.form.source_key || !$store.income.form.monto"
+              class="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs rounded px-3 py-1.5 font-medium"
+            >Agregar</button>
+          </div>
+        </div>
+
+        <!-- Existing entries for the month -->
+        <div class="mt-3">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">Entradas existentes</div>
+            <div class="text-[11px] text-slate-500" x-text="$store.income.entries.length + ' entradas'"></div>
+          </div>
+          <div class="space-y-2" x-show="$store.income.entries.length">
+            <template x-for="e in $store.income.entries" :key="e.id">
+              <div class="flex items-center gap-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2 border border-slate-200 dark:border-slate-800">
+                <div class="text-lg" x-text="e.source_icon || '💰'"></div>
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm font-medium truncate" x-text="e.source_label || e.source_key"></div>
+                  <div class="text-[11px] text-slate-500 truncate">
+                    <span x-text="e.fecha || e.period"></span>
+                    <span x-show="e.nota" x-text="' · ' + e.nota"></span>
+                  </div>
+                </div>
+                <div class="text-right">
+                  <div class="text-sm font-semibold" x-text="'$' + Math.round(e.monto_usd).toLocaleString('en-US')"></div>
+                  <div class="text-[10px] text-slate-500" x-text="Number(e.monto).toLocaleString('en-US') + ' ' + e.currency"></div>
+                </div>
+                <button
+                  @click="$store.income.deleteEntry(e.id)"
+                  class="text-slate-400 hover:text-red-600 p-1"
+                  :title="'Eliminar ' + e.id"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+              </div>
+            </template>
+          </div>
+          <div x-show="!$store.income.entries.length" class="text-xs text-slate-400 italic text-center py-4">
+            Sin entradas para este mes. Agrega la primera arriba.
+          </div>
+        </div>
+      </div>
+
+      <!-- ── TAB: sources ── -->
+      <div x-show="$store.income.tab === 'sources'" class="space-y-3">
+        <div class="text-xs text-slate-500">
+          Las fuentes son tus categorías de ingreso (alquiler, dividendos, yields, etc.).
+          Aquí las creas, las renombras o las eliminas.
+        </div>
+
+        <div class="space-y-2">
+          <template x-for="s in $store.income.sources" :key="s.key">
+            <div class="flex items-center gap-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2 border border-slate-200 dark:border-slate-800">
+              <input
+                type="text"
+                x-model="s.icon"
+                @change="$store.income.updateSource(s)"
+                maxlength="4"
+                class="w-10 text-center text-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-1"
+              />
+              <input
+                type="text"
+                x-model="s.label"
+                @change="$store.income.updateSource(s)"
+                class="flex-1 min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm"
+              />
+              <select
+                x-model="s.currency"
+                @change="$store.income.updateSource(s)"
+                class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-1 text-xs w-16"
+              >
+                <option>USD</option><option>COP</option><option>AED</option><option>BOB</option>
+              </select>
+              <button
+                @click="$store.income.deleteSource(s.key)"
+                class="text-slate-400 hover:text-red-600 p-1"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              </button>
+            </div>
+          </template>
+        </div>
+
+        <button
+          @click="$store.income.addSource()"
+          class="w-full py-2 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-500 hover:text-slate-700 hover:border-slate-400 transition"
+        >+ Agregar fuente de ingreso</button>
+      </div>
+
+      <!-- ── TAB: rates ── -->
+      <div x-show="$store.income.tab === 'rates'" class="space-y-3">
+        <div class="text-xs text-slate-500">
+          Tasas aplicadas al P&G de <span class="font-semibold" x-text="$store.income.month"></span>.
+          Editarlas <strong>recalcula los ingresos en USD</strong> para este mes. Los gastos ya registrados mantienen su conversión histórica.
+        </div>
+
+        <div class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-4 border border-slate-200 dark:border-slate-800 space-y-3">
+          <label class="block">
+            <div class="flex items-baseline justify-between mb-1">
+              <span class="text-xs font-semibold text-slate-600 dark:text-slate-400">TRM (COP por 1 USD)</span>
+              <span class="text-[10px] text-slate-400">ej. 3700</span>
+            </div>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              x-model.number="$store.income.rateForm.TRM"
+              class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 focus:ring-1 focus:ring-slate-400"
+            />
+          </label>
+          <label class="block">
+            <div class="flex items-baseline justify-between mb-1">
+              <span class="text-xs font-semibold text-slate-600 dark:text-slate-400">BOB (BOB por 1 USD)</span>
+              <span class="text-[10px] text-slate-400">ej. 9.20</span>
+            </div>
+            <input
+              type="number"
+              step="0.001"
+              min="0"
+              x-model.number="$store.income.rateForm.BOB_RATE"
+              class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 focus:ring-1 focus:ring-slate-400"
+            />
+          </label>
+          <label class="block">
+            <div class="flex items-baseline justify-between mb-1">
+              <span class="text-xs font-semibold text-slate-600 dark:text-slate-400">AED (AED por 1 USD)</span>
+              <span class="text-[10px] text-slate-400">ej. 3.67</span>
+            </div>
+            <input
+              type="number"
+              step="0.001"
+              min="0"
+              x-model.number="$store.income.rateForm.AED_RATE"
+              class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 focus:ring-1 focus:ring-slate-400"
+            />
+          </label>
+          <div class="pt-2">
+            <button
+              @click="$store.income.saveRates()"
+              :disabled="$store.income.busy"
+              class="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg px-3 py-2 text-sm font-medium"
+              x-text="$store.income.busy ? 'Guardando…' : 'Guardar tasas del mes'"
+            ></button>
+          </div>
+          <div class="text-[10px] text-slate-500" x-show="$store.income.ratesIsHistorical">
+            ✓ Este mes ya tiene tasas guardadas independientes de las globales.
+          </div>
+          <div class="text-[10px] text-slate-400 dark:text-slate-600" x-show="!$store.income.ratesIsHistorical">
+            (Este mes todavía usa las tasas globales actuales. Al guardar se crea un snapshot.)
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Error + footer -->
+    <div class="border-t border-slate-200 dark:border-slate-800 px-5 py-3 bg-white dark:bg-slate-900 sm:rounded-b-2xl">
+      <div
+        x-show="$store.income.error"
+        class="mb-2 text-sm text-red-600 dark:text-red-400"
+        x-text="$store.income.error"
+      ></div>
+      <div class="flex justify-end">
+        <button
+          @click="$store.income.close()"
+          class="px-4 py-2 text-sm rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700"
+        >Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ──────────────── Guide / onboarding modal ──────────────── -->
 <div
   x-data
@@ -652,8 +1034,67 @@
         </div>
       </div>
 
-      <!-- ── 4. Configurar (⚙️) ── -->
+      <!-- ── 4. Income + P&L ── -->
       <div x-show="$store.guide.active === 4" class="fade space-y-4">
+        <h3 class="text-lg font-bold">💼 Ingresos y P&G familiar</h3>
+
+        <p class="text-slate-600 dark:text-slate-400 text-xs">
+          Este portal es la <strong>bitácora P&amp;G</strong> (Pérdidas y Ganancias / Profit &amp; Loss) de la
+          familia González-Guevara. Todo el mes ves, en un solo lugar:
+        </p>
+
+        <ul class="text-slate-600 dark:text-slate-400 text-xs space-y-1 list-disc pl-5">
+          <li><strong>Egresos</strong> — registrados automáticamente por Telegram, por Daniel o Mado, en cualquier moneda</li>
+          <li><strong>Ingresos</strong> — los colocas manualmente desde esta sección cada mes por categoría/fuente</li>
+          <li><strong>Neto</strong> — ingresos menos egresos, con % de rentabilidad del mes</li>
+        </ul>
+
+        <div class="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-lg p-3">
+          <div class="font-semibold text-sm">📥 Registrar un ingreso</div>
+          <ol class="text-xs text-slate-600 dark:text-slate-400 mt-1 list-decimal pl-5 space-y-1">
+            <li>En la home del dashboard, click en <strong>"✏️ Editar ingresos"</strong> arriba a la derecha del card P&amp;G</li>
+            <li>Selecciona la <strong>fuente</strong> del dropdown (ej. Alquiler Dubai, CLP Yield, IB Dividends)</li>
+            <li>Escribe el <strong>monto</strong> en la moneda original (USD, COP, AED, BOB)</li>
+            <li>Opcional: fecha específica y una nota</li>
+            <li>Click <strong>"Agregar"</strong> — se convierte a USD con la tasa del mes</li>
+          </ol>
+          <p class="text-xs text-slate-600 dark:text-slate-400 mt-2">
+            El card P&amp;G en la home se actualiza inmediato con el nuevo total.
+          </p>
+        </div>
+
+        <div>
+          <div class="font-semibold mb-1">💰 Gestionar fuentes de ingreso</div>
+          <p class="text-slate-600 dark:text-slate-400 text-xs">
+            Tab <strong>"💰 Fuentes"</strong> en el editor. Ahí creas, renombras, cambias el ícono
+            o eliminas las fuentes. Ya vienen 4 de ejemplo que puedes editar o borrar:
+          </p>
+          <ul class="text-xs text-slate-600 dark:text-slate-400 mt-1 list-disc pl-5">
+            <li>🏠 Alquiler Quito (USD)</li>
+            <li>🏖️ Alquiler Dubai (AED)</li>
+            <li>🌊 CLP Yield (USD)</li>
+            <li>📈 IB Dividends (USD)</li>
+          </ul>
+        </div>
+
+        <div class="bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-900 rounded-lg p-3">
+          <div class="font-semibold text-sm">💱 Tasas de cambio por mes</div>
+          <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">
+            Tab <strong>"💱 Tasas del mes"</strong>. Cada mes puede tener sus propias tasas TRM / BOB / AED
+            (útil cuando la TRM cambia mucho). Editarlas <strong>recalcula los ingresos en USD</strong>
+            para ese mes automáticamente. Los gastos ya registrados mantienen su conversión histórica.
+          </p>
+        </div>
+
+        <div class="text-xs text-slate-500">
+          <strong>💡 Cadencia recomendada:</strong> al cierre de cada mes, tomas 5 minutos para entrar
+          los ingresos del periodo (alquileres cobrados, dividendos recibidos, yield acumulado) y
+          verificas la TRM del mes. El P&amp;G queda cerrado y auditable.
+        </div>
+      </div>
+
+      <!-- ── 5. Configurar (⚙️) ── -->
+      <div x-show="$store.guide.active === 5" class="fade space-y-4">
         <h3 class="text-lg font-bold">⚙️ Configurar categorías y presupuestos</h3>
 
         <p class="text-slate-600 dark:text-slate-400 text-xs">
@@ -694,8 +1135,8 @@
         </div>
       </div>
 
-      <!-- ── 5. FAQ ── -->
-      <div x-show="$store.guide.active === 5" class="fade space-y-3">
+      <!-- ── 6. FAQ ── -->
+      <div x-show="$store.guide.active === 6" class="fade space-y-3">
         <h3 class="text-lg font-bold">❓ Preguntas frecuentes</h3>
 
         <details class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 text-xs">
@@ -1060,6 +1501,249 @@ document.addEventListener('alpine:init', () => {
     },
   });
 
+  // Income editor store — sources, entries, and per-month rates
+  Alpine.store('income', {
+    open: false,
+    busy: false,
+    error: null,
+    tab: 'entries',           // 'entries' | 'sources' | 'rates'
+    month: '',
+    sources: [],
+    entries: [],
+    expensesUsd: 0,
+    ratesIsHistorical: false,
+    currentRates: { TRM: 3700, BOB_RATE: 9.20, AED_RATE: 3.67 },
+    rateForm: { TRM: 3700, BOB_RATE: 9.20, AED_RATE: 3.67 },
+    form: {
+      source_key: '',
+      currency: 'USD',
+      monto: null,
+      fecha: '',
+      nota: '',
+    },
+    onClose: null,
+
+    // ── Reactive totals ──
+
+    get liveIncome() {
+      return this.entries.reduce((s, e) => s + (Number(e.monto_usd) || 0), 0);
+    },
+
+    get liveNet() {
+      return this.liveIncome - this.expensesUsd;
+    },
+
+    get previewUsd() {
+      const m = Number(this.form.monto) || 0;
+      if (!m) return 0;
+      const c = this.form.currency;
+      const r = this.currentRates;
+      if (c === 'USD') return m;
+      if (c === 'COP') return m / (r.TRM || 1);
+      if (c === 'BOB') return m / (r.BOB_RATE || 1);
+      if (c === 'AED') return m / (r.AED_RATE || 1);
+      return 0;
+    },
+
+    get previewRateLabel() {
+      const c = this.form.currency;
+      const r = this.currentRates;
+      if (c === 'USD') return '1';
+      if (c === 'COP') return String(r.TRM || '?');
+      if (c === 'BOB') return String(r.BOB_RATE || '?');
+      if (c === 'AED') return String(r.AED_RATE || '?');
+      return '?';
+    },
+
+    // ── Lifecycle ──
+
+    async openFor(month, expensesUsd) {
+      this.month = month;
+      this.expensesUsd = expensesUsd || 0;
+      this.error = null;
+      this.tab = 'entries';
+      this.form = {
+        source_key: '',
+        currency: 'USD',
+        monto: null,
+        fecha: month + '-' + String(new Date().getDate()).padStart(2, '0'),
+        nota: '',
+      };
+      this.open = true;
+      await this.reload();
+    },
+
+    close() {
+      this.open = false;
+      if (this.onClose) this.onClose();
+    },
+
+    async reload() {
+      this.busy = true;
+      this.error = null;
+      try {
+        const [sourcesR, entriesR, ratesR] = await Promise.all([
+          fetch('/api/income/sources'),
+          fetch('/api/income/entries?month=' + this.month),
+          fetch('/api/rates/history/' + this.month),
+        ]);
+        if (sourcesR.ok) this.sources = (await sourcesR.json()).sources || [];
+        if (entriesR.ok) this.entries = (await entriesR.json()).entries || [];
+        if (ratesR.ok) {
+          const r = await ratesR.json();
+          this.currentRates = r.rates;
+          this.ratesIsHistorical = !!r.is_historical;
+          this.rateForm = { ...r.rates };
+        }
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    // ── Entries CRUD ──
+
+    async addEntry() {
+      if (!this.form.source_key || !this.form.monto) return;
+      this.busy = true;
+      this.error = null;
+      try {
+        const resp = await fetch('/api/income/entries', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            source_key: this.form.source_key,
+            period: this.month,
+            fecha: this.form.fecha || (this.month + '-01'),
+            monto: Number(this.form.monto),
+            currency: this.form.currency,
+            nota: this.form.nota || '',
+          }),
+        });
+        if (!resp.ok) {
+          throw new Error('No se pudo agregar (' + resp.status + '): ' + (await resp.text()).slice(0, 200));
+        }
+        // Reset form
+        this.form = {
+          source_key: '',
+          currency: 'USD',
+          monto: null,
+          fecha: this.form.fecha,
+          nota: '',
+        };
+        await this.reload();
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    async deleteEntry(id) {
+      if (!confirm('¿Eliminar esta entrada de ingreso?')) return;
+      this.busy = true;
+      try {
+        const resp = await fetch('/api/income/entries/' + id, { method: 'DELETE' });
+        if (!resp.ok) throw new Error('No se pudo eliminar (' + resp.status + ')');
+        await this.reload();
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    // ── Sources CRUD ──
+
+    async addSource() {
+      const rawKey = prompt('Clave de la nueva fuente\n(minúsculas, números y guiones bajos — ej: "airbnb_medellin", "yield_clp"):');
+      if (!rawKey) return;
+      const key = rawKey.trim().toLowerCase();
+      if (!/^[a-z_][a-z0-9_]*$/.test(key)) {
+        alert('Clave inválida. Usa solo letras minúsculas, números y guiones bajos.');
+        return;
+      }
+      const label = prompt('Nombre legible de la fuente:', key) || key;
+      this.busy = true;
+      try {
+        const resp = await fetch('/api/income/sources', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            key, label, icon: '💰', currency: 'USD', expected_usd: 0, active: 1,
+          }),
+        });
+        if (!resp.ok) throw new Error('No se pudo crear (' + resp.status + '): ' + (await resp.text()).slice(0, 200));
+        await this.reload();
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    async updateSource(s) {
+      this.busy = true;
+      try {
+        const resp = await fetch('/api/income/sources/' + s.key, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            label: s.label, icon: s.icon, currency: s.currency,
+            expected_usd: s.expected_usd || 0,
+          }),
+        });
+        if (!resp.ok) throw new Error('No se pudo actualizar (' + resp.status + ')');
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    async deleteSource(key) {
+      if (!confirm('¿Eliminar la fuente "' + key + '"?\n\nSi tiene entradas, primero debes borrarlas.')) return;
+      this.busy = true;
+      try {
+        const resp = await fetch('/api/income/sources/' + key, { method: 'DELETE' });
+        if (!resp.ok) {
+          const body = await resp.text();
+          throw new Error('No se pudo eliminar (' + resp.status + '): ' + body.slice(0, 200));
+        }
+        await this.reload();
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    // ── Rates for the month ──
+
+    async saveRates() {
+      this.busy = true;
+      this.error = null;
+      try {
+        const resp = await fetch('/api/rates/history/' + this.month, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.rateForm),
+        });
+        if (!resp.ok) throw new Error('No se pudieron guardar las tasas (' + resp.status + ')');
+        const body = await resp.json();
+        this.ratesIsHistorical = true;
+        this.currentRates = { ...this.rateForm };
+        // Recompute local entries display
+        await this.reload();
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.busy = false;
+      }
+    },
+  });
+
   // Guide / onboarding store — populated by dashboard init
   Alpine.store('guide', {
     open: false,
@@ -1069,6 +1753,7 @@ document.addEventListener('alpine:init', () => {
       { id: 'telegram', icon: '📱', label: 'Registrar' },
       { id: 'cats',     icon: '📂', label: 'Categorías' },
       { id: 'dash',     icon: '💻', label: 'Ver / Editar' },
+      { id: 'income',   icon: '💼', label: 'Ingresos / P&G' },
       { id: 'config',   icon: '⚙️', label: 'Configurar' },
       { id: 'faq',      icon: '❓', label: 'FAQ' },
     ],
@@ -1301,6 +1986,7 @@ function dashboard() {
     budget: {},
     paymentMethods: {},
     rates: { TRM: 3700, BOB_RATE: 9.20, AED_RATE: 3.67 },
+    pnl: { income: { total_usd: 0, by_source: [] }, expenses: { total_usd: 0 }, net: { usd: 0, pct_of_income: null } },
 
     async init() {
       const now = new Date();
@@ -1388,19 +2074,31 @@ function dashboard() {
       this.loading = true;
       this.error = null;
       try {
-        const [sumR, expR] = await Promise.all([
+        const [sumR, expR, pnlR] = await Promise.all([
           fetch('/api/summary?month=' + this.month),
           fetch('/api/expenses?month=' + this.month + '&limit=500'),
+          fetch('/api/pnl?month=' + this.month),
         ]);
         if (!sumR.ok) throw new Error('No se pudo cargar el resumen (' + sumR.status + ')');
         if (!expR.ok) throw new Error('No se pudo cargar el historial (' + expR.status + ')');
         this.summary = await sumR.json();
         this.expenses = (await expR.json()).expenses || [];
+        if (pnlR.ok) this.pnl = await pnlR.json();
       } catch (e) {
         this.error = e.message || String(e);
       } finally {
         this.loading = false;
       }
+    },
+
+    openIncomeEditor() {
+      const store = Alpine.store('income');
+      store.onClose = async () => { await this.reload(); };
+      store.openFor(this.month, (this.pnl && this.pnl.expenses && this.pnl.expenses.total_usd) || 0);
+    },
+
+    get netPos() {
+      return this.pnl && this.pnl.net && (this.pnl.net.usd || 0) >= 0;
     },
 
     // ── Computed ─────────────────────────────────
