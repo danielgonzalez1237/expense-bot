@@ -65,6 +65,14 @@
     </div>
     <div class="flex items-center gap-2">
       <button
+        @click="$store.guide.open = true"
+        class="text-slate-500 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300 transition p-2"
+        title="Guía de uso"
+        aria-label="Guía de uso"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      </button>
+      <button
         @click="openSettings()"
         class="text-slate-500 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300 transition p-2"
         title="Configuración"
@@ -398,6 +406,403 @@
   </div>
 </div>
 
+<!-- ──────────────── Guide / onboarding modal ──────────────── -->
+<div
+  x-data
+  x-show="$store.guide.open"
+  x-cloak
+  class="fixed inset-0 z-50 flex items-stretch sm:items-center justify-center modal-backdrop bg-slate-900/40 dark:bg-slate-950/70"
+  @click.self="$store.guide.close()"
+  @keydown.escape.window="$store.guide.close()"
+>
+  <div
+    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full sm:max-w-2xl sm:rounded-2xl sm:my-8 shadow-xl fade flex flex-col max-h-screen sm:max-h-[92vh]"
+    x-show="$store.guide.open"
+    x-transition
+  >
+    <!-- Sticky header -->
+    <div class="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-5 pt-5 pb-3 sm:rounded-t-2xl z-10">
+      <div class="flex items-start justify-between">
+        <div>
+          <div class="text-xs text-slate-500 uppercase tracking-wide">Guía de uso</div>
+          <div class="text-lg font-bold">Cómo usar Gastos GG</div>
+          <div class="text-xs text-slate-500 mt-0.5">Bot de Telegram + Dashboard web, sincronizados</div>
+        </div>
+        <button
+          @click="$store.guide.close()"
+          class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
+          aria-label="Cerrar"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <!-- Tab nav -->
+      <div class="flex gap-1 mt-4 -mb-1 overflow-x-auto scroll-area text-xs">
+        <template x-for="(s, i) in $store.guide.sections" :key="s.id">
+          <button
+            @click="$store.guide.active = i"
+            :class="$store.guide.active === i
+              ? 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-300 border-emerald-500'
+              : 'text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-700 dark:hover:text-slate-300'"
+            class="px-3 py-1.5 rounded-t-md border-b-2 whitespace-nowrap transition flex items-center gap-1"
+          >
+            <span x-text="s.icon"></span>
+            <span x-text="s.label"></span>
+          </button>
+        </template>
+      </div>
+    </div>
+
+    <!-- Scrollable body -->
+    <div class="flex-1 overflow-y-auto px-5 py-5 scroll-area text-sm leading-relaxed space-y-4">
+
+      <!-- ── 0. Welcome ── -->
+      <div x-show="$store.guide.active === 0" class="fade">
+        <div class="text-2xl font-bold mb-2">👋 Hola Daniel y Mado</div>
+        <p class="text-slate-600 dark:text-slate-400">
+          Esta es la herramienta familiar para controlar el presupuesto mensual de la casa.
+          Son <strong>dos piezas</strong> que trabajan juntas:
+        </p>
+
+        <div class="grid gap-3 mt-4">
+          <div class="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-xl p-4">
+            <div class="font-semibold flex items-center gap-2">
+              <span>📱</span>
+              <span>Bot de Telegram</span>
+              <code class="text-xs text-emerald-700 dark:text-emerald-400">@gastos_gg_bot</code>
+            </div>
+            <div class="text-xs text-slate-600 dark:text-slate-400 mt-1">
+              Se usa para <strong>registrar gastos</strong> desde cualquier lugar, en segundos.
+              Abre el chat, escribe el monto y categoría, y listo.
+            </div>
+          </div>
+          <div class="bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-900 rounded-xl p-4">
+            <div class="font-semibold flex items-center gap-2">
+              <span>💻</span>
+              <span>Dashboard web</span>
+              <span class="text-xs text-sky-700 dark:text-sky-400">(esta página)</span>
+            </div>
+            <div class="text-xs text-slate-600 dark:text-slate-400 mt-1">
+              Para <strong>ver, editar y configurar</strong>. Aquí es donde revisas cuánto llevas,
+              corriges errores, y ajustas presupuestos por categoría.
+            </div>
+          </div>
+        </div>
+
+        <p class="text-slate-600 dark:text-slate-400 mt-4">
+          Los dos están <strong>sincronizados en vivo</strong>: cualquier gasto que registren en
+          Telegram aparece acá inmediatamente, y cualquier cambio en el dashboard lo ve el bot
+          en el siguiente mensaje.
+        </p>
+
+        <div class="mt-4 p-3 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs text-slate-700 dark:text-slate-300">
+          <strong>Presupuesto mensual:</strong> $5,000 USD (≈ $18,500,000 COP)
+          · reinicia cada primero de mes a las 12:01 AM hora Colombia.
+        </div>
+      </div>
+
+      <!-- ── 1. Registrar gasto (Telegram) ── -->
+      <div x-show="$store.guide.active === 1" class="fade space-y-4">
+        <h3 class="text-lg font-bold">📱 Cómo registrar un gasto por Telegram</h3>
+
+        <div>
+          <div class="font-semibold mb-2">Opción A — rápida (texto libre)</div>
+          <p class="text-slate-600 dark:text-slate-400 text-xs mb-2">
+            Manda al bot un mensaje con la estructura <code>monto categoría [nota]</code>:
+          </p>
+          <div class="space-y-1.5">
+            <div class="bg-slate-100 dark:bg-slate-800 rounded-lg px-3 py-2 font-mono text-xs">
+              <code>50000 restaurante almuerzo con amigos</code>
+              <div class="text-[10px] text-slate-500 font-sans mt-0.5">→ 50.000 COP en la categoría "restaurante", nota "almuerzo con amigos"</div>
+            </div>
+            <div class="bg-slate-100 dark:bg-slate-800 rounded-lg px-3 py-2 font-mono text-xs">
+              <code>100usd hotel cartagena</code>
+              <div class="text-[10px] text-slate-500 font-sans mt-0.5">→ 100 USD (lo convierte a COP con TRM actual)</div>
+            </div>
+            <div class="bg-slate-100 dark:bg-slate-800 rounded-lg px-3 py-2 font-mono text-xs">
+              <code>45bob farmacia</code>
+              <div class="text-[10px] text-slate-500 font-sans mt-0.5">→ 45 Bolivianos (convertido automáticamente)</div>
+            </div>
+            <div class="bg-slate-100 dark:bg-slate-800 rounded-lg px-3 py-2 font-mono text-xs">
+              <code>200aed supermercado</code>
+              <div class="text-[10px] text-slate-500 font-sans mt-0.5">→ 200 Dirhams (para compras en UAE)</div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="font-semibold mb-2">Opción B — con menú guiado</div>
+          <ol class="list-decimal pl-5 text-slate-600 dark:text-slate-400 text-xs space-y-1">
+            <li>Manda <code class="bg-slate-100 dark:bg-slate-800 px-1 rounded">/menu</code></li>
+            <li>Click <strong>"💸 Registrar gasto"</strong></li>
+            <li>Sigue las instrucciones del bot</li>
+          </ol>
+          <p class="text-slate-600 dark:text-slate-400 text-xs mt-2">
+            O mándale solo el monto (ej. <code>50000</code>) y el bot te mostrará un menú de categorías para escoger.
+          </p>
+        </div>
+
+        <div>
+          <div class="font-semibold mb-2">Paso siguiente: método de pago</div>
+          <p class="text-slate-600 dark:text-slate-400 text-xs">
+            Después de registrar, el bot muestra un teclado con los bancos y tarjetas disponibles.
+            <strong>Tap en el que usaste</strong> (ej. "BBVA MC Mado"). Esto queda asociado al gasto
+            para después poder conciliarlo con el extracto bancario.
+          </p>
+          <p class="text-slate-600 dark:text-slate-400 text-xs mt-2">
+            Si no recuerdas o fue algo en efectivo, tap en <strong>"Efectivo"</strong>.
+          </p>
+        </div>
+
+        <div class="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg p-3">
+          <div class="text-xs text-amber-800 dark:text-amber-300">
+            <strong>💡 Tip:</strong> no te obsesiones con registrar al centavo exacto. Redondea
+            a la decena más cercana para que sea rápido. La conciliación con el extracto del banco
+            tolera pequeñas diferencias.
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 2. Categorías disponibles ── -->
+      <div x-show="$store.guide.active === 2" class="fade space-y-4">
+        <h3 class="text-lg font-bold">📂 Categorías disponibles</h3>
+        <p class="text-slate-600 dark:text-slate-400 text-xs">
+          Estas son las categorías que el bot entiende. Puedes escribirlas directamente
+          o usar sinónimos (ej. "super" → supermercado, "gym" → trainer).
+        </p>
+
+        <div class="grid grid-cols-2 gap-2">
+          <template x-for="c in $store.guide.topCategories" :key="c.key">
+            <div class="flex items-center gap-2 text-xs bg-slate-50 dark:bg-slate-800/50 rounded-md px-2 py-1.5 border border-slate-200 dark:border-slate-800">
+              <span class="text-base" x-text="c.icon"></span>
+              <div class="flex-1 min-w-0">
+                <div class="truncate font-medium" x-text="c.label"></div>
+                <div class="text-[10px] text-slate-500 truncate">
+                  <span x-show="c.usd > 0">$<span x-text="c.usd"></span> USD/mes</span>
+                  <span x-show="!c.usd" class="italic">sin presupuesto</span>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <p class="text-slate-600 dark:text-slate-400 text-xs mt-3">
+          ¿Falta una categoría? Abre el ícono ⚙️ en el header del dashboard y agrégala.
+          Puedes ponerle un emoji custom, un nombre, un presupuesto, y hasta agruparla como
+          subcategoría de otra (ej. "reparaciones" debajo de "hogar").
+        </p>
+      </div>
+
+      <!-- ── 3. Ver y editar (dashboard) ── -->
+      <div x-show="$store.guide.active === 3" class="fade space-y-4">
+        <h3 class="text-lg font-bold">💻 Ver y editar gastos</h3>
+
+        <div>
+          <div class="font-semibold mb-1">Qué muestra el dashboard</div>
+          <ul class="text-slate-600 dark:text-slate-400 text-xs space-y-1 list-disc pl-5">
+            <li><strong>Gauge mensual:</strong> cuánto llevas vs el tope de $5,000 USD</li>
+            <li><strong>Ritmo:</strong> "Vas rápido" / "Buen ritmo" / "En línea" según el día del mes</li>
+            <li><strong>Por usuario:</strong> cuánto ha gastado Daniel vs Mado</li>
+            <li><strong>Categorías con gasto:</strong> qué categorías están activas este mes con barras de progreso</li>
+            <li><strong>Movimientos:</strong> lista completa con monto, fecha, usuario, método de pago</li>
+          </ul>
+        </div>
+
+        <div class="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-lg p-3">
+          <div class="font-semibold text-sm flex items-center gap-2">
+            <span>✏️</span>
+            <span>Editar cualquier gasto</span>
+          </div>
+          <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">
+            <strong>Tap en la fila del gasto</strong> en la sección Movimientos → se abre un modal donde puedes cambiar:
+          </p>
+          <ul class="text-xs text-slate-600 dark:text-slate-400 mt-1 list-disc pl-5 space-y-0.5">
+            <li>Monto (en COP, el USD se recalcula automático)</li>
+            <li>Fecha</li>
+            <li>Categoría (reasignar si quedó mal)</li>
+            <li>Método de pago</li>
+            <li>Nota</li>
+          </ul>
+          <p class="text-xs text-slate-600 dark:text-slate-400 mt-2">
+            O puedes <strong class="text-red-600 dark:text-red-400">eliminar</strong> el gasto con el botón 🗑️. Todos los cambios se guardan al instante.
+          </p>
+        </div>
+
+        <div>
+          <div class="font-semibold mb-1">Filtrar por usuario</div>
+          <p class="text-slate-600 dark:text-slate-400 text-xs">
+            Arriba de la lista de movimientos hay botones <strong>Todos / Daniel / Mado</strong>. Tap para ver solo los de una persona.
+          </p>
+        </div>
+
+        <div>
+          <div class="font-semibold mb-1">Cambiar de mes</div>
+          <p class="text-slate-600 dark:text-slate-400 text-xs">
+            Selector arriba a la derecha del header. Muestra los últimos 12 meses.
+          </p>
+        </div>
+
+        <div>
+          <div class="font-semibold mb-1">Exportar CSV</div>
+          <p class="text-slate-600 dark:text-slate-400 text-xs">
+            Botón <strong>📁 CSV</strong> en la sección Movimientos. Descarga un archivo compatible con Excel
+            con todos los gastos del mes seleccionado, incluyendo el método de pago.
+          </p>
+        </div>
+      </div>
+
+      <!-- ── 4. Configurar (⚙️) ── -->
+      <div x-show="$store.guide.active === 4" class="fade space-y-4">
+        <h3 class="text-lg font-bold">⚙️ Configurar categorías y presupuestos</h3>
+
+        <p class="text-slate-600 dark:text-slate-400 text-xs">
+          El ícono de <strong>engranaje</strong> en el header abre el editor de categorías.
+          Ahí puedes ajustar TODO sin necesidad de tocar código:
+        </p>
+
+        <ul class="text-slate-600 dark:text-slate-400 text-xs space-y-1.5 list-disc pl-5">
+          <li><strong>Editar el presupuesto</strong> de cada categoría (USD/mes)</li>
+          <li><strong>Editar el nombre</strong> y el <strong>ícono (emoji)</strong> de cada una</li>
+          <li><strong>Crear nuevas categorías</strong> (botón "+ Agregar categoría")</li>
+          <li><strong>Agrupar en subcategorías</strong> — ej. "reparaciones" bajo "hogar", "multas" bajo "carro"</li>
+          <li><strong>Eliminar categorías</strong> (si no tienen gastos asociados)</li>
+        </ul>
+
+        <div class="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-lg p-3">
+          <div class="font-semibold text-sm">💰 Budget total en vivo</div>
+          <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">
+            En el header del editor verás en tiempo real la <strong>suma total asignada</strong> mientras
+            escribes en cualquier fila. Con colores semáforo:
+          </p>
+          <ul class="text-xs text-slate-600 dark:text-slate-400 mt-1 list-disc pl-5">
+            <li><span class="text-emerald-600 dark:text-emerald-400 font-semibold">Verde</span> — tienes disponible</li>
+            <li><span class="text-amber-600 dark:text-amber-400 font-semibold">Ámbar</span> — estás cerca al tope</li>
+            <li><span class="text-red-600 dark:text-red-400 font-semibold">Rojo</span> — te pasaste del tope de $5,000</li>
+          </ul>
+          <p class="text-xs text-slate-600 dark:text-slate-400 mt-2">
+            Así sabes si puedes guardar los cambios ANTES de presionar Guardar, sin hacer cuentas mentales.
+          </p>
+        </div>
+
+        <div class="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg p-3">
+          <div class="text-xs text-amber-800 dark:text-amber-300">
+            <strong>⚠️ Importante:</strong> no puedes eliminar una categoría que ya tiene gastos.
+            Primero entra a Movimientos, edita los gastos que están en esa categoría, reasígnalos
+            a otra, y después la puedes borrar.
+          </div>
+        </div>
+      </div>
+
+      <!-- ── 5. FAQ ── -->
+      <div x-show="$store.guide.active === 5" class="fade space-y-3">
+        <h3 class="text-lg font-bold">❓ Preguntas frecuentes</h3>
+
+        <details class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 text-xs">
+          <summary class="font-semibold cursor-pointer">¿Dónde se guardan mis datos?</summary>
+          <p class="text-slate-600 dark:text-slate-400 mt-2">
+            En un volumen persistente de Railway (nuestro proveedor de hosting).
+            Nadie más que nosotros tenemos acceso. Los gastos están en una base SQLite privada.
+          </p>
+        </details>
+
+        <details class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 text-xs">
+          <summary class="font-semibold cursor-pointer">¿Qué pasa si me equivoco al registrar?</summary>
+          <p class="text-slate-600 dark:text-slate-400 mt-2">
+            Puedes corregir en el dashboard: tap en la fila del gasto → edita el campo que esté mal → guarda.
+            O elimínalo si es lo mejor (🗑️ en el modal de edición).
+          </p>
+        </details>
+
+        <details class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 text-xs">
+          <summary class="font-semibold cursor-pointer">¿Qué pasa el primero de cada mes?</summary>
+          <p class="text-slate-600 dark:text-slate-400 mt-2">
+            El bot envía un mensaje de resumen del mes anterior (total gastado, top categorías,
+            si ahorraste o te pasaste). <strong>NO borra los datos</strong> — los históricos se
+            mantienen. Solo empieza a contar un mes nuevo con presupuesto limpio.
+          </p>
+          <p class="text-slate-600 dark:text-slate-400 mt-2">
+            En el dashboard puedes ver cualquier mes anterior con el selector arriba.
+          </p>
+        </details>
+
+        <details class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 text-xs">
+          <summary class="font-semibold cursor-pointer">¿Cómo funciona el multi-moneda?</summary>
+          <p class="text-slate-600 dark:text-slate-400 mt-2">
+            El bot soporta COP (default), USD, BOB (Bolivianos), y AED (Dirhams).
+            Basta con agregar el sufijo al monto: <code>100usd</code>, <code>45bob</code>, <code>200aed</code>.
+            Todo se convierte a COP para almacenamiento, pero el USD equivalente también se guarda
+            con la TRM del momento.
+          </p>
+          <div class="mt-2 text-slate-500">
+            Tasas actuales:
+            TRM <span x-text="$store.guide.trm"></span>,
+            BOB <span x-text="$store.guide.bob"></span>,
+            AED <span x-text="$store.guide.aed"></span>.
+          </div>
+        </details>
+
+        <details class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 text-xs">
+          <summary class="font-semibold cursor-pointer">Comandos útiles del bot</summary>
+          <ul class="text-slate-600 dark:text-slate-400 mt-2 space-y-1 list-disc pl-5">
+            <li><code>/menu</code> — menú principal con botones</li>
+            <li><code>/status</code> o <code>/resumen</code> — estado del mes actual</li>
+            <li><code>/borrar ID</code> — borra un gasto por su ID (también se puede desde el dashboard)</li>
+            <li><code>/nuevacat nombre [emoji] [etiqueta]</code> — crear categoría custom</li>
+            <li><code>/ayuda</code> — menú de comandos</li>
+          </ul>
+        </details>
+
+        <details class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 text-xs">
+          <summary class="font-semibold cursor-pointer">¿Puede Mado usarlo sin saber nada técnico?</summary>
+          <p class="text-slate-600 dark:text-slate-400 mt-2">
+            Sí. El flujo básico es super simple:
+          </p>
+          <ol class="text-slate-600 dark:text-slate-400 mt-1 list-decimal pl-5 space-y-1">
+            <li>Abre Telegram</li>
+            <li>Busca <code>@gastos_gg_bot</code> (o tap en el chat guardado)</li>
+            <li>Escribe el monto y categoría (ej. <code>50000 super</code>)</li>
+            <li>Tap al banco/tarjeta en el teclado que aparece</li>
+            <li>Listo ✓</li>
+          </ol>
+          <p class="text-slate-600 dark:text-slate-400 mt-2">
+            Para ver totales del mes, abre esta página. Para corregir errores, también aquí.
+          </p>
+        </details>
+      </div>
+    </div>
+
+    <!-- Footer with page indicator -->
+    <div class="border-t border-slate-200 dark:border-slate-800 px-5 py-3 bg-white dark:bg-slate-900 sm:rounded-b-2xl">
+      <div class="flex items-center justify-between gap-2">
+        <button
+          @click="$store.guide.prev()"
+          :disabled="$store.guide.active === 0"
+          class="text-sm text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 disabled:opacity-30 flex items-center gap-1"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          Atrás
+        </button>
+        <div class="flex gap-1">
+          <template x-for="(s, i) in $store.guide.sections" :key="s.id">
+            <button
+              @click="$store.guide.active = i"
+              class="w-2 h-2 rounded-full transition"
+              :class="$store.guide.active === i ? 'bg-emerald-500 w-4' : 'bg-slate-300 dark:bg-slate-700'"
+              :aria-label="'Sección ' + (i+1)"
+            ></button>
+          </template>
+        </div>
+        <button
+          @click="$store.guide.active === $store.guide.sections.length - 1 ? $store.guide.close() : $store.guide.next()"
+          class="text-sm text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 font-medium flex items-center gap-1"
+          x-text="$store.guide.active === $store.guide.sections.length - 1 ? 'Cerrar ✓' : 'Siguiente →'"
+        ></button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ──────────────── Settings modal (category editor) ──────────────── -->
 <div
   x-data
@@ -655,6 +1060,41 @@ document.addEventListener('alpine:init', () => {
     },
   });
 
+  // Guide / onboarding store — populated by dashboard init
+  Alpine.store('guide', {
+    open: false,
+    active: 0,
+    sections: [
+      { id: 'welcome',  icon: '👋', label: 'Hola' },
+      { id: 'telegram', icon: '📱', label: 'Registrar' },
+      { id: 'cats',     icon: '📂', label: 'Categorías' },
+      { id: 'dash',     icon: '💻', label: 'Ver / Editar' },
+      { id: 'config',   icon: '⚙️', label: 'Configurar' },
+      { id: 'faq',      icon: '❓', label: 'FAQ' },
+    ],
+    topCategories: [],
+    trm: 3700,
+    bob: 9.20,
+    aed: 3.67,
+
+    close() { this.open = false; this.active = 0; },
+    prev() { if (this.active > 0) this.active -= 1; },
+    next() { if (this.active < this.sections.length - 1) this.active += 1; },
+
+    hydrate(budget, rates) {
+      // Flatten budget into a sorted list of top-level categories with usd
+      this.topCategories = Object.entries(budget || {})
+        .filter(([k, v]) => !v.parent)
+        .map(([k, v]) => ({ key: k, icon: v.icon || '📦', label: v.label || k, usd: Number(v.usd) || 0 }))
+        .sort((a, b) => b.usd - a.usd);
+      if (rates) {
+        this.trm = rates.TRM || this.trm;
+        this.bob = rates.BOB_RATE || this.bob;
+        this.aed = rates.AED_RATE || this.aed;
+      }
+    },
+  });
+
   // Settings store — category editor with live running total
   Alpine.store('settings', {
     open: false,
@@ -883,7 +1323,18 @@ function dashboard() {
         if (payResp.ok) this.paymentMethods = (await payResp.json()).methods || {};
       } catch (e) { /* non-fatal */ }
 
+      // Hydrate the guide with live budget + rates so the FAQ shows real numbers
+      Alpine.store('guide').hydrate(this.budget, this.rates);
+
       await this.reload();
+
+      // First-visit onboarding: if the user has never seen the guide, open it
+      // automatically. Persisted in localStorage so it only fires once per
+      // browser — not annoying on every reload.
+      if (!localStorage.getItem('seen_guide_v1')) {
+        Alpine.store('guide').open = true;
+        localStorage.setItem('seen_guide_v1', new Date().toISOString());
+      }
     },
 
     toggleTheme() {
