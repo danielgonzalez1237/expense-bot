@@ -55,7 +55,6 @@
 
 <div
   x-data="dashboard()"
-  x-init="init()"
   x-cloak
   class="max-w-xl mx-auto px-4 pt-6 pb-16"
 >
@@ -2014,6 +2013,18 @@ function dashboard() {
     pnl: { income: { total_usd: 0, by_source: [] }, expenses: { total_usd: 0 }, net: { usd: 0, pct_of_income: null } },
 
     async init() {
+      // Defensive: Alpine auto-invokes init() for any x-data object that has
+      // an `init` method. If the HTML also specifies `x-init="init()"`, this
+      // runs TWICE, duplicating the months array (36 entries instead of 18)
+      // and causing `:key="m.value"` to collide so x-for silently refuses to
+      // render any buttons. That exact bug shipped on 2026-04-15.
+      // Keep this guard even after removing x-init, in case anyone reintroduces
+      // the pattern:
+      if (this._inited) return;
+      this._inited = true;
+      // Also truncate months in place to preserve reactivity (don't reassign).
+      this.months.length = 0;
+
       const now = new Date();
       // Build 18 months: current + 17 previous. Room to backfill the P&L.
       const shortMonths = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
