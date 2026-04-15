@@ -57,6 +57,27 @@ def make_api_app() -> FastAPI:
         description="Read-only API powering the expense-bot dashboard.",
     )
 
+    # Defensive: if api.py's view of the `bot` module is a different instance
+    # than the one main() populated (can happen with some import/lifespan
+    # orderings), load_config() repopulates BUDGET/PAYMENT_METHODS/rates from
+    # the same config table the bot reads from. Idempotent, safe to call
+    # multiple times.
+    @api.on_event("startup")
+    def _hydrate_config_on_startup():
+        bot.load_config()
+        print(
+            f"🌐 API startup: BUDGET={len(bot.BUDGET)} cats, "
+            f"PAYMENT_METHODS={len(bot.PAYMENT_METHODS)} groups, TRM={bot.TRM}"
+        )
+
+    # Also hydrate synchronously at app-creation time, so /api/health on the
+    # very first request (before lifespan startup fires on some uvicorn
+    # configs) still returns correct numbers.
+    try:
+        bot.load_config()
+    except Exception as e:
+        print(f"⚠️  api.make_api_app() initial load_config failed: {e!r}")
+
     @api.get("/api/health")
     def health():
         return {
