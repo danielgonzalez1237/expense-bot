@@ -248,24 +248,29 @@
 
     <!-- Two mini gauges side by side -->
     <div class="grid grid-cols-2 gap-3 mt-4">
-      <!-- 🎯 IDEAL — lifestyle cap ($5,000/mo fixed) × n_months -->
+      <!-- 🎯 PLAN INGRESOS — sum of expected_usd across active income sources (× n_months) -->
       <div class="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-3 border border-slate-200 dark:border-slate-800">
         <div class="flex items-baseline justify-between mb-1.5">
-          <div class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">🎯 Ideal</div>
-          <div class="text-lg font-bold" :class="idealTextColor" x-text="Math.round(pctIdeal * 100) + '%'"></div>
+          <div class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">🎯 Plan ingresos</div>
+          <div
+            class="text-lg font-bold"
+            :class="planIncomeTextColor"
+            x-text="planIncome > 0 ? Math.round(pctPlan * 100) + '%' : '—'"
+          ></div>
         </div>
         <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
           <div
             class="h-full rounded-full bar"
-            :class="catBarColor(pctIdeal)"
-            :style="'width:' + Math.min(Math.max(pctIdeal, 0) * 100, 100) + '%'"
+            :class="catBarColor(pctPlan)"
+            :style="'width:' + Math.min(Math.max(pctPlan, 0) * 100, 100) + '%'"
           ></div>
         </div>
         <div class="text-[10px] text-slate-500 mt-1 flex justify-between">
-          <span x-text="fmtUsd(summary.budget_limit_usd) + ' tope'"></span>
-          <span :class="idealTextColor">
-            <span x-show="pctIdeal <= 1">libre <span x-text="fmtUsd(summary.budget_limit_usd - summary.total_usd)"></span></span>
-            <span x-show="pctIdeal > 1">sobre <span x-text="fmtUsd(summary.total_usd - summary.budget_limit_usd)"></span></span>
+          <span x-show="planIncome > 0" x-text="fmtUsd(planIncome) + ' plan'"></span>
+          <span x-show="planIncome === 0" class="italic text-slate-400 dark:text-slate-600">sin plan</span>
+          <span x-show="planIncome > 0" :class="planIncomeTextColor">
+            <span x-show="pctPlan <= 1">libre <span x-text="fmtUsd(planIncome - summary.total_usd)"></span></span>
+            <span x-show="pctPlan > 1">sobre <span x-text="fmtUsd(summary.total_usd - planIncome)"></span></span>
           </span>
         </div>
       </div>
@@ -298,14 +303,22 @@
       </div>
     </div>
 
-    <!-- Days remaining context -->
+    <!-- Context line: plan vs plan + days remaining -->
     <div class="flex justify-between text-xs mt-3 text-slate-500">
-      <span x-show="configuredBudget === 0">
-        <span class="italic text-slate-400 dark:text-slate-600">Define budgets en ⚙️ para ver tu plan</span>
+      <!-- No plan set yet -->
+      <span x-show="planIncome === 0" class="italic text-slate-400 dark:text-slate-600">
+        Define ingresos esperados en 💼 Editar ingresos → Fuentes
       </span>
-      <span x-show="configuredBudget > 0">
-        Cobertura del ideal:
-        <span class="text-slate-900 dark:text-slate-100 font-medium" x-text="Math.round((configuredBudget / (summary.budget_limit_usd || 1)) * 100) + '%'"></span>
+      <!-- Plan set: compare configured vs plan -->
+      <span x-show="planIncome > 0 && configuredBudget > 0">
+        Gasto vs ingreso planeado:
+        <span
+          class="font-medium"
+          :class="configuredBudget <= planIncome
+            ? 'text-emerald-600 dark:text-emerald-400'
+            : 'text-red-600 dark:text-red-400'"
+          x-text="Math.round((configuredBudget / planIncome) * 100) + '%'"
+        ></span>
       </span>
       <span x-show="daysLeft > 0">
         <span x-text="daysLeft"></span> días →
@@ -819,38 +832,73 @@
       <div x-show="$store.income.tab === 'sources'" class="space-y-3">
         <div class="text-xs text-slate-500">
           Las fuentes son tus categorías de ingreso (alquiler, dividendos, yields, etc.).
-          Aquí las creas, las renombras o las eliminas.
+          <strong class="text-slate-700 dark:text-slate-300">El monto esperado mensual</strong>
+          se suma al 'Plan ingresos' del dashboard y es contra lo que corre el tentativo del mes.
+        </div>
+
+        <!-- Live total of expected monthly income -->
+        <div class="bg-emerald-50 dark:bg-emerald-950/30 rounded-lg p-2.5 border border-emerald-200 dark:border-emerald-900">
+          <div class="flex items-baseline justify-between">
+            <div class="text-[10px] uppercase tracking-wide text-emerald-700 dark:text-emerald-400 font-semibold">Plan ingresos mensual</div>
+            <div class="text-lg font-bold text-emerald-700 dark:text-emerald-400">
+              $<span x-text="Math.round($store.income.totalExpectedMonthly).toLocaleString('en-US')"></span>
+              <span class="text-[10px] text-slate-500 font-normal">/mes</span>
+            </div>
+          </div>
+          <div class="text-[10px] text-slate-500 mt-0.5">
+            Suma del esperado de las <span x-text="$store.income.sources.length"></span> fuentes activas
+          </div>
         </div>
 
         <div class="space-y-2">
           <template x-for="s in $store.income.sources" :key="s.key">
-            <div class="flex items-center gap-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2 border border-slate-200 dark:border-slate-800">
-              <input
-                type="text"
-                x-model="s.icon"
-                @change="$store.income.updateSource(s)"
-                maxlength="4"
-                class="w-10 text-center text-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-1"
-              />
-              <input
-                type="text"
-                x-model="s.label"
-                @change="$store.income.updateSource(s)"
-                class="flex-1 min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm"
-              />
-              <select
-                x-model="s.currency"
-                @change="$store.income.updateSource(s)"
-                class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-1 text-xs w-16"
-              >
-                <option>USD</option><option>COP</option><option>AED</option><option>BOB</option>
-              </select>
-              <button
-                @click="$store.income.deleteSource(s.key)"
-                class="text-slate-400 hover:text-red-600 p-1"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-              </button>
+            <div class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2 border border-slate-200 dark:border-slate-800">
+              <!-- Row 1: icon + label + currency + delete -->
+              <div class="flex items-center gap-2">
+                <input
+                  type="text"
+                  x-model="s.icon"
+                  @change="$store.income.updateSource(s)"
+                  maxlength="4"
+                  class="w-10 text-center text-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-1"
+                />
+                <input
+                  type="text"
+                  x-model="s.label"
+                  @change="$store.income.updateSource(s)"
+                  class="flex-1 min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm"
+                />
+                <select
+                  x-model="s.currency"
+                  @change="$store.income.updateSource(s)"
+                  class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-1 text-xs w-16"
+                >
+                  <option>USD</option><option>COP</option><option>AED</option><option>BOB</option>
+                </select>
+                <button
+                  @click="$store.income.deleteSource(s.key)"
+                  class="text-slate-400 hover:text-red-600 p-1"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+              </div>
+              <!-- Row 2: expected_usd monthly target -->
+              <div class="flex items-center gap-2 mt-1.5 text-xs">
+                <span class="text-[10px] text-slate-500 w-24 text-right">Esperado mensual</span>
+                <div class="relative flex-1">
+                  <span class="absolute left-2 top-1 text-slate-400 text-[10px]">$</span>
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    x-model.number="s.expected_usd"
+                    @change="$store.income.updateSource(s)"
+                    placeholder="0"
+                    class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded pl-5 pr-1 py-1 text-sm text-right focus:ring-1 focus:ring-slate-400"
+                  />
+                </div>
+                <span class="text-[10px] text-slate-500 w-10 text-right">USD/mes</span>
+              </div>
             </div>
           </template>
         </div>
@@ -1786,6 +1834,13 @@ document.addEventListener('alpine:init', () => {
 
     get liveNet() {
       return this.liveIncome - this.expensesUsd;
+    },
+
+    // Sum of expected_usd across all sources — drives the 'Plan ingresos'
+    // gauge on the dashboard. Recomputes reactively as the user types in the
+    // Fuentes tab.
+    get totalExpectedMonthly() {
+      return this.sources.reduce((s, src) => s + (Number(src.expected_usd) || 0), 0);
     },
 
     get previewUsd() {
@@ -2748,10 +2803,31 @@ function dashboard() {
       return 'bg-emerald-500';
     },
 
-    // ── Dual reference gauges: Ideal (lifestyle cap) vs Configurado (user's plan)
+    // ── Dual reference gauges
 
-    // The ideal cap from the backend: BUDGET_LIMIT_USD × n_months.
-    // summary.budget_limit_usd already includes the window proration.
+    // 🎯 PLAN INGRESOS — sum of expected_usd across active income sources,
+    // prorated for the current window. This is the 'tentativo del mes' that
+    // replaces the hardcoded lifestyle cap as the primary reference.
+    get planIncome() {
+      return Number(this.summary && this.summary.expected_income_total_usd) || 0;
+    },
+
+    get pctPlan() {
+      const b = this.planIncome;
+      if (!b) return 0;
+      return (Number(this.summary && this.summary.total_usd) || 0) / b;
+    },
+
+    get planIncomeTextColor() {
+      const p = this.pctPlan;
+      if (p > 1) return 'text-red-600 dark:text-red-400';
+      if (p > 0.9) return 'text-amber-600 dark:text-amber-400';
+      if (p > 0.75) return 'text-yellow-600 dark:text-yellow-400';
+      return 'text-emerald-600 dark:text-emerald-400';
+    },
+
+    // Legacy: the hardcoded lifestyle cap, kept for backwards-compat with any
+    // UI that still reads these. The PRIMARY gauge now uses planIncome above.
     get idealBudget() {
       return Number(this.summary && this.summary.budget_limit_usd) || 0;
     },

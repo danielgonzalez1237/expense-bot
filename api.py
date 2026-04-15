@@ -107,6 +107,20 @@ def _month_prefix(month: Optional[str]) -> str:
     return f"{now.year}-{now.month:02d}"
 
 
+def _expected_income_monthly(conn) -> float:
+    """Sum of expected_usd across all ACTIVE income sources. Represents the
+    user's projected monthly income baseline — the 'plan de ingresos'.
+
+    Independent of how much actually came in (income_entries). This is the
+    plan, not the reality. The 'tentativo del mes' gauge compares spending
+    vs this number, not vs a hardcoded lifestyle cap.
+    """
+    row = conn.execute(
+        "SELECT COALESCE(SUM(expected_usd), 0) FROM income_sources WHERE active = 1"
+    ).fetchone()
+    return float(row[0] or 0)
+
+
 def _iter_months(pfrom: str, pto: str):
     """Yield 'YYYY-MM' strings from pfrom through pto inclusive."""
     fy, fm = int(pfrom[:4]), int(pfrom[5:7])
@@ -371,11 +385,13 @@ def make_api_app() -> FastAPI:
 
         # Pull effective budgets for the window — this walks each month and
         # merges baseline with any per-month overrides in budget_history.
+        # Also pull the income plan (sum of expected_usd across active sources).
         conn = sqlite3.connect(bot.DB_PATH)
         try:
             budget_totals, budget_was_dynamic = _sum_effective_budget_over_range(
                 conn, pfrom, pto,
             )
+            expected_income_monthly = _expected_income_monthly(conn)
         finally:
             conn.close()
 
@@ -419,6 +435,8 @@ def make_api_app() -> FastAPI:
         # existing UI expectations.
         budget_limit = lifestyle_cap
 
+        expected_income_total = expected_income_monthly * n_months
+
         return {
             "month": pto,  # legacy field — points at the end of the window
             "from": pfrom,
@@ -428,6 +446,10 @@ def make_api_app() -> FastAPI:
             "monthly_budget_limit_usd": bot.BUDGET_LIMIT_USD,
             "budget_limit_usd": budget_limit,
             "effective_total_budget_usd": round(effective_total_budget, 2),
+            # Plan de ingresos — replaces the hardcoded lifestyle cap as the
+            # primary reference for the 'tentativo del mes' gauge.
+            "expected_income_monthly_usd": round(expected_income_monthly, 2),
+            "expected_income_total_usd": round(expected_income_total, 2),
             "total_usd": round(total_usd, 2),
             "total_cop": round(total_cop, 0),
             "pct_of_budget": round(total_usd / budget_limit, 4) if budget_limit else 0,
@@ -878,6 +900,8 @@ def make_api_app() -> FastAPI:
 
             budget_limit = bot.BUDGET_LIMIT_USD * n_months
             effective_total_budget = sum(bt.get("usd_sum", 0) for bt in budget_totals.values())
+            expected_income_monthly = _expected_income_monthly(conn)
+            expected_income_total = expected_income_monthly * n_months
 
             return {
                 "month": pto,  # legacy: points at the end of the window
@@ -889,6 +913,8 @@ def make_api_app() -> FastAPI:
                 "income": {
                     "total_usd": income_total,
                     "by_source": income_by_source,
+                    "expected_monthly_usd": round(expected_income_monthly, 2),
+                    "expected_total_usd": round(expected_income_total, 2),
                 },
                 "expenses": {
                     "total_usd": expense_total,
@@ -896,6 +922,8 @@ def make_api_app() -> FastAPI:
                     "budget_limit_usd": budget_limit,
                     "monthly_budget_limit_usd": bot.BUDGET_LIMIT_USD,
                     "effective_total_budget_usd": round(effective_total_budget, 2),
+                    "expected_income_monthly_usd": round(expected_income_monthly, 2),
+                    "expected_income_total_usd": round(expected_income_total, 2),
                 },
                 "net": {
                     "usd": net,
