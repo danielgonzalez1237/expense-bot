@@ -1,12 +1,12 @@
 """
 REST API for the expense-bot dashboard.
 
-Read-only endpoints in this first cut. Mutations (PUT/POST/DELETE) come in
-Phase 3 once the frontend exists. The server is mounted into the same
-asyncio event loop as the bot (see bot.main() → run_bot_and_api).
+Mounted into the same asyncio event loop as the bot (see bot.main() →
+run_bot_and_api). Serves the static frontend at / and all JSON endpoints
+under /api/*.
 
-All endpoints return JSON. Paths are under /api/* so the future static
-frontend can live at / and not collide.
+Currently unauthenticated — auth (PIN + signed cookie) is a pending task.
+Keep the Railway URL private until that lands.
 """
 from __future__ import annotations
 
@@ -19,9 +19,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Body
 from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 # Importing bot gives us access to DB_PATH and the live config dicts
 # (BUDGET, PAYMENT_METHODS, TRM, BOB_RATE, AED_RATE, BUDGET_LIMIT_USD) without
@@ -225,6 +226,80 @@ def make_api_app() -> FastAPI:
             out.append(row)
         out.sort(key=lambda r: r["budget_usd"], reverse=True)
         return {"categories": out}
+
+    # ──────────────── Write endpoints: expenses ────────────────
+
+    class ExpenseUpdate(BaseModel):
+        monto_cop: Optional[float] = None
+        monto_usd: Optional[float] = None
+        fecha: Optional[str] = None
+        categoria: Optional[str] = None
+        nota: Optional[str] = None
+        metodo_pago: Optional[str] = None
+
+    @api.put("/api/expenses/{expense_id}")
+    def update_expense(expense_id: int, update: ExpenseUpdate):
+        """Update one or more fields of an expense. Fields not supplied are left alone.
+
+        If monto_cop is updated without monto_usd, monto_usd is recomputed from
+        the current TRM so both columns stay consistent.
+        """
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            existing = conn.execute(
+                "SELECT id FROM expenses WHERE id = ?", (expense_id,)
+            ).fetchone()
+            if not existing:
+                raise HTTPException(404, f"expense {expense_id} not found")
+
+            data = update.dict(exclude_unset=True)
+            if not data:
+                raise HTTPException(400, "no fields to update")
+
+            # Validate fecha format if present (YYYY-MM-DD)
+            if "fecha" in data and data["fecha"]:
+                try:
+                    datetime.strptime(data["fecha"], "%Y-%m-%d")
+                except ValueError:
+                    raise HTTPException(400, f"invalid fecha {data['fecha']!r}, expected YYYY-MM-DD")
+
+            # Keep monto_usd in sync if monto_cop was edited alone
+            if "monto_cop" in data and "monto_usd" not in data:
+                try:
+                    data["monto_usd"] = round(float(data["monto_cop"]) / bot.TRM, 2)
+                except (TypeError, ValueError, ZeroDivisionError):
+                    raise HTTPException(400, f"invalid monto_cop {data['monto_cop']!r}")
+
+            sets = ", ".join(f"{k} = ?" for k in data)
+            params = list(data.values()) + [expense_id]
+            conn.execute(f"UPDATE expenses SET {sets} WHERE id = ?", params)
+            conn.commit()
+
+            row = conn.execute(
+                "SELECT id, user_name, fecha, monto_cop, monto_usd, categoria, nota, "
+                "COALESCE(metodo_pago, 'Sin especificar') AS metodo_pago "
+                "FROM expenses WHERE id = ?",
+                (expense_id,),
+            ).fetchone()
+            return {
+                "id": row[0], "user_name": row[1], "fecha": row[2],
+                "monto_cop": row[3], "monto_usd": row[4],
+                "categoria": row[5], "nota": row[6], "metodo_pago": row[7],
+            }
+        finally:
+            conn.close()
+
+    @api.delete("/api/expenses/{expense_id}")
+    def delete_expense(expense_id: int):
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            r = conn.execute("DELETE FROM expenses WHERE id = ?", (expense_id,))
+            conn.commit()
+            if r.rowcount == 0:
+                raise HTTPException(404, f"expense {expense_id} not found")
+            return {"ok": True, "deleted": expense_id}
+        finally:
+            conn.close()
 
     @api.get("/api/export/csv")
     def export_csv(month: Optional[str] = Query(None)):

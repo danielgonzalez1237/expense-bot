@@ -1,14 +1,27 @@
 <!doctype html>
-<html lang="es" class="dark">
+<html lang="es">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#020617">
+<meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#020617" media="(prefers-color-scheme: dark)">
 <title>Gastos GG</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%92%B0%3C/text%3E%3C/svg%3E">
+
+<!-- Apply theme BEFORE Tailwind loads to avoid FOUC -->
+<script>
+  (function() {
+    var t = localStorage.getItem('theme');
+    if (t === 'dark' || (t === null && window.matchMedia('(prefers-color-scheme: dark)').matches && false /* default light */)) {
+      document.documentElement.classList.add('dark');
+    }
+  })();
+</script>
+
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
   tailwind.config = {
+    darkMode: 'class',
     theme: {
       extend: {
         fontFamily: {
@@ -20,18 +33,22 @@
 </script>
 <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
 <style>
-  html, body { background: #020617; }
+  html, body { background: #f8fafc; }
+  html.dark, html.dark body { background: #020617; }
   body { -webkit-font-smoothing: antialiased; }
   [x-cloak] { display: none !important; }
   .bar { transition: width .35s cubic-bezier(.4,0,.2,1); }
   .fade { animation: fade .25s ease-out; }
   @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-  /* scrollbar polish for the history list */
   .scroll-area::-webkit-scrollbar { width: 6px; }
-  .scroll-area::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+  .scroll-area::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 3px; }
+  .dark .scroll-area::-webkit-scrollbar-thumb { background: #1e293b; }
+  /* Focus rings for inputs in the edit modal */
+  input:focus, select:focus, textarea:focus { outline: none; }
+  .modal-backdrop { backdrop-filter: blur(2px); }
 </style>
 </head>
-<body class="bg-slate-950 text-slate-100 font-sans min-h-screen">
+<body class="text-slate-900 dark:text-slate-100 font-sans min-h-screen">
 
 <div
   x-data="dashboard()"
@@ -44,13 +61,22 @@
   <header class="flex items-center justify-between mb-5">
     <div>
       <h1 class="text-xl font-bold tracking-tight">💰 Gastos GG</h1>
-      <p class="text-xs text-slate-500">González-Guevara · Budget familiar</p>
+      <p class="text-xs text-slate-500 dark:text-slate-500">González-Guevara · Budget familiar</p>
     </div>
     <div class="flex items-center gap-2">
       <button
+        @click="toggleTheme()"
+        class="text-slate-500 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300 transition p-2"
+        :title="isDark ? 'Modo claro' : 'Modo oscuro'"
+        aria-label="Cambiar tema"
+      >
+        <svg x-show="!isDark" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <svg x-show="isDark" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      </button>
+      <button
         @click="reload()"
         :disabled="loading"
-        class="text-slate-400 hover:text-slate-200 disabled:opacity-30 transition p-2"
+        class="text-slate-500 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300 disabled:opacity-30 transition p-2"
         title="Recargar"
         aria-label="Recargar"
       >
@@ -59,7 +85,7 @@
       <select
         x-model="month"
         @change="reload()"
-        class="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-slate-600"
+        class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-1.5 text-sm focus:ring-1 focus:ring-slate-400"
       >
         <template x-for="m in months" :key="m.value">
           <option :value="m.value" x-text="m.label"></option>
@@ -71,18 +97,18 @@
   <!-- ──────────────── Error state ──────────────── -->
   <div
     x-show="error"
-    class="bg-red-950/50 border border-red-900 rounded-xl p-3 mb-4 text-sm text-red-300"
+    class="bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900 rounded-xl p-3 mb-4 text-sm text-red-700 dark:text-red-300"
     x-text="error"
   ></div>
 
   <!-- ──────────────── Overall gauge ──────────────── -->
-  <section class="bg-slate-900 border border-slate-800 rounded-2xl p-5 mb-4 fade">
+  <section class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm">
     <div class="flex items-start justify-between">
       <div>
         <div class="text-xs text-slate-500 uppercase tracking-wide" x-text="monthLabel"></div>
         <div class="text-3xl font-bold mt-1">
           <span x-text="fmtUsd(summary.total_usd)"></span>
-          <span class="text-base text-slate-500 font-medium">/ <span x-text="fmtUsd(summary.budget_limit_usd)"></span></span>
+          <span class="text-base text-slate-400 dark:text-slate-500 font-medium">/ <span x-text="fmtUsd(summary.budget_limit_usd)"></span></span>
         </div>
         <div class="text-xs text-slate-500 mt-0.5" x-text="fmtCop(summary.total_cop) + ' COP'"></div>
       </div>
@@ -92,8 +118,7 @@
       </div>
     </div>
 
-    <!-- Progress bar -->
-    <div class="mt-4 w-full bg-slate-800/80 rounded-full h-3 overflow-hidden">
+    <div class="mt-4 w-full bg-slate-100 dark:bg-slate-800/80 rounded-full h-3 overflow-hidden">
       <div
         class="h-full rounded-full bar"
         :class="gaugeBarColor"
@@ -101,15 +126,14 @@
       ></div>
     </div>
 
-    <!-- Footer row -->
     <div class="flex justify-between text-xs mt-3 text-slate-500">
       <span>
         Disponible
-        <span class="text-slate-300 font-medium" x-text="fmtUsd(summary.available_usd)"></span>
+        <span class="text-slate-900 dark:text-slate-100 font-medium" x-text="fmtUsd(summary.available_usd)"></span>
       </span>
       <span x-show="daysLeft > 0">
         <span x-text="daysLeft"></span> días →
-        <span class="text-slate-300 font-medium" x-text="fmtUsd(perDay)"></span>/día
+        <span class="text-slate-900 dark:text-slate-100 font-medium" x-text="fmtUsd(perDay)"></span>/día
       </span>
     </div>
   </section>
@@ -117,7 +141,7 @@
   <!-- ──────────────── Per user ──────────────── -->
   <section class="grid grid-cols-2 gap-3 mb-4" x-show="summary.by_user && summary.by_user.length">
     <template x-for="u in summary.by_user" :key="u.user">
-      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 fade">
+      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 fade shadow-sm">
         <div class="text-xs text-slate-500 uppercase tracking-wide" x-text="u.user"></div>
         <div class="text-xl font-bold mt-1" x-text="fmtUsd(u.spent_usd)"></div>
         <div class="text-xs text-slate-500 mt-0.5">
@@ -130,21 +154,21 @@
   <!-- ──────────────── Empty state ──────────────── -->
   <section
     x-show="!loading && summary.count === 0"
-    class="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center mb-4"
+    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-8 text-center mb-4 shadow-sm"
   >
     <div class="text-4xl mb-2">🪙</div>
-    <div class="text-sm text-slate-400">No hay gastos registrados en <span x-text="monthLabel"></span></div>
-    <div class="text-xs text-slate-600 mt-1">Abre Telegram y registra uno con <code class="text-slate-500">@gastos_gg_bot</code></div>
+    <div class="text-sm text-slate-500">No hay gastos registrados en <span x-text="monthLabel"></span></div>
+    <div class="text-xs text-slate-400 dark:text-slate-600 mt-1">Abre Telegram y registra uno con <code>@gastos_gg_bot</code></div>
   </section>
 
   <!-- ──────────────── Categories ──────────────── -->
   <section
     x-show="summary.categories && summary.categories.length"
-    class="bg-slate-900 border border-slate-800 rounded-2xl p-5 mb-4 fade"
+    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm"
   >
     <div class="flex items-center justify-between mb-4">
-      <h2 class="text-sm font-semibold text-slate-300">Categorías con gasto</h2>
-      <span class="text-xs text-slate-600"><span x-text="summary.categories.length"></span> activas</span>
+      <h2 class="text-sm font-semibold">Categorías con gasto</h2>
+      <span class="text-xs text-slate-400 dark:text-slate-600"><span x-text="summary.categories.length"></span> activas</span>
     </div>
     <div class="space-y-3">
       <template x-for="c in summary.categories" :key="c.categoria">
@@ -153,17 +177,17 @@
             <span class="truncate min-w-0 mr-2">
               <span x-text="c.icon"></span>
               <span class="font-medium" x-text="c.label"></span>
-              <span class="text-slate-600 text-xs" x-text="' · ' + c.count + (c.count === 1 ? ' gasto' : ' gastos')"></span>
+              <span class="text-slate-400 dark:text-slate-600 text-xs" x-text="' · ' + c.count + (c.count === 1 ? ' gasto' : ' gastos')"></span>
             </span>
             <span class="whitespace-nowrap">
               <span class="font-semibold" x-text="fmtUsd(c.spent_usd)"></span>
-              <span class="text-slate-600 text-xs" x-show="c.budget_usd > 0">
+              <span class="text-slate-400 dark:text-slate-600 text-xs" x-show="c.budget_usd > 0">
                 / <span x-text="fmtUsd(c.budget_usd)"></span>
               </span>
             </span>
           </div>
           <div
-            class="mt-1.5 w-full bg-slate-800/80 rounded-full h-1.5 overflow-hidden"
+            class="mt-1.5 w-full bg-slate-100 dark:bg-slate-800/80 rounded-full h-1.5 overflow-hidden"
             x-show="c.budget_usd > 0"
           >
             <div
@@ -172,9 +196,8 @@
               :style="'width:' + Math.min((c.pct_of_budget || 0) * 100, 100) + '%'"
             ></div>
           </div>
-          <!-- No budget defined: just a hint line -->
           <div
-            class="mt-1 text-[10px] text-slate-600 italic"
+            class="mt-1 text-[10px] text-slate-400 dark:text-slate-600 italic"
             x-show="!c.budget_usd"
           >sin presupuesto asignado</div>
         </div>
@@ -183,37 +206,39 @@
   </section>
 
   <!-- ──────────────── History ──────────────── -->
-  <section class="bg-slate-900 border border-slate-800 rounded-2xl p-5 mb-4 fade" x-show="expenses.length">
+  <section class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm" x-show="expenses.length">
     <div class="flex items-center justify-between mb-3">
-      <h2 class="text-sm font-semibold text-slate-300">Movimientos</h2>
+      <h2 class="text-sm font-semibold">Movimientos</h2>
       <a
         :href="'/api/export/csv?month=' + month"
-        class="text-xs bg-slate-800 hover:bg-slate-700 rounded-lg px-3 py-1.5 text-slate-300 transition"
+        class="text-xs bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg px-3 py-1.5 transition"
         download
       >📁 CSV</a>
     </div>
 
-    <!-- Filters -->
     <div class="flex gap-2 mb-3 text-xs">
       <button
         @click="userFilter = null"
-        :class="userFilter === null ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400'"
+        :class="userFilter === null ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
         class="px-2.5 py-1 rounded-md"
       >Todos</button>
       <template x-for="u in uniqueUsers" :key="u">
         <button
           @click="userFilter = u"
-          :class="userFilter === u ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400'"
+          :class="userFilter === u ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
           class="px-2.5 py-1 rounded-md"
           x-text="u"
         ></button>
       </template>
+      <span class="ml-auto text-[11px] text-slate-400 dark:text-slate-600 self-center">tap para editar</span>
     </div>
 
-    <!-- Rows -->
-    <div class="divide-y divide-slate-800/80 max-h-[28rem] overflow-y-auto scroll-area -mx-1 px-1">
+    <div class="divide-y divide-slate-100 dark:divide-slate-800/80 max-h-[28rem] overflow-y-auto scroll-area -mx-1 px-1">
       <template x-for="e in filteredExpenses" :key="e.id">
-        <div class="py-2.5 flex items-start gap-3">
+        <div
+          @click="openEdit(e)"
+          class="py-2.5 flex items-start gap-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 -mx-2 px-2 rounded-md transition"
+        >
           <div class="text-lg leading-none pt-0.5" x-text="catIcon(e.categoria)"></div>
           <div class="flex-1 min-w-0">
             <div class="flex justify-between items-baseline gap-2">
@@ -233,19 +258,227 @@
       </template>
     </div>
 
-    <div class="text-[11px] text-slate-600 mt-3 text-center" x-show="filteredExpenses.length">
+    <div class="text-[11px] text-slate-400 dark:text-slate-600 mt-3 text-center" x-show="filteredExpenses.length">
       <span x-text="filteredExpenses.length"></span> de <span x-text="expenses.length"></span> gastos
     </div>
   </section>
 
-  <!-- ──────────────── Footer ──────────────── -->
-  <footer class="text-center text-[11px] text-slate-700 mt-8 space-y-1">
+  <footer class="text-center text-[11px] text-slate-400 dark:text-slate-700 mt-8 space-y-1">
     <div>@gastos_gg_bot · TRM <span x-text="rates.TRM"></span> · BOB <span x-text="rates.BOB_RATE"></span> · AED <span x-text="rates.AED_RATE"></span></div>
-    <div class="text-slate-800">v8 · <span x-text="summary.budget_limit_usd ? '$' + summary.budget_limit_usd + ' USD/mes' : ''"></span></div>
+    <div class="text-slate-300 dark:text-slate-800">v8 · <span x-text="summary.budget_limit_usd ? '$' + summary.budget_limit_usd + ' USD/mes' : ''"></span></div>
   </footer>
 </div>
 
+<!-- ──────────────── Edit modal ──────────────── -->
+<div
+  x-data
+  x-show="$store.edit.open"
+  x-cloak
+  class="fixed inset-0 z-50 flex items-end sm:items-center justify-center modal-backdrop bg-slate-900/40 dark:bg-slate-950/70"
+  @click.self="$store.edit.close()"
+  @keydown.escape.window="$store.edit.close()"
+>
+  <div
+    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-5 shadow-xl fade"
+    x-show="$store.edit.open"
+    x-transition
+  >
+    <div class="flex items-start justify-between mb-4">
+      <div>
+        <div class="text-xs text-slate-500 uppercase tracking-wide">Editar gasto</div>
+        <div class="text-lg font-bold">#<span x-text="$store.edit.form.id"></span> · <span x-text="$store.edit.form.user_name"></span></div>
+      </div>
+      <button
+        @click="$store.edit.close()"
+        class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
+        aria-label="Cerrar"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <div class="space-y-3">
+      <!-- Monto -->
+      <label class="block">
+        <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">Monto (COP)</span>
+        <input
+          type="number"
+          step="1"
+          x-model.number="$store.edit.form.monto_cop"
+          class="mt-1 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-lg font-semibold focus:ring-1 focus:ring-slate-400"
+        />
+        <span class="text-[11px] text-slate-500 mt-0.5 block">
+          ≈ <span x-text="'$' + ($store.edit.form.monto_cop ? Math.round($store.edit.form.monto_cop / $store.edit.trm) : 0) + ' USD'"></span>
+          <span class="text-slate-400 dark:text-slate-600">· TRM <span x-text="$store.edit.trm"></span></span>
+        </span>
+      </label>
+
+      <!-- Fecha -->
+      <label class="block">
+        <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">Fecha</span>
+        <input
+          type="date"
+          x-model="$store.edit.form.fecha"
+          class="mt-1 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 focus:ring-1 focus:ring-slate-400"
+        />
+      </label>
+
+      <!-- Categoría -->
+      <label class="block">
+        <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">Categoría</span>
+        <select
+          x-model="$store.edit.form.categoria"
+          class="mt-1 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 focus:ring-1 focus:ring-slate-400"
+        >
+          <template x-for="opt in $store.edit.categoryOptions" :key="opt.key">
+            <option :value="opt.key" x-text="opt.label"></option>
+          </template>
+        </select>
+      </label>
+
+      <!-- Método de pago -->
+      <label class="block">
+        <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">Método de pago</span>
+        <select
+          x-model="$store.edit.form.metodo_pago"
+          class="mt-1 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 focus:ring-1 focus:ring-slate-400"
+        >
+          <template x-for="opt in $store.edit.paymentOptions" :key="opt">
+            <option :value="opt" x-text="opt"></option>
+          </template>
+        </select>
+      </label>
+
+      <!-- Nota -->
+      <label class="block">
+        <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">Nota</span>
+        <input
+          type="text"
+          x-model="$store.edit.form.nota"
+          placeholder="Opcional"
+          class="mt-1 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 focus:ring-1 focus:ring-slate-400"
+        />
+      </label>
+    </div>
+
+    <div
+      x-show="$store.edit.error"
+      class="mt-3 text-sm text-red-600 dark:text-red-400"
+      x-text="$store.edit.error"
+    ></div>
+
+    <div class="mt-5 flex items-center justify-between gap-2">
+      <button
+        @click="$store.edit.deleteRow()"
+        :disabled="$store.edit.busy"
+        class="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-sm px-3 py-2 disabled:opacity-40"
+      >🗑️ Eliminar</button>
+      <div class="flex gap-2">
+        <button
+          @click="$store.edit.close()"
+          :disabled="$store.edit.busy"
+          class="px-4 py-2 text-sm rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40"
+        >Cancelar</button>
+        <button
+          @click="$store.edit.save()"
+          :disabled="$store.edit.busy"
+          class="px-4 py-2 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium disabled:opacity-40"
+          x-text="$store.edit.busy ? 'Guardando…' : 'Guardar'"
+        ></button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
+// Edit modal as an Alpine store so it can be opened from the main dashboard.
+document.addEventListener('alpine:init', () => {
+  Alpine.store('edit', {
+    open: false,
+    busy: false,
+    error: null,
+    form: {},
+    trm: 3700,
+    categoryOptions: [],
+    paymentOptions: [],
+    onSaved: null,
+    onDeleted: null,
+
+    init() {},
+
+    openFor(expense, opts) {
+      this.form = {
+        id: expense.id,
+        user_name: expense.user_name,
+        monto_cop: Math.round(expense.monto_cop || 0),
+        fecha: expense.fecha,
+        categoria: expense.categoria,
+        metodo_pago: expense.metodo_pago || 'Sin especificar',
+        nota: expense.nota || '',
+      };
+      this.trm = opts.trm || 3700;
+      this.categoryOptions = opts.categoryOptions || [];
+      this.paymentOptions = opts.paymentOptions || [];
+      this.onSaved = opts.onSaved || null;
+      this.onDeleted = opts.onDeleted || null;
+      this.error = null;
+      this.open = true;
+    },
+
+    close() {
+      this.open = false;
+      this.error = null;
+    },
+
+    async save() {
+      this.busy = true;
+      this.error = null;
+      try {
+        const resp = await fetch('/api/expenses/' + this.form.id, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            monto_cop: Number(this.form.monto_cop),
+            fecha: this.form.fecha,
+            categoria: this.form.categoria,
+            metodo_pago: this.form.metodo_pago,
+            nota: this.form.nota,
+          }),
+        });
+        if (!resp.ok) {
+          const body = await resp.text();
+          throw new Error('No se pudo guardar (' + resp.status + '): ' + body.slice(0, 120));
+        }
+        this.open = false;
+        if (this.onSaved) await this.onSaved();
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    async deleteRow() {
+      if (!confirm('¿Eliminar el gasto #' + this.form.id + '? Esta acción no se puede deshacer.')) return;
+      this.busy = true;
+      this.error = null;
+      try {
+        const resp = await fetch('/api/expenses/' + this.form.id, { method: 'DELETE' });
+        if (!resp.ok) {
+          const body = await resp.text();
+          throw new Error('No se pudo eliminar (' + resp.status + '): ' + body.slice(0, 120));
+        }
+        this.open = false;
+        if (this.onDeleted) await this.onDeleted();
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.busy = false;
+      }
+    },
+  });
+});
+
 function dashboard() {
   return {
     month: '',
@@ -253,6 +486,7 @@ function dashboard() {
     loading: false,
     error: null,
     userFilter: null,
+    isDark: document.documentElement.classList.contains('dark'),
     summary: {
       month: '',
       total_usd: 0,
@@ -265,11 +499,11 @@ function dashboard() {
       by_user: [],
     },
     expenses: [],
-    budget: {},      // cat → {usd, icon, label}
+    budget: {},
+    paymentMethods: {},
     rates: { TRM: 3700, BOB_RATE: 9.20, AED_RATE: 3.67 },
 
     async init() {
-      // Build month selector (last 12 months, starting with current)
       const now = new Date();
       for (let i = 0; i < 12; i++) {
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -279,19 +513,53 @@ function dashboard() {
       }
       this.month = this.months[0].value;
 
-      // Fetch global config once (budget + rates)
       try {
-        const [budgetResp, ratesResp] = await Promise.all([
+        const [budgetResp, ratesResp, payResp] = await Promise.all([
           fetch('/api/budget'),
           fetch('/api/rates'),
+          fetch('/api/payment-methods'),
         ]);
         if (budgetResp.ok) this.budget = (await budgetResp.json()).categories || {};
         if (ratesResp.ok) this.rates = await ratesResp.json();
-      } catch (e) {
-        /* non-fatal — dashboard still works with fallback icons/labels */
-      }
+        if (payResp.ok) this.paymentMethods = (await payResp.json()).methods || {};
+      } catch (e) { /* non-fatal */ }
 
       await this.reload();
+    },
+
+    toggleTheme() {
+      this.isDark = !this.isDark;
+      document.documentElement.classList.toggle('dark', this.isDark);
+      localStorage.setItem('theme', this.isDark ? 'dark' : 'light');
+    },
+
+    openEdit(e) {
+      Alpine.store('edit').openFor(e, {
+        trm: this.rates.TRM || 3700,
+        categoryOptions: this.categoryOptions,
+        paymentOptions: this.paymentOptions,
+        onSaved: async () => { await this.reload(); },
+        onDeleted: async () => { await this.reload(); },
+      });
+    },
+
+    get categoryOptions() {
+      // Build a sorted list of {key, label} from current budget dict
+      return Object.entries(this.budget)
+        .map(([k, v]) => ({ key: k, label: (v.icon || '📦') + ' ' + (v.label || k) }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+    },
+
+    get paymentOptions() {
+      const out = ['Sin especificar', 'Efectivo'];
+      for (const [bank, cards] of Object.entries(this.paymentMethods)) {
+        if (bank === 'Efectivo' || bank === 'Transferencia') continue;
+        for (const card of cards) out.push(bank + ' ' + card);
+      }
+      if (this.paymentMethods['Transferencia']) {
+        for (const bank of this.paymentMethods['Transferencia']) out.push('Transferencia ' + bank);
+      }
+      return [...new Set(out)];
     },
 
     async reload() {
@@ -308,7 +576,6 @@ function dashboard() {
         this.expenses = (await expR.json()).expenses || [];
       } catch (e) {
         this.error = e.message || String(e);
-        console.error(e);
       } finally {
         this.loading = false;
       }
@@ -316,9 +583,7 @@ function dashboard() {
 
     // ── Computed ─────────────────────────────────
 
-    get pct() {
-      return this.summary.pct_of_budget || 0;
-    },
+    get pct() { return this.summary.pct_of_budget || 0; },
 
     get monthLabel() {
       const m = this.months.find(x => x.value === this.month);
@@ -329,7 +594,6 @@ function dashboard() {
       if (!this.month) return 0;
       const [y, m] = this.month.split('-').map(Number);
       const now = new Date();
-      // Only show days remaining if we're looking at the current month
       if (now.getFullYear() !== y || now.getMonth() + 1 !== m) return 0;
       const lastDay = new Date(y, m, 0).getDate();
       return lastDay - now.getDate();
@@ -352,20 +616,20 @@ function dashboard() {
     },
 
     get paceColor() {
-      if (!this.daysLeft) return 'text-slate-600';
+      if (!this.daysLeft) return 'text-slate-400';
       const [y, m] = this.month.split('-').map(Number);
       const lastDay = new Date(y, m, 0).getDate();
       const now = new Date();
       const idealPct = now.getDate() / lastDay;
-      if (this.pct > idealPct + 0.1) return 'text-amber-400';
-      if (this.pct < idealPct - 0.1) return 'text-emerald-400';
+      if (this.pct > idealPct + 0.1) return 'text-amber-600 dark:text-amber-400';
+      if (this.pct < idealPct - 0.1) return 'text-emerald-600 dark:text-emerald-400';
       return 'text-slate-500';
     },
 
     get gaugeTextColor() {
-      if (this.pct > 1) return 'text-red-400';
-      if (this.pct > 0.9) return 'text-amber-400';
-      return 'text-emerald-400';
+      if (this.pct > 1) return 'text-red-600 dark:text-red-400';
+      if (this.pct > 0.9) return 'text-amber-600 dark:text-amber-400';
+      return 'text-emerald-600 dark:text-emerald-400';
     },
 
     get gaugeBarColor() {
@@ -389,7 +653,7 @@ function dashboard() {
     // ── Helpers ─────────────────────────────────
 
     catBarColor(pct) {
-      if (pct == null) return 'bg-slate-700';
+      if (pct == null) return 'bg-slate-300 dark:bg-slate-700';
       if (pct > 1) return 'bg-red-500';
       if (pct > 0.9) return 'bg-amber-500';
       if (pct > 0.75) return 'bg-yellow-500';
@@ -416,7 +680,6 @@ function dashboard() {
 
     formatDate(s) {
       if (!s) return '';
-      // s is YYYY-MM-DD; show as "DD mmm"
       const [y, m, d] = s.split('-');
       const months = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
       return d + ' ' + (months[parseInt(m, 10) - 1] || m);

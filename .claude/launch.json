@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "expense-bot-dev",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["/Users/macbookair/dev/expense-bot/dev_server.py"],
+      "port": 8080
+    }
+  ]
+}
