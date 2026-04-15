@@ -1,6 +1,11 @@
 # Expense Tracker Bot · González-Guevara
 
-Bot de Telegram para tracking de gastos contra presupuesto de $4,000 USD/mes.
+> **Nota 2026-04-15:** Este archivo es el setup histórico del bot (Feb 2026).
+> Para la arquitectura actual del sistema — stack, schema, API, migraciones,
+> dashboard, métodos de pago, estrategia de ingresos/presupuesto — ver
+> [`docs/SYSTEM.md`](docs/SYSTEM.md), que es el documento vivo.
+
+Bot de Telegram para tracking de gastos contra presupuesto de $5,000 USD/mes.
 
 ## Setup en 5 minutos
 
