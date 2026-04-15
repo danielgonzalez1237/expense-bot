@@ -735,21 +735,27 @@ async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             return
 
         if action == "exportar":
-            rows = get_month_expenses()
-            if not rows:
+            conn = sqlite3.connect(DB_PATH)
+            now_exp = datetime.now()
+            prefix = f"{now_exp.year}-{now_exp.month:02d}"
+            csv_rows = conn.execute(
+                "SELECT id, user_name, fecha, monto_cop, monto_usd, categoria, nota, COALESCE(metodo_pago, 'Sin especificar') FROM expenses WHERE fecha LIKE ? ORDER BY fecha DESC, id DESC",
+                (f"{prefix}%",)
+            ).fetchall()
+            conn.close()
+            if not csv_rows:
                 await query.message.reply_text("📁 No hay gastos este mes")
                 return
             output = io.StringIO()
             writer = csv.writer(output)
-            writer.writerow(["ID", "Usuario", "Fecha", "Monto_COP", "Monto_USD", "Categoría", "Nota"])
-            for row in rows:
+            writer.writerow(["ID", "Usuario", "Fecha", "Monto_COP", "Monto_USD", "Categoría", "Nota", "Método de Pago"])
+            for row in csv_rows:
                 writer.writerow(row)
             output.seek(0)
-            now = datetime.now()
             await query.message.reply_document(
                 document=io.BytesIO(output.getvalue().encode("utf-8")),
-                filename=f"gastos_{now.strftime('%Y_%m')}.csv",
-                caption=f"📁 {now.strftime('%B %Y')} · {len(rows)} gastos"
+                filename=f"gastos_{now_exp.strftime('%Y_%m')}.csv",
+                caption=f"📁 {now_exp.strftime('%B %Y')} · {len(csv_rows)} gastos"
             )
             return
 
