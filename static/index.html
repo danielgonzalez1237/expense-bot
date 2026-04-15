@@ -40,9 +40,12 @@
   .bar { transition: width .35s cubic-bezier(.4,0,.2,1); }
   .fade { animation: fade .25s ease-out; }
   @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-  .scroll-area::-webkit-scrollbar { width: 6px; }
+  .scroll-area::-webkit-scrollbar { width: 6px; height: 6px; }
   .scroll-area::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 3px; }
   .dark .scroll-area::-webkit-scrollbar-thumb { background: #1e293b; }
+  /* Hide scrollbar completely on the month button bar for a cleaner look */
+  #month-bar { scrollbar-width: none; -ms-overflow-style: none; }
+  #month-bar::-webkit-scrollbar { display: none; }
   /* Focus rings for inputs in the edit modal */
   input:focus, select:focus, textarea:focus { outline: none; }
   .modal-backdrop { backdrop-filter: blur(2px); }
@@ -98,17 +101,30 @@
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="loading && 'animate-spin'"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
       </button>
-      <select
-        x-model="month"
-        @change="reload()"
-        class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-1.5 text-sm focus:ring-1 focus:ring-slate-400"
-      >
-        <template x-for="m in months" :key="m.value">
-          <option :value="m.value" x-text="m.label"></option>
-        </template>
-      </select>
     </div>
   </header>
+
+  <!-- ──────────────── Month button bar ──────────────── -->
+  <section class="mb-4 sticky top-0 bg-slate-50 dark:bg-slate-950 z-20 py-2 border-b border-slate-100 dark:border-slate-900">
+    <div class="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600 mb-1.5 font-semibold">Mes</div>
+    <div
+      id="month-bar"
+      class="flex gap-1.5 overflow-x-auto pb-1"
+      style="scroll-behavior: smooth;"
+    >
+      <template x-for="m in months" :key="m.value">
+        <button
+          @click="selectMonth(m.value)"
+          :data-month="m.value"
+          :class="month === m.value
+            ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 border-slate-900 dark:border-slate-100 shadow-sm'
+            : 'bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800'"
+          class="px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap border transition flex-shrink-0"
+          x-text="m.shortLabel"
+        ></button>
+      </template>
+    </div>
+  </section>
 
   <!-- ──────────────── Error state ──────────────── -->
   <div
@@ -1999,11 +2015,18 @@ function dashboard() {
 
     async init() {
       const now = new Date();
-      for (let i = 0; i < 12; i++) {
+      // Build 18 months: current + 17 previous. Room to backfill the P&L.
+      const shortMonths = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+      for (let i = 0; i < 18; i++) {
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
         const value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
         const label = d.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
-        this.months.push({ value, label: label.charAt(0).toUpperCase() + label.slice(1) });
+        const shortLabel = shortMonths[d.getMonth()] + ' ' + String(d.getFullYear()).slice(-2);
+        this.months.push({
+          value,
+          label: label.charAt(0).toUpperCase() + label.slice(1),
+          shortLabel: shortLabel.charAt(0).toUpperCase() + shortLabel.slice(1),
+        });
       }
       this.month = this.months[0].value;
 
@@ -2023,6 +2046,9 @@ function dashboard() {
 
       await this.reload();
 
+      // Scroll the active month button into view on first paint
+      this.$nextTick(() => this.scrollActiveMonthIntoView());
+
       // First-visit onboarding: if the user has never seen the guide, open it
       // automatically. Persisted in localStorage so it only fires once per
       // browser — not annoying on every reload.
@@ -2030,6 +2056,25 @@ function dashboard() {
         Alpine.store('guide').open = true;
         localStorage.setItem('seen_guide_v1', new Date().toISOString());
       }
+    },
+
+    async selectMonth(value) {
+      if (this.month === value) return;
+      this.month = value;
+      this.scrollActiveMonthIntoView();
+      await this.reload();
+    },
+
+    scrollActiveMonthIntoView() {
+      const bar = document.getElementById('month-bar');
+      if (!bar) return;
+      const btn = bar.querySelector('[data-month="' + this.month + '"]');
+      if (!btn) return;
+      // Center the active button within the scroll container horizontally
+      const barRect = bar.getBoundingClientRect();
+      const btnRect = btn.getBoundingClientRect();
+      const offset = (btnRect.left - barRect.left) - (barRect.width - btnRect.width) / 2;
+      bar.scrollTo({ left: bar.scrollLeft + offset, behavior: 'smooth' });
     },
 
     toggleTheme() {
