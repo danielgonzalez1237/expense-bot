@@ -1198,7 +1198,41 @@ def main():
         f"{sum(len(v) for v in PAYMENT_METHODS.values())} payment methods | "
         f"Reset: 1ro 00:01 COL"
     )
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+    # Run PTB + FastAPI in a single asyncio event loop. We can't call
+    # app.run_polling() here because uvicorn also needs the loop. Instead we
+    # drive PTB manually (initialize/start/updater.start_polling) and let
+    # uvicorn.Server.serve() be the long-running task that holds the loop.
+    import asyncio
+
+    async def run_bot_and_api():
+        from api import make_api_app
+        import uvicorn
+
+        port = int(os.environ.get("PORT", "8080"))
+        api_app = make_api_app()
+        config = uvicorn.Config(
+            api_app,
+            host="0.0.0.0",
+            port=port,
+            log_level="info",
+            access_log=False,  # PTB logs + uvicorn access log = too much noise
+        )
+        server = uvicorn.Server(config)
+
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        print(f"🌐 API listening on 0.0.0.0:{port}")
+        try:
+            await server.serve()
+        finally:
+            await app.updater.stop()
+            await app.stop()
+            await app.shutdown()
+
+    asyncio.run(run_bot_and_api())
+
 
 if __name__ == "__main__":
     main()
