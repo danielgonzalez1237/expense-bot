@@ -107,6 +107,48 @@ def _month_prefix(month: Optional[str]) -> str:
     return f"{now.year}-{now.month:02d}"
 
 
+# Bank → {country, native currency, flag emoji}. Used to enrich the
+# by_payment_method breakdown so the frontend can show 🇨🇴 / 🇦🇪 / 🇺🇸 flags
+# alongside the native currency (AED for UAE cards, COP for CO cards, etc.).
+# The primary display is still USD + COP by default — native currency is
+# a tooltip/badge.
+BANK_METADATA = {
+    "BDB":          {"country": "CO", "currency": "COP", "flag": "🇨🇴"},
+    "BBVA":         {"country": "CO", "currency": "COP", "flag": "🇨🇴"},
+    "Bancolombia":  {"country": "CO", "currency": "COP", "flag": "🇨🇴"},
+    "BANCOLOMBIA":  {"country": "CO", "currency": "COP", "flag": "🇨🇴"},
+    "Falabella":    {"country": "CO", "currency": "COP", "flag": "🇨🇴"},
+    "WIO":          {"country": "AE", "currency": "AED", "flag": "🇦🇪"},
+    "ENBD":         {"country": "AE", "currency": "AED", "flag": "🇦🇪"},
+    "Chase":        {"country": "US", "currency": "USD", "flag": "🇺🇸"},
+    "CHASE":        {"country": "US", "currency": "USD", "flag": "🇺🇸"},
+    "Transferencia": {"country": "—",  "currency": "MIXED", "flag": "🔄"},
+    "Efectivo":     {"country": "—",  "currency": "MIXED", "flag": "💵"},
+}
+
+
+def _bank_from_method(metodo: str) -> str:
+    """Extract the bank key from a free-form metodo_pago string.
+
+    Examples:
+      'BDB Visa Latam Dani' → 'BDB'
+      'Bancolombia MC Dani' → 'Bancolombia'
+      'Efectivo'            → 'Efectivo'
+      'Sin especificar'     → '' (unknown)
+      None / ''             → '' (unknown)
+    """
+    if not metodo:
+        return ""
+    m = metodo.strip()
+    if m == "Sin especificar":
+        return ""
+    if m == "Efectivo":
+        return "Efectivo"
+    # Bank is the first whitespace-delimited token.
+    first = m.split(None, 1)[0] if m else ""
+    return first
+
+
 def _expected_income_monthly(conn) -> float:
     """Sum of expected_usd across all ACTIVE income sources. Represents the
     user's projected monthly income baseline — the 'plan de ingresos'.
@@ -425,6 +467,33 @@ def make_api_app() -> FastAPI:
             slot["spent_usd"] += r["monto_usd"]
             slot["count"] += 1
 
+        # Aggregate by payment method across the range. Shows USD + COP for
+        # every card so Daniel can see at a glance how much he's charged to
+        # each instrument. Enriched with bank metadata (flag, currency).
+        by_pay: dict[str, dict] = {}
+        for r in rows:
+            m = r["metodo_pago"] or "Sin especificar"
+            slot = by_pay.setdefault(
+                m,
+                {"method": m, "total_usd": 0.0, "total_cop": 0.0, "count": 0},
+            )
+            slot["total_usd"] += float(r["monto_usd"] or 0)
+            slot["total_cop"] += float(r["monto_cop"] or 0)
+            slot["count"] += 1
+        by_payment_method = []
+        for slot in sorted(by_pay.values(), key=lambda s: s["total_usd"], reverse=True):
+            bank = _bank_from_method(slot["method"])
+            meta = BANK_METADATA.get(bank, {"country": "—", "currency": "USD", "flag": "❓"})
+            by_payment_method.append({
+                **slot,
+                "total_usd": round(slot["total_usd"], 2),
+                "total_cop": round(slot["total_cop"], 0),
+                "bank": bank,
+                "flag": meta["flag"],
+                "bank_currency": meta["currency"],
+                "bank_country": meta["country"],
+            })
+
         # Global budget limit: sum of all effective category budgets (what
         # was actually allocated across all cats for the window), so dynamic
         # month-to-month changes are reflected.
@@ -457,6 +526,7 @@ def make_api_app() -> FastAPI:
             "count": len(rows),
             "categories": categories,
             "by_user": list(by_user.values()),
+            "by_payment_method": by_payment_method,
         }
 
     @api.get("/api/categories")

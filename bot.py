@@ -25,12 +25,14 @@ DB_PATH = os.environ.get("DB_PATH", "expenses.db")
 # DEFAULTS (solo para seeding inicial de la tabla `config`)
 # ════════════════════════════════════════
 _DEFAULT_PAYMENT_METHODS = {
-    "BDB": ["Visa Latam Dani", "Visa Latam Mado", "MC Dani"],
-    "BBVA": ["MC Dani", "MC Mado"],
-    "WIO": ["MC Dani", "MC Mado"],
-    "ENBD": ["Visa AED", "Visa USD"],
+    "BDB":          ["Visa Latam Dani", "Visa Latam Mado", "MC Dani"],
+    "BBVA":         ["MC Dani", "MC Mado"],
+    "Bancolombia":  ["MC Dani"],
+    "Falabella":    ["Mastercard Dani"],
+    "WIO":          ["MC Dani", "MC Mado"],
+    "ENBD":         ["Visa AED", "Visa USD"],
     "Transferencia": ["BBVA", "BDB", "BANCOLOMBIA", "WIO", "ENBD", "CHASE"],
-    "Efectivo": ["Efectivo"],
+    "Efectivo":     ["Efectivo"],
 }
 
 _DEFAULT_RATES = {
@@ -766,6 +768,38 @@ def init_db():
                 print(f"[migration] zeroed {changed_hist} parent overrides in budget_history")
 
     _run_migration("006_clear_parent_amounts", _migration_006_clear_parent_amounts)
+
+    def _migration_007_add_falabella_and_bancolombia(conn):
+        """Add Banco Falabella and Bancolombia as payment method groups if
+        they're not already present in config.payment_methods.
+
+        Falabella: "Mastercard Dani" (explicitly requested by Daniel)
+        Bancolombia: "MC Dani" (Colombian bank, mentioned in passing)
+
+        Idempotent: only adds keys that are missing. Preserves any existing
+        cards the user already created via the editor.
+        """
+        import json as _json
+        row = conn.execute("SELECT value FROM config WHERE key = 'payment_methods'").fetchone()
+        if not row:
+            return
+        methods = _json.loads(row[0])
+        changed = False
+        if "Falabella" not in methods:
+            methods["Falabella"] = ["Mastercard Dani"]
+            changed = True
+            print("[migration] added Falabella to payment_methods")
+        if "Bancolombia" not in methods:
+            methods["Bancolombia"] = ["MC Dani"]
+            changed = True
+            print("[migration] added Bancolombia to payment_methods")
+        if changed:
+            conn.execute(
+                "UPDATE config SET value = ?, updated_at = ? WHERE key = 'payment_methods'",
+                (_json.dumps(methods, ensure_ascii=False), datetime.now().isoformat()),
+            )
+
+    _run_migration("007_add_falabella_and_bancolombia", _migration_007_add_falabella_and_bancolombia)
 
     conn.close()
 
