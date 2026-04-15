@@ -227,6 +227,150 @@ def make_api_app() -> FastAPI:
         out.sort(key=lambda r: r["budget_usd"], reverse=True)
         return {"categories": out}
 
+    # ──────────────── Write endpoints: config ────────────────
+
+    import re as _re
+    _VALID_KEY = _re.compile(r"^[a-z_][a-z0-9_]*$")
+
+    @api.put("/api/budget")
+    def update_budget(new_budget: dict = Body(...)):
+        """Replace the full BUDGET config with the provided dict.
+
+        Validates keys (lowercase + underscore + digits), coerces values to the
+        expected shape, and checks that every `parent` reference points to an
+        existing key. Returns the cleaned dict + a total.
+        """
+        if not isinstance(new_budget, dict) or not new_budget:
+            raise HTTPException(400, "budget must be a non-empty object")
+
+        cleaned: dict[str, dict] = {}
+        for key, info in new_budget.items():
+            if not isinstance(key, str) or not _VALID_KEY.match(key):
+                raise HTTPException(
+                    400,
+                    f"clave de categoría inválida: {key!r}. Usa solo letras minúsculas, números y guiones bajos.",
+                )
+            if not isinstance(info, dict):
+                raise HTTPException(400, f"categoría {key}: el valor debe ser un objeto")
+            try:
+                usd = float(info.get("usd", 0) or 0)
+            except (TypeError, ValueError):
+                raise HTTPException(400, f"categoría {key}: 'usd' debe ser numérico")
+            if usd < 0:
+                raise HTTPException(400, f"categoría {key}: 'usd' debe ser ≥ 0")
+            parent = info.get("parent")
+            if parent == "":
+                parent = None
+            cleaned[key] = {
+                "usd": usd,
+                "tipo": (info.get("tipo") or "variable"),
+                "icon": (info.get("icon") or "📦"),
+                "label": (info.get("label") or key.title()),
+                "parent": parent,
+            }
+
+        # Validate parent references and prevent circular references
+        for key, info in cleaned.items():
+            parent = info["parent"]
+            if parent is None:
+                continue
+            if parent == key:
+                raise HTTPException(400, f"categoría {key}: no puede ser padre de sí misma")
+            if parent not in cleaned:
+                raise HTTPException(400, f"categoría {key}: parent {parent!r} no existe")
+            # Only 1 level of nesting for now — parent must itself be top-level
+            if cleaned[parent]["parent"] is not None:
+                raise HTTPException(
+                    400,
+                    f"categoría {key}: parent {parent!r} ya es una subcategoría (no se permite anidamiento > 1 nivel)",
+                )
+
+        # Preserve existing expense categorías that aren't in the new budget —
+        # refuse the save so the user is forced to either keep the category or
+        # explicitly re-assign the expenses first.
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            existing_cats = [
+                r[0] for r in conn.execute(
+                    "SELECT DISTINCT categoria FROM expenses"
+                ).fetchall() if r[0]
+            ]
+            missing = [c for c in existing_cats if c not in cleaned]
+            if missing:
+                raise HTTPException(
+                    409,
+                    f"No puedes eliminar categorías que tienen gastos asociados: {', '.join(sorted(missing))}. "
+                    "Primero reasigna esos gastos a otra categoría desde el historial.",
+                )
+            conn.execute(
+                "UPDATE config SET value = ?, updated_at = ? WHERE key = 'budget'",
+                (json.dumps(cleaned, ensure_ascii=False), datetime.now().isoformat()),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        # Reload into the shared module state so the bot reflects changes immediately.
+        bot.load_config()
+
+        return {
+            "ok": True,
+            "categories": len(cleaned),
+            "total_usd": round(sum(v["usd"] for v in cleaned.values()), 2),
+        }
+
+    class RatesUpdate(BaseModel):
+        TRM: float
+        BOB_RATE: float
+        AED_RATE: float
+
+    @api.put("/api/rates")
+    def update_rates(rates: RatesUpdate):
+        if rates.TRM <= 0 or rates.BOB_RATE <= 0 or rates.AED_RATE <= 0:
+            raise HTTPException(400, "las tasas deben ser positivas")
+        new_rates = {
+            "TRM": int(rates.TRM),
+            "BOB_RATE": float(rates.BOB_RATE),
+            "AED_RATE": float(rates.AED_RATE),
+        }
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            conn.execute(
+                "UPDATE config SET value = ?, updated_at = ? WHERE key = 'rates'",
+                (json.dumps(new_rates), datetime.now().isoformat()),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        bot.load_config()
+        return {"ok": True, "rates": new_rates}
+
+    @api.put("/api/payment-methods")
+    def update_payment_methods(methods: dict = Body(...)):
+        """Replace the PAYMENT_METHODS config. Each top-level key is a 'bank'
+        or grouping label, value is a list of card/account labels.
+        """
+        if not isinstance(methods, dict):
+            raise HTTPException(400, "payment_methods must be an object")
+        cleaned: dict[str, list[str]] = {}
+        for bank, cards in methods.items():
+            if not isinstance(bank, str) or not bank.strip():
+                raise HTTPException(400, f"clave de banco inválida: {bank!r}")
+            if not isinstance(cards, list):
+                raise HTTPException(400, f"banco {bank}: cards debe ser lista")
+            cleaned[bank.strip()] = [str(c).strip() for c in cards if str(c).strip()]
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            conn.execute(
+                "UPDATE config SET value = ?, updated_at = ? WHERE key = 'payment_methods'",
+                (json.dumps(cleaned, ensure_ascii=False), datetime.now().isoformat()),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        bot.load_config()
+        return {"ok": True, "groups": len(cleaned)}
+
     # ──────────────── Write endpoints: expenses ────────────────
 
     class ExpenseUpdate(BaseModel):

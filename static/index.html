@@ -65,6 +65,14 @@
     </div>
     <div class="flex items-center gap-2">
       <button
+        @click="openSettings()"
+        class="text-slate-500 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300 transition p-2"
+        title="Configuración"
+        aria-label="Configuración"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+      <button
         @click="toggleTheme()"
         class="text-slate-500 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300 transition p-2"
         :title="isDark ? 'Modo claro' : 'Modo oscuro'"
@@ -390,6 +398,175 @@
   </div>
 </div>
 
+<!-- ──────────────── Settings modal (category editor) ──────────────── -->
+<div
+  x-data
+  x-show="$store.settings.open"
+  x-cloak
+  class="fixed inset-0 z-50 flex items-stretch sm:items-center justify-center modal-backdrop bg-slate-900/40 dark:bg-slate-950/70"
+  @click.self="$store.settings.close()"
+  @keydown.escape.window="$store.settings.close()"
+>
+  <div
+    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full sm:max-w-2xl sm:rounded-2xl sm:my-8 shadow-xl fade flex flex-col max-h-screen sm:max-h-[90vh]"
+    x-show="$store.settings.open"
+    x-transition
+  >
+    <!-- Sticky header with title + live total -->
+    <div class="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-5 pt-5 pb-3 sm:rounded-t-2xl z-10">
+      <div class="flex items-start justify-between mb-3">
+        <div>
+          <div class="text-xs text-slate-500 uppercase tracking-wide">Configuración</div>
+          <div class="text-lg font-bold">Categorías y presupuesto</div>
+        </div>
+        <button
+          @click="$store.settings.close()"
+          class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
+          aria-label="Cerrar"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <!-- LIVE running total — updates reactively as user edits rows -->
+      <div class="grid grid-cols-[1fr_auto] items-end gap-3">
+        <div>
+          <div class="text-[11px] uppercase tracking-wide text-slate-500">Presupuesto total asignado</div>
+          <div class="flex items-baseline gap-2 mt-0.5">
+            <span class="text-2xl font-bold" :class="$store.settings.totalColor" x-text="'$' + Math.round($store.settings.totalAssigned).toLocaleString('en-US')"></span>
+            <span class="text-sm text-slate-500">/ $<span x-text="$store.settings.limit.toLocaleString('en-US')"></span></span>
+          </div>
+          <div class="text-xs mt-0.5" :class="$store.settings.totalColor" x-text="$store.settings.statusMsg"></div>
+        </div>
+        <div class="w-32">
+          <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+            <div
+              class="h-full rounded-full bar"
+              :class="$store.settings.totalBarColor"
+              :style="'width:' + Math.min(Math.max($store.settings.totalAssigned / $store.settings.limit, 0) * 100, 100) + '%'"
+            ></div>
+          </div>
+          <div class="text-[10px] text-slate-400 dark:text-slate-600 text-right mt-0.5">
+            <span x-text="Math.round(($store.settings.totalAssigned / $store.settings.limit) * 100)"></span>%
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scrollable category rows -->
+    <div class="flex-1 overflow-y-auto px-5 py-4 scroll-area">
+      <div class="text-xs text-slate-500 mb-3">
+        <span class="font-medium">Tip:</span> usa "parent" para agrupar categorías (ej. <em>reparaciones</em> debajo de <em>hogar</em>).
+      </div>
+
+      <!-- Group by parent for visual grouping -->
+      <template x-for="group in $store.settings.groupedList" :key="group.parent || '__top__'">
+        <div class="mb-4">
+          <div
+            x-show="group.parent"
+            class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1"
+          >
+            <span x-text="group.parentInfo && group.parentInfo.icon"></span>
+            <span x-text="group.parentInfo && group.parentInfo.label"></span>
+            <span class="text-slate-400 dark:text-slate-600">· subcategorías</span>
+          </div>
+          <div
+            x-show="!group.parent"
+            class="text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-600 mb-1"
+          >Categorías principales</div>
+
+          <div class="space-y-2" :class="group.parent && 'ml-4 border-l-2 border-slate-200 dark:border-slate-800 pl-3'">
+            <template x-for="(c, idx) in group.items" :key="c.key">
+              <div class="flex items-center gap-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2 border border-slate-200 dark:border-slate-800">
+                <!-- Icon (emoji) — text input -->
+                <input
+                  type="text"
+                  x-model="c.icon"
+                  maxlength="4"
+                  class="w-10 text-center text-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-1 focus:ring-1 focus:ring-slate-400"
+                  :title="'Emoji de ' + c.label"
+                />
+                <!-- Label -->
+                <input
+                  type="text"
+                  x-model="c.label"
+                  placeholder="Etiqueta"
+                  class="flex-1 min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-slate-400"
+                />
+                <!-- Budget USD -->
+                <div class="relative">
+                  <span class="absolute left-2 top-1 text-slate-400 text-xs">$</span>
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    x-model.number="c.usd"
+                    class="w-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded pl-5 pr-1 py-1 text-sm text-right focus:ring-1 focus:ring-slate-400"
+                  />
+                </div>
+                <!-- Parent selector -->
+                <select
+                  x-model="c.parent"
+                  class="w-24 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-1 text-xs focus:ring-1 focus:ring-slate-400"
+                  title="Categoría padre"
+                >
+                  <option value="">— top —</option>
+                  <template x-for="p in $store.settings.parentOptions" :key="p.key">
+                    <option :value="p.key" :disabled="p.key === c.key" x-text="p.icon + ' ' + p.label"></option>
+                  </template>
+                </select>
+                <!-- Delete -->
+                <button
+                  @click="$store.settings.remove(c.key)"
+                  class="text-slate-400 hover:text-red-600 dark:hover:text-red-400 p-1"
+                  :title="'Eliminar ' + c.key"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+
+      <button
+        @click="$store.settings.addNew()"
+        class="w-full mt-2 py-2 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-500 hover:text-slate-700 hover:border-slate-400 dark:hover:text-slate-300 transition"
+      >
+        + Agregar categoría
+      </button>
+    </div>
+
+    <!-- Error + action buttons -->
+    <div class="border-t border-slate-200 dark:border-slate-800 px-5 py-3 bg-white dark:bg-slate-900 sm:rounded-b-2xl">
+      <div
+        x-show="$store.settings.error"
+        class="mb-2 text-sm text-red-600 dark:text-red-400"
+        x-text="$store.settings.error"
+      ></div>
+      <div class="flex items-center justify-between gap-2">
+        <div class="text-xs text-slate-500">
+          <span x-text="$store.settings.draftList.length"></span> categorías
+          <span x-show="$store.settings.isDirty" class="text-amber-600 dark:text-amber-400">· cambios sin guardar</span>
+        </div>
+        <div class="flex gap-2">
+          <button
+            @click="$store.settings.close()"
+            :disabled="$store.settings.busy"
+            class="px-4 py-2 text-sm rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-40"
+          >Cancelar</button>
+          <button
+            @click="$store.settings.save()"
+            :disabled="$store.settings.busy || !$store.settings.isDirty"
+            class="px-4 py-2 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium disabled:opacity-40"
+            x-text="$store.settings.busy ? 'Guardando…' : 'Guardar'"
+          ></button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 // Edit modal as an Alpine store so it can be opened from the main dashboard.
 document.addEventListener('alpine:init', () => {
@@ -477,6 +654,188 @@ document.addEventListener('alpine:init', () => {
       }
     },
   });
+
+  // Settings store — category editor with live running total
+  Alpine.store('settings', {
+    open: false,
+    busy: false,
+    error: null,
+    limit: 5000,
+    draftList: [],        // [{key, icon, label, usd, tipo, parent}]
+    _originalJson: '',    // for dirty detection
+    onSaved: null,
+
+    openFor(budget, limit) {
+      const list = Object.entries(budget || {}).map(([key, v]) => ({
+        key,
+        icon: v.icon || '📦',
+        label: v.label || key,
+        usd: Number(v.usd) || 0,
+        tipo: v.tipo || 'variable',
+        parent: v.parent || '',
+      }));
+      // Sort: top-level first by desc usd, then subs under their parents
+      list.sort((a, b) => {
+        const ap = a.parent || '';
+        const bp = b.parent || '';
+        if (ap !== bp) return ap.localeCompare(bp);
+        return (b.usd || 0) - (a.usd || 0);
+      });
+      this.draftList = list;
+      this.limit = limit || 5000;
+      this._originalJson = JSON.stringify(this._toNewBudget());
+      this.error = null;
+      this.open = true;
+    },
+
+    close() {
+      if (this.isDirty && !confirm('Tienes cambios sin guardar. ¿Salir sin guardar?')) return;
+      this.open = false;
+      this.error = null;
+    },
+
+    // ── Reactive computed ──
+
+    get totalAssigned() {
+      return this.draftList.reduce((s, c) => s + (Number(c.usd) || 0), 0);
+    },
+
+    get statusMsg() {
+      const diff = this.limit - this.totalAssigned;
+      if (Math.abs(diff) < 1) return '✓ Ajustado al límite';
+      if (diff > 0) return '✓ $' + Math.round(diff).toLocaleString('en-US') + ' USD libres';
+      return '⚠ $' + Math.round(-diff).toLocaleString('en-US') + ' USD sobregirado';
+    },
+
+    get totalColor() {
+      const diff = this.limit - this.totalAssigned;
+      if (diff < 0) return 'text-red-600 dark:text-red-400';
+      if (diff < this.limit * 0.02) return 'text-amber-600 dark:text-amber-400';
+      return 'text-emerald-600 dark:text-emerald-400';
+    },
+
+    get totalBarColor() {
+      const p = this.totalAssigned / this.limit;
+      if (p > 1) return 'bg-red-500';
+      if (p > 0.98) return 'bg-amber-500';
+      if (p > 0.9) return 'bg-yellow-500';
+      return 'bg-emerald-500';
+    },
+
+    get parentOptions() {
+      return this.draftList
+        .filter(c => !c.parent)
+        .map(c => ({ key: c.key, icon: c.icon, label: c.label }));
+    },
+
+    get groupedList() {
+      // Produce {parent, parentInfo, items} entries for rendering.
+      // Top-level group first, then one group per parent key (in order of the top-level list).
+      const topLevel = this.draftList.filter(c => !c.parent);
+      const groups = [{
+        parent: null,
+        parentInfo: null,
+        items: topLevel,
+      }];
+      for (const top of topLevel) {
+        const children = this.draftList.filter(c => c.parent === top.key);
+        if (children.length) {
+          groups.push({
+            parent: top.key,
+            parentInfo: { icon: top.icon, label: top.label },
+            items: children,
+          });
+        }
+      }
+      // Also catch orphan children (parent doesn't exist) so user can fix
+      const orphanChildren = this.draftList.filter(
+        c => c.parent && !this.draftList.some(t => t.key === c.parent && !t.parent),
+      );
+      if (orphanChildren.length) {
+        groups.push({
+          parent: '__orphan__',
+          parentInfo: { icon: '⚠️', label: 'Subcategorías sin padre válido' },
+          items: orphanChildren,
+        });
+      }
+      return groups;
+    },
+
+    get isDirty() {
+      return JSON.stringify(this._toNewBudget()) !== this._originalJson;
+    },
+
+    _toNewBudget() {
+      const out = {};
+      for (const c of this.draftList) {
+        out[c.key] = {
+          usd: Number(c.usd) || 0,
+          tipo: c.tipo || 'variable',
+          icon: c.icon || '📦',
+          label: c.label || c.key,
+          parent: c.parent || null,
+        };
+      }
+      return out;
+    },
+
+    addNew() {
+      const rawKey = prompt('Clave de la nueva categoría\n(solo minúsculas, números y guiones bajos — ej: "prediales", "mantenimiento_casa"):');
+      if (!rawKey) return;
+      const key = rawKey.trim().toLowerCase();
+      if (!/^[a-z_][a-z0-9_]*$/.test(key)) {
+        alert('Clave inválida. Usa letras minúsculas, números y guiones bajos, empezando por letra o _.');
+        return;
+      }
+      if (this.draftList.some(c => c.key === key)) {
+        alert('Esa clave ya existe.');
+        return;
+      }
+      this.draftList.push({
+        key,
+        icon: '📦',
+        label: key.charAt(0).toUpperCase() + key.slice(1),
+        usd: 0,
+        tipo: 'variable',
+        parent: '',
+      });
+    },
+
+    remove(key) {
+      if (!confirm('¿Eliminar la categoría "' + key + '"?\n\nSi tiene gastos asociados, el servidor rechazará el cambio y tendrás que reasignarlos primero.')) return;
+      // Also remove any children pointing to this key
+      this.draftList = this.draftList.filter(c => c.key !== key && c.parent !== key);
+    },
+
+    async save() {
+      this.busy = true;
+      this.error = null;
+      try {
+        const newBudget = this._toNewBudget();
+        const resp = await fetch('/api/budget', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newBudget),
+        });
+        if (!resp.ok) {
+          const body = await resp.text();
+          let msg = 'Error ' + resp.status;
+          try {
+            const j = JSON.parse(body);
+            msg += ': ' + (j.detail || body);
+          } catch { msg += ': ' + body.slice(0, 200); }
+          throw new Error(msg);
+        }
+        this._originalJson = JSON.stringify(newBudget);
+        this.open = false;
+        if (this.onSaved) await this.onSaved();
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.busy = false;
+      }
+    },
+  });
 });
 
 function dashboard() {
@@ -541,6 +900,18 @@ function dashboard() {
         onSaved: async () => { await this.reload(); },
         onDeleted: async () => { await this.reload(); },
       });
+    },
+
+    openSettings() {
+      Alpine.store('settings').onSaved = async () => {
+        // After save, reload budget + summary so the UI reflects the new config
+        try {
+          const r = await fetch('/api/budget');
+          if (r.ok) this.budget = (await r.json()).categories || {};
+        } catch {}
+        await this.reload();
+      };
+      Alpine.store('settings').openFor(this.budget, this.summary.budget_limit_usd || 5000);
     },
 
     get categoryOptions() {

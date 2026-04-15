@@ -63,8 +63,14 @@ _DEFAULT_BUDGET = {
     "peajes":         {"usd": 15,   "tipo": "variable",  "icon": "🛣️", "label": "Peajes"},
     "mantenimiento":  {"usd": 15,   "tipo": "variable",  "icon": "🔧", "label": "Mant. Vehículo"},
     "seguros":        {"usd": 12,   "tipo": "fijo",      "icon": "🛡️", "label": "Seguros"},
+    # Hogar (top-level) con subcategorías reparaciones y prediales
     "hogar":          {"usd": 0,    "tipo": "variable",  "icon": "🏠", "label": "Hogar"},
+    "reparaciones":   {"usd": 0,    "tipo": "variable",  "icon": "🔧", "label": "Reparaciones",    "parent": "hogar"},
+    "prediales":      {"usd": 0,    "tipo": "fijo",      "icon": "🧾", "label": "Prediales",       "parent": "hogar"},
+    # Carro (top-level) con subcategorías multas y mecanica
     "carro":          {"usd": 0,    "tipo": "variable",  "icon": "🚗", "label": "Carro"},
+    "multas":         {"usd": 0,    "tipo": "variable",  "icon": "🚨", "label": "Multas",          "parent": "carro"},
+    "mecanica":       {"usd": 0,    "tipo": "variable",  "icon": "🔩", "label": "Mecánica",        "parent": "carro"},
     "tecnologia":     {"usd": 0,    "tipo": "variable",  "icon": "💻", "label": "Tecnología"},
     "muebles":        {"usd": 0,    "tipo": "variable",  "icon": "🪑", "label": "Muebles"},
     "ropa":           {"usd": 0,    "tipo": "variable",  "icon": "👕", "label": "Ropa"},
@@ -263,6 +269,66 @@ def init_db():
                 (key, json.dumps(default, ensure_ascii=False), now_iso),
             )
     conn.commit()
+
+    # Track migrations applied to the config table so we don't re-run them.
+    # Each migration is a named idempotent function that mutates config rows.
+    mig_row = conn.execute(
+        "SELECT value FROM config WHERE key = 'migrations_applied'"
+    ).fetchone()
+    if not mig_row:
+        conn.execute(
+            "INSERT INTO config (key, value, updated_at) VALUES (?, ?, ?)",
+            ("migrations_applied", "[]", now_iso),
+        )
+        conn.commit()
+        applied = set()
+    else:
+        applied = set(json.loads(mig_row[0]))
+
+    def _run_migration(name, fn):
+        if name in applied:
+            return
+        print(f"[migration] running {name}")
+        fn(conn)
+        applied.add(name)
+        conn.execute(
+            "UPDATE config SET value = ?, updated_at = ? WHERE key = 'migrations_applied'",
+            (json.dumps(sorted(applied)), datetime.now().isoformat()),
+        )
+        conn.commit()
+        print(f"[migration] done {name}")
+
+    def _migration_001_add_subcategories(conn):
+        """Insert Hogar and Carro subcategories into config.budget.
+
+        Safe to run on any existing DB: only adds keys that are missing.
+        Does NOT overwrite existing entries, budgets, icons, or labels.
+        """
+        row = conn.execute("SELECT value FROM config WHERE key = 'budget'").fetchone()
+        if not row:
+            return
+        budget = json.loads(row[0])
+        new_subs = {
+            "reparaciones": {"usd": 0, "tipo": "variable", "icon": "🔧", "label": "Reparaciones", "parent": "hogar"},
+            "prediales":    {"usd": 0, "tipo": "fijo",     "icon": "🧾", "label": "Prediales",    "parent": "hogar"},
+            "multas":       {"usd": 0, "tipo": "variable", "icon": "🚨", "label": "Multas",       "parent": "carro"},
+            "mecanica":     {"usd": 0, "tipo": "variable", "icon": "🔩", "label": "Mecánica",     "parent": "carro"},
+        }
+        for k, v in new_subs.items():
+            if k not in budget:
+                budget[k] = v
+        # Ensure hogar/carro are explicit top-level (parent=None) so the
+        # dashboard's editor can show them grouped.
+        for k in ("hogar", "carro"):
+            if k in budget and "parent" not in budget[k]:
+                budget[k]["parent"] = None
+        conn.execute(
+            "UPDATE config SET value = ?, updated_at = ? WHERE key = 'budget'",
+            (json.dumps(budget, ensure_ascii=False), datetime.now().isoformat()),
+        )
+
+    _run_migration("001_add_hogar_carro_subcategories", _migration_001_add_subcategories)
+
     conn.close()
 
 
