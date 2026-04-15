@@ -107,6 +107,90 @@ def _month_prefix(month: Optional[str]) -> str:
     return f"{now.year}-{now.month:02d}"
 
 
+def _iter_months(pfrom: str, pto: str):
+    """Yield 'YYYY-MM' strings from pfrom through pto inclusive."""
+    fy, fm = int(pfrom[:4]), int(pfrom[5:7])
+    ty, tm = int(pto[:4]), int(pto[5:7])
+    y, m = fy, fm
+    while (y, m) <= (ty, tm):
+        yield f"{y}-{m:02d}"
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
+
+
+def _effective_budget_for_period(conn, period: str) -> dict:
+    """Return the effective per-category budget for a specific YYYY-MM.
+
+    Semantics:
+      - Start from the baseline (bot.BUDGET, which mirrors config.budget)
+      - Overlay any rows from budget_history WHERE period=? (period overrides)
+      - Metadata (label, icon, parent, tipo) always comes from the baseline —
+        overrides only carry monetary amounts (usd, annual_usd)
+
+    Returns: { category_key: {usd, annual_usd, tipo, icon, label, parent,
+                              is_override} }
+    """
+    out: dict[str, dict] = {}
+    for k, v in bot.BUDGET.items():
+        out[k] = {
+            "usd": float(v.get("usd", 0) or 0),
+            "annual_usd": float(v.get("annual_usd", (v.get("usd", 0) or 0) * 12) or 0),
+            "tipo": v.get("tipo", "variable"),
+            "icon": v.get("icon", "📦"),
+            "label": v.get("label", k),
+            "parent": v.get("parent"),
+            "is_override": False,
+            "baseline_usd": float(v.get("usd", 0) or 0),
+            "baseline_annual_usd": float(v.get("annual_usd", (v.get("usd", 0) or 0) * 12) or 0),
+        }
+    for cat, usd, annual in conn.execute(
+        "SELECT category, usd, annual_usd FROM budget_history WHERE period = ?",
+        (period,),
+    ).fetchall():
+        if cat in out:
+            out[cat]["usd"] = float(usd or 0)
+            if annual is not None:
+                out[cat]["annual_usd"] = float(annual)
+            out[cat]["is_override"] = True
+        # If the override points at a category that no longer exists in baseline,
+        # silently skip — user can clean it up via DELETE.
+    return out
+
+
+def _sum_effective_budget_over_range(conn, pfrom: str, pto: str) -> tuple[dict, bool]:
+    """Sum effective per-category budgets across [pfrom..pto] inclusive.
+
+    Returns (totals, had_overrides) where totals is:
+      { category_key: {usd_sum, annual_usd_sum, n_months, icon, label, parent} }
+    and had_overrides is True if any month in the range used at least one
+    budget_history row.
+    """
+    totals: dict[str, dict] = {}
+    had_overrides = False
+    for period in _iter_months(pfrom, pto):
+        eff = _effective_budget_for_period(conn, period)
+        for cat, info in eff.items():
+            if info.get("is_override"):
+                had_overrides = True
+            slot = totals.setdefault(
+                cat,
+                {
+                    "usd_sum": 0.0,
+                    "annual_usd_sum": 0.0,
+                    "n_months": 0,
+                    "icon": info["icon"],
+                    "label": info["label"],
+                    "parent": info["parent"],
+                },
+            )
+            slot["usd_sum"] += info["usd"]
+            slot["annual_usd_sum"] += info["annual_usd"]
+            slot["n_months"] += 1
+    return totals, had_overrides
+
+
 def _resolve_range(
     month: Optional[str],
     frm: Optional[str],
@@ -257,19 +341,30 @@ def make_api_app() -> FastAPI:
         )
         total_usd = sum(r["monto_usd"] for r in rows)
         total_cop = sum(r["monto_cop"] for r in rows)
+
+        # Pull effective budgets for the window — this walks each month and
+        # merges baseline with any per-month overrides in budget_history.
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            budget_totals, budget_was_dynamic = _sum_effective_budget_over_range(
+                conn, pfrom, pto,
+            )
+        finally:
+            conn.close()
+
         by_cat: dict[str, dict] = {}
         for r in rows:
             cat = r["categoria"]
+            bt = budget_totals.get(cat) or {}
             cat_info = bot.BUDGET.get(cat, {"usd": 0, "icon": "📦", "label": cat})
-            monthly_budget = cat_info.get("usd", 0)
             slot = by_cat.setdefault(
                 cat,
                 {
                     "categoria": cat,
-                    "icon": cat_info.get("icon", "📦"),
-                    "label": cat_info.get("label", cat),
-                    "monthly_budget_usd": monthly_budget,
-                    "budget_usd": monthly_budget * n_months,  # prorated
+                    "icon": bt.get("icon") or cat_info.get("icon", "📦"),
+                    "label": bt.get("label") or cat_info.get("label", cat),
+                    "monthly_budget_usd": cat_info.get("usd", 0),
+                    "budget_usd": bt.get("usd_sum", 0),
                     "spent_usd": 0,
                     "count": 0,
                 },
@@ -287,16 +382,25 @@ def make_api_app() -> FastAPI:
             slot["spent_usd"] += r["monto_usd"]
             slot["count"] += 1
 
-        # Global budget is prorated across the window
-        budget_limit = bot.BUDGET_LIMIT_USD * n_months
+        # Global budget limit: sum of all effective category budgets (what
+        # was actually allocated across all cats for the window), so dynamic
+        # month-to-month changes are reflected.
+        effective_total_budget = sum(bt.get("usd_sum", 0) for bt in budget_totals.values())
+        # Lifestyle cap (the $5000/mo reference), also reported for context.
+        lifestyle_cap = bot.BUDGET_LIMIT_USD * n_months
+        # Use the lifestyle cap as the gauge reference for continuity with
+        # existing UI expectations.
+        budget_limit = lifestyle_cap
 
         return {
             "month": pto,  # legacy field — points at the end of the window
             "from": pfrom,
             "to": pto,
             "n_months": n_months,
+            "budget_was_dynamic": budget_was_dynamic,
             "monthly_budget_limit_usd": bot.BUDGET_LIMIT_USD,
             "budget_limit_usd": budget_limit,
+            "effective_total_budget_usd": round(effective_total_budget, 2),
             "total_usd": round(total_usd, 2),
             "total_cop": round(total_cop, 0),
             "pct_of_budget": round(total_usd / budget_limit, 4) if budget_limit else 0,
@@ -716,17 +820,24 @@ def make_api_app() -> FastAPI:
                 "GROUP BY categoria ORDER BY total_usd DESC",
                 (pfrom, pto),
             ).fetchall()
+
+            # Effective per-category budgets summed over the range — uses
+            # budget_history overrides where present, baseline elsewhere.
+            budget_totals, budget_was_dynamic = _sum_effective_budget_over_range(
+                conn, pfrom, pto,
+            )
+
             expense_by_cat = []
             for r in exp_rows:
                 cat = r["categoria"]
                 info = bot.BUDGET.get(cat, {})
-                monthly_budget = info.get("usd", 0) or 0
+                bt = budget_totals.get(cat) or {}
                 expense_by_cat.append({
                     "categoria": cat,
                     "label": info.get("label", cat),
                     "icon": info.get("icon", "📦"),
-                    "monthly_budget_usd": monthly_budget,
-                    "budget_usd": monthly_budget * n_months,  # prorated
+                    "monthly_budget_usd": info.get("usd", 0),
+                    "budget_usd": bt.get("usd_sum", 0),
                     "total_usd": round(float(r["total_usd"] or 0), 2),
                     "count": r["n"],
                 })
@@ -739,12 +850,14 @@ def make_api_app() -> FastAPI:
             pct_of_income = round(net / income_total, 4) if income_total > 0 else None
 
             budget_limit = bot.BUDGET_LIMIT_USD * n_months
+            effective_total_budget = sum(bt.get("usd_sum", 0) for bt in budget_totals.values())
 
             return {
                 "month": pto,  # legacy: points at the end of the window
                 "from": pfrom,
                 "to": pto,
                 "n_months": n_months,
+                "budget_was_dynamic": budget_was_dynamic,
                 "rates": rates,
                 "income": {
                     "total_usd": income_total,
@@ -755,6 +868,7 @@ def make_api_app() -> FastAPI:
                     "by_category": expense_by_cat,
                     "budget_limit_usd": budget_limit,
                     "monthly_budget_limit_usd": bot.BUDGET_LIMIT_USD,
+                    "effective_total_budget_usd": round(effective_total_budget, 2),
                 },
                 "net": {
                     "usd": net,
@@ -766,6 +880,168 @@ def make_api_app() -> FastAPI:
             conn.close()
 
     # ──────────────── Write endpoints: config ────────────────
+
+    @api.get("/api/budget/effective/{period}")
+    def get_effective_budget(period: str):
+        """Effective per-category budget for a specific YYYY-MM.
+
+        Returns the baseline with any per-month overrides from budget_history
+        merged in. Each category includes:
+          - usd, annual_usd  (effective values for this period)
+          - is_override      (True if budget_history had a row)
+          - baseline_usd, baseline_annual_usd (the fallback values)
+        """
+        if not _VALID_PERIOD.match(period):
+            raise HTTPException(400, f"period inválido: {period!r} (usa YYYY-MM)")
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            eff = _effective_budget_for_period(conn, period)
+        finally:
+            conn.close()
+        total_usd = sum(v["usd"] for v in eff.values())
+        total_annual = sum(v["annual_usd"] for v in eff.values())
+        overrides = sum(1 for v in eff.values() if v["is_override"])
+        return {
+            "period": period,
+            "categories": eff,
+            "total_usd": round(total_usd, 2),
+            "total_annual_usd": round(total_annual, 2),
+            "overrides_count": overrides,
+            "baseline_monthly_limit_usd": bot.BUDGET_LIMIT_USD,
+        }
+
+    @api.put("/api/budget/effective/{period}")
+    def put_effective_budget(period: str, payload: dict = Body(...)):
+        """Upsert per-month budget overrides for (period, *).
+
+        Payload shape: { "restaurante": {"usd": 350, "annual_usd": 4200},
+                         "viaje":       {"usd": 500} }
+
+        Semantics (PATCH, not PUT-replace):
+          - Each category in the payload is UPSERTed into budget_history for
+            that period.
+          - Categories NOT in the payload are NOT touched — their existing
+            overrides (if any) remain. If you want to REMOVE an override,
+            call DELETE /api/budget/effective/{period}/{category}.
+          - If (usd, annual_usd) match the baseline for a category, we still
+            write an explicit row (so the user's intent is recorded — even
+            if the numbers coincidentally match baseline today, baseline
+            changes later won't affect this period).
+        """
+        if not _VALID_PERIOD.match(period):
+            raise HTTPException(400, f"period inválido: {period!r}")
+        if not isinstance(payload, dict) or not payload:
+            raise HTTPException(400, "payload debe ser un objeto no vacío")
+
+        now = datetime.now().isoformat()
+        cleaned = []
+        for cat, info in payload.items():
+            if not isinstance(cat, str) or not _VALID_KEY.match(cat):
+                raise HTTPException(400, f"clave inválida: {cat!r}")
+            if cat not in bot.BUDGET:
+                raise HTTPException(
+                    400,
+                    f"categoría {cat!r} no existe en el baseline. "
+                    "Créala primero desde el editor base.",
+                )
+            if not isinstance(info, dict):
+                raise HTTPException(400, f"categoría {cat}: debe ser objeto")
+            try:
+                usd = float(info.get("usd", 0) or 0)
+            except (TypeError, ValueError):
+                raise HTTPException(400, f"{cat}: usd debe ser numérico")
+            if usd < 0:
+                raise HTTPException(400, f"{cat}: usd ≥ 0")
+            raw_annual = info.get("annual_usd")
+            if raw_annual is None or raw_annual == "":
+                annual = round(usd * 12, 2)
+            else:
+                try:
+                    annual = float(raw_annual)
+                except (TypeError, ValueError):
+                    raise HTTPException(400, f"{cat}: annual_usd numérico")
+                if annual < 0:
+                    raise HTTPException(400, f"{cat}: annual_usd ≥ 0")
+            note = info.get("note") or None
+            cleaned.append((period, cat, usd, annual, note, now, now))
+
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            for row in cleaned:
+                conn.execute(
+                    "INSERT INTO budget_history "
+                    "(period, category, usd, annual_usd, note, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(period, category) DO UPDATE SET "
+                    "  usd=excluded.usd, annual_usd=excluded.annual_usd, "
+                    "  note=excluded.note, updated_at=excluded.updated_at",
+                    row,
+                )
+            conn.commit()
+        finally:
+            conn.close()
+        return {"ok": True, "period": period, "categories_updated": len(cleaned)}
+
+    @api.delete("/api/budget/effective/{period}/{category}")
+    def delete_effective_budget_entry(period: str, category: str):
+        """Remove a single per-month override. The category reverts to the
+        baseline for that period."""
+        if not _VALID_PERIOD.match(period):
+            raise HTTPException(400, f"period inválido: {period!r}")
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            r = conn.execute(
+                "DELETE FROM budget_history WHERE period = ? AND category = ?",
+                (period, category),
+            )
+            conn.commit()
+            if r.rowcount == 0:
+                raise HTTPException(404, f"no hay override en {period}/{category}")
+        finally:
+            conn.close()
+        return {"ok": True, "period": period, "category": category, "reverted_to_baseline": True}
+
+    @api.delete("/api/budget/effective/{period}")
+    def delete_all_effective_budget_entries(period: str):
+        """Remove ALL overrides for a period. That entire month reverts to baseline."""
+        if not _VALID_PERIOD.match(period):
+            raise HTTPException(400, f"period inválido: {period!r}")
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            r = conn.execute(
+                "DELETE FROM budget_history WHERE period = ?",
+                (period,),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return {"ok": True, "period": period, "overrides_removed": r.rowcount}
+
+    @api.get("/api/budget/history")
+    def list_budget_history():
+        """Summary of per-month overrides: which periods have overrides and
+        how many categories per period."""
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            rows = conn.execute(
+                "SELECT period, COUNT(*) AS n, "
+                "       ROUND(SUM(usd), 2) AS total_usd, "
+                "       MAX(updated_at) AS last_update "
+                "FROM budget_history GROUP BY period ORDER BY period DESC"
+            ).fetchall()
+            return {
+                "periods": [
+                    {
+                        "period": r[0],
+                        "overrides_count": r[1],
+                        "total_usd": r[2],
+                        "last_update": r[3],
+                    }
+                    for r in rows
+                ],
+            }
+        finally:
+            conn.close()
 
     @api.put("/api/budget")
     def update_budget(new_budget: dict = Body(...)):

@@ -1360,7 +1360,7 @@
     x-show="$store.settings.open"
     x-transition
   >
-    <!-- Sticky header with title + live total -->
+    <!-- Sticky header with title + period selector + live total -->
     <div class="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-5 pt-5 pb-3 sm:rounded-t-2xl z-10">
       <div class="flex items-start justify-between mb-3">
         <div>
@@ -1374,6 +1374,33 @@
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
+      </div>
+
+      <!-- Period selector — Base vs specific month -->
+      <div class="mb-3">
+        <label class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold block mb-1">Editando presupuesto para</label>
+        <select
+          x-model="$store.settings.editingPeriod"
+          @change="$store.settings.onPeriodChange()"
+          class="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-slate-400"
+          :disabled="$store.settings.busy"
+        >
+          <option value="">🏛️ Base — aplica a todos los meses sin ajustes</option>
+          <template x-for="m in $store.settings.periodOptions" :key="m.value">
+            <option :value="m.value" x-text="'📅 ' + m.label"></option>
+          </template>
+        </select>
+        <div class="text-[10px] mt-1" x-show="$store.settings.editingPeriod">
+          <span class="text-sky-600 dark:text-sky-400">
+            ℹ️ Los cambios afectan SOLO a <span class="font-semibold" x-text="$store.settings.periodLabel"></span>.
+            Categorías sin editar mantienen su valor actual (override existente o base).
+          </span>
+        </div>
+        <div class="text-[10px] mt-1" x-show="!$store.settings.editingPeriod">
+          <span class="text-slate-500">
+            ℹ️ Estás editando el <strong>baseline</strong>. Aplica a cualquier mes que no tenga override propio.
+          </span>
+        </div>
       </div>
 
       <!-- LIVE running totals — monthly + annual, updates reactively -->
@@ -1437,9 +1464,20 @@
 
           <div class="space-y-2" :class="group.parent && 'ml-4 border-l-2 border-slate-200 dark:border-slate-800 pl-3'">
             <template x-for="(c, idx) in group.items" :key="c.key">
-              <div class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2 border border-slate-200 dark:border-slate-800">
+              <div
+                class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2 border"
+                :class="($store.settings.editingPeriod && $store.settings.isOverrideRow(c))
+                  ? 'border-amber-400 dark:border-amber-700'
+                  : 'border-slate-200 dark:border-slate-800'"
+              >
                 <!-- Row 1: icon + label + parent + delete -->
                 <div class="flex items-center gap-2">
+                  <!-- Override indicator dot -->
+                  <span
+                    x-show="$store.settings.editingPeriod && $store.settings.isOverrideRow(c)"
+                    class="inline-block w-1.5 h-1.5 rounded-full bg-amber-500"
+                    title="Override activo para este mes"
+                  ></span>
                   <input
                     type="text"
                     x-model="c.icon"
@@ -1923,42 +1961,141 @@ document.addEventListener('alpine:init', () => {
     },
   });
 
-  // Settings store — category editor with live running total
+  // Settings store — category editor with live running total, supports
+  // per-period budget overrides (budget_history) on top of the baseline.
   Alpine.store('settings', {
     open: false,
     busy: false,
     error: null,
     limit: 5000,
-    draftList: [],        // [{key, icon, label, usd, tipo, parent}]
+    draftList: [],        // [{key, icon, label, usd, annual_usd, tipo, parent, _isOverrideAtLoad, _baselineUsd, _baselineAnnualUsd}]
     _originalJson: '',    // for dirty detection
+    _originalByKey: {},   // snapshot of each row at load — for detecting which were edited
+    editingPeriod: '',    // '' = base config.budget, 'YYYY-MM' = override for that period
+    periodLabel: '',      // human label for the editing period
+    periodOptions: [],    // [{value: 'YYYY-MM', label: 'Abril 2026'}]
+    _baselineBudget: {},  // cached baseline (for isOverrideRow comparison when in period mode)
     onSaved: null,
 
-    openFor(budget, limit) {
-      const list = Object.entries(budget || {}).map(([key, v]) => ({
+    openFor(budget, limit, periodOptions) {
+      this._baselineBudget = budget || {};
+      this.limit = limit || 5000;
+      this.periodOptions = periodOptions || [];
+      this.editingPeriod = '';  // always start in base mode
+      this.periodLabel = '';
+      this.error = null;
+      this.open = true;
+      // Seed draftList from baseline initially
+      this._loadDraftFromBaseline();
+    },
+
+    _loadDraftFromBaseline() {
+      const list = Object.entries(this._baselineBudget || {}).map(([key, v]) => ({
         key,
         icon: v.icon || '📦',
         label: v.label || key,
         usd: Number(v.usd) || 0,
-        // If annual_usd exists in the stored config, use it; otherwise default
-        // to 12× monthly. Migration 004 backfilled this for existing rows.
         annual_usd: v.annual_usd != null
           ? Number(v.annual_usd)
           : Math.round((Number(v.usd) || 0) * 12),
         tipo: v.tipo || 'variable',
         parent: v.parent || '',
+        _isOverrideAtLoad: false,
+        _baselineUsd: Number(v.usd) || 0,
+        _baselineAnnualUsd: v.annual_usd != null ? Number(v.annual_usd) : Math.round((Number(v.usd) || 0) * 12),
       }));
-      // Sort: top-level first by desc usd, then subs under their parents
+      this._sortDraft(list);
+      this.draftList = list;
+      this._snapshotOriginal();
+    },
+
+    _sortDraft(list) {
       list.sort((a, b) => {
         const ap = a.parent || '';
         const bp = b.parent || '';
         if (ap !== bp) return ap.localeCompare(bp);
         return (b.usd || 0) - (a.usd || 0);
       });
-      this.draftList = list;
-      this.limit = limit || 5000;
+    },
+
+    _snapshotOriginal() {
       this._originalJson = JSON.stringify(this._toNewBudget());
+      const snap = {};
+      for (const c of this.draftList) {
+        snap[c.key] = { usd: c.usd, annual_usd: c.annual_usd };
+      }
+      this._originalByKey = snap;
+    },
+
+    async onPeriodChange() {
       this.error = null;
-      this.open = true;
+      const p = this.editingPeriod;
+      if (!p) {
+        // Switched back to base — reload draft from baseline
+        this.periodLabel = '';
+        this._loadDraftFromBaseline();
+        return;
+      }
+      // Load effective budget for this period from the API
+      this.busy = true;
+      try {
+        const resp = await fetch('/api/budget/effective/' + encodeURIComponent(p));
+        if (!resp.ok) throw new Error('No se pudo cargar presupuesto del mes (' + resp.status + ')');
+        const body = await resp.json();
+        const cats = body.categories || {};
+        const list = Object.entries(cats).map(([key, v]) => ({
+          key,
+          icon: v.icon || '📦',
+          label: v.label || key,
+          usd: Number(v.usd) || 0,
+          annual_usd: Number(v.annual_usd) || Math.round((Number(v.usd) || 0) * 12),
+          tipo: v.tipo || 'variable',
+          parent: v.parent || '',
+          _isOverrideAtLoad: !!v.is_override,
+          _baselineUsd: Number(v.baseline_usd) || 0,
+          _baselineAnnualUsd: Number(v.baseline_annual_usd) || Math.round((Number(v.baseline_usd) || 0) * 12),
+        }));
+        this._sortDraft(list);
+        this.draftList = list;
+        // Set label from periodOptions
+        const opt = this.periodOptions.find(o => o.value === p);
+        this.periodLabel = opt ? opt.label : p;
+        this._snapshotOriginal();
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    // A row is considered an override for the current period if (a) it was
+    // loaded as an override from the server, OR (b) the user has edited its
+    // value in this session and the new value differs from the baseline.
+    isOverrideRow(c) {
+      if (!this.editingPeriod) return false;
+      if (c._isOverrideAtLoad) return true;
+      const bu = Number(c._baselineUsd) || 0;
+      const ba = Number(c._baselineAnnualUsd) || 0;
+      return (Number(c.usd) || 0) !== bu || (Number(c.annual_usd) || 0) !== ba;
+    },
+
+    // Returns only the categories whose values were edited since load —
+    // used by period-save to send a patch payload, not a full replacement.
+    _editedCategories() {
+      const out = {};
+      for (const c of this.draftList) {
+        const orig = this._originalByKey[c.key];
+        if (!orig) {
+          // New row added in this session (shouldn't happen in period mode,
+          // but be safe) — include it.
+          out[c.key] = { usd: Number(c.usd) || 0, annual_usd: Number(c.annual_usd) || 0 };
+          continue;
+        }
+        if ((Number(c.usd) || 0) !== orig.usd || (Number(c.annual_usd) || 0) !== orig.annual_usd) {
+          out[c.key] = { usd: Number(c.usd) || 0, annual_usd: Number(c.annual_usd) || 0 };
+        }
+      }
+      return out;
     },
 
     close() {
@@ -2131,22 +2268,45 @@ document.addEventListener('alpine:init', () => {
       this.busy = true;
       this.error = null;
       try {
-        const newBudget = this._toNewBudget();
-        const resp = await fetch('/api/budget', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(newBudget),
-        });
-        if (!resp.ok) {
-          const body = await resp.text();
-          let msg = 'Error ' + resp.status;
-          try {
-            const j = JSON.parse(body);
-            msg += ': ' + (j.detail || body);
-          } catch { msg += ': ' + body.slice(0, 200); }
-          throw new Error(msg);
+        if (this.editingPeriod) {
+          // Save as per-month overrides for this specific period.
+          // Send ONLY categories that were actually edited (PATCH-like).
+          const edits = this._editedCategories();
+          if (Object.keys(edits).length === 0) {
+            this.error = 'No hay cambios para guardar en este mes.';
+            return;
+          }
+          const resp = await fetch('/api/budget/effective/' + encodeURIComponent(this.editingPeriod), {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(edits),
+          });
+          if (!resp.ok) {
+            const body = await resp.text();
+            let msg = 'Error ' + resp.status;
+            try { const j = JSON.parse(body); msg += ': ' + (j.detail || body); }
+            catch { msg += ': ' + body.slice(0, 200); }
+            throw new Error(msg);
+          }
+          // Re-snapshot so isDirty resets
+          this._snapshotOriginal();
+        } else {
+          // Save to baseline config.budget (full replace).
+          const newBudget = this._toNewBudget();
+          const resp = await fetch('/api/budget', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newBudget),
+          });
+          if (!resp.ok) {
+            const body = await resp.text();
+            let msg = 'Error ' + resp.status;
+            try { const j = JSON.parse(body); msg += ': ' + (j.detail || body); }
+            catch { msg += ': ' + body.slice(0, 200); }
+            throw new Error(msg);
+          }
+          this._originalJson = JSON.stringify(newBudget);
         }
-        this._originalJson = JSON.stringify(newBudget);
         this.open = false;
         if (this.onSaved) await this.onSaved();
       } catch (e) {
@@ -2292,7 +2452,11 @@ function dashboard() {
         } catch {}
         await this.reload();
       };
-      Alpine.store('settings').openFor(this.budget, this.summary.budget_limit_usd || 5000);
+      Alpine.store('settings').openFor(
+        this.budget,
+        this.summary.monthly_budget_limit_usd || this.summary.budget_limit_usd || 5000,
+        this.months,   // pass month list so the store can offer per-period editing
+      );
     },
 
     get categoryOptions() {

@@ -100,104 +100,266 @@ CAT_GROUPS = {
 
 # Aliases para texto rápido desde Telegram.
 #
-# IMPORTANTE: un alias ya NO implica que la key target tenga que ser top-level.
-# Con la introducción de subcategorías (parent), los aliases pueden apuntar a
-# un sub (ej. "fotomulta" → "multas" que es sub de "carro"). El bot resuelve
-# via BUDGET (que incluye todos los keys, top-level y subs) y el dashboard
-# muestra el gasto bajo su sub + rollea el total al padre.
+# IMPORTANTE:
+#   1. Los keys están normalizados: minúsculas, SIN acentos (resolve_category
+#      normaliza el input antes de buscar). Así que "café"/"cafe", "electrónica"/
+#      "electronica" se resuelven igual.
+#   2. Un alias puede apuntar a un sub (ej. "plomero" → "reparaciones" que es
+#      sub de "hogar"). El dashboard hace rollup visual bajo el padre.
+#   3. Single-word lookup. smart_resolve_from_words() escanea todas las palabras
+#      de la frase y toma la primera que haga match, no solo la primera palabra.
+#   4. Si necesitas una palabra compuesta, úsala pegada sin espacio
+#      (ej. "impuestocasa", "pagocarro"). Alternativamente, escribe la sub key
+#      directa.
 #
-# Orden de diccionario MATTERS: Python dicts preservan orden; si hay duplicados
-# el último gana. He agrupado por destino final y puesto lo específico primero.
+# Esta lista está pensada para cubrir VOCABULARIO COLOMBIANO + palabras comunes
+# en inglés/tecnología. Si una palabra que usas seguido no está, pídele al bot
+# que la agregue.
 ALIASES = {
-    # ── Comida ──
+    # ═══════════════════════════════════════════════════════════
+    # COMIDA — restaurante, supermercado, rappi, cafe
+    # ═══════════════════════════════════════════════════════════
+    # Restaurante
     "rest": "restaurante", "restaurante": "restaurante", "restaurantes": "restaurante",
-    "comida": "restaurante", "almuerzo": "restaurante", "cena": "restaurante", "desayuno": "restaurante",
+    "comida": "restaurante", "almuerzo": "restaurante", "almuercé": "restaurante",
+    "cena": "restaurante", "cené": "restaurante", "desayuno": "restaurante",
+    "desayune": "restaurante", "desayune": "restaurante", "brunch": "restaurante",
+    "mecato": "restaurante", "snack": "restaurante", "pizza": "restaurante",
+    "hamburguesa": "restaurante", "hamburguesas": "restaurante", "sushi": "restaurante",
+    "frisby": "restaurante", "crepes": "restaurante", "corral": "restaurante",
+    "elcorral": "restaurante", "andres": "restaurante", "andrescarnederes": "restaurante",
+    "sipote": "restaurante", "wok": "restaurante", "taco": "restaurante", "tacos": "restaurante",
+    "buffet": "restaurante",
+    # Supermercado
     "super": "supermercado", "mercado": "supermercado", "supermercado": "supermercado",
     "pricesmart": "supermercado", "exito": "supermercado", "jumbo": "supermercado",
     "olimpica": "supermercado", "d1": "supermercado", "ara": "supermercado",
+    "carulla": "supermercado", "makro": "supermercado", "ara": "supermercado",
+    "justo": "supermercado", "justoybueno": "supermercado", "euro": "supermercado",
+    "frutas": "supermercado", "verduras": "supermercado", "carne": "supermercado",
+    "pollo": "supermercado", "pescado": "supermercado", "lacteos": "supermercado",
+    "abarrotes": "supermercado", "despensa": "supermercado", "groceries": "supermercado",
+    "groceries_weekly": "supermercado", "merc": "supermercado",
+    # Rappi / delivery
     "domicilio": "rappi", "domicilios": "rappi", "delivery": "rappi", "ifood": "rappi",
-    "didifood": "rappi", "rappi": "rappi",
-    "cafe": "cafe", "cafeteria": "cafe", "café": "cafe", "coffee": "cafe",
-    "starbucks": "cafe", "juanvaldez": "cafe", "tostao": "cafe",
+    "didifood": "rappi", "rappi": "rappi", "mercadoni": "rappi", "uberEats": "rappi",
+    "ubereats": "rappi", "foodora": "rappi",
+    # Café
+    "cafe": "cafe", "cafeteria": "cafe", "coffee": "cafe", "starbucks": "cafe",
+    "juanvaldez": "cafe", "tostao": "cafe", "oma": "cafe", "latte": "cafe",
+    "capuccino": "cafe", "cappuccino": "cafe", "espresso": "cafe", "americano": "cafe",
 
-    # ── Transporte / carro (subs de carro) ──
-    "gas": "gasolina", "gasolina": "gasolina", "tanqueo": "gasolina",
+    # ═══════════════════════════════════════════════════════════
+    # TRANSPORTE / CARRO — gasolina, uber, subs de carro
+    # ═══════════════════════════════════════════════════════════
+    # Gasolina
+    "gas": "gasolina", "gasolina": "gasolina", "tanqueo": "gasolina", "tanque": "gasolina",
     "combustible": "gasolina", "terpel": "gasolina", "mobil": "gasolina", "esso": "gasolina",
+    "petrobras": "gasolina", "shell": "gasolina", "biomax": "gasolina", "texaco": "gasolina",
+    "gnv": "gasolina", "acpm": "gasolina", "diesel": "gasolina",
+    # Ride-hailing
     "taxi": "uber", "uber": "uber", "didi": "uber", "indriver": "uber", "cabify": "uber",
+    "beat": "uber", "tappsi": "uber", "easytaxi": "uber",
+    # Parqueadero (sub de carro)
     "parking": "parqueadero", "parqueo": "parqueadero", "parqueadero": "parqueadero",
-    "cityparking": "parqueadero",
-    "peaje": "peajes", "peajes": "peajes", "gopass": "peajes",
-    "multa": "multas", "multas": "multas", "fotomulta": "multas",
-    "fotomultas": "multas", "comparendo": "multas", "infraccion": "multas",
+    "cityparking": "parqueadero", "parking_lot": "parqueadero",
+    # Peajes (sub de carro)
+    "peaje": "peajes", "peajes": "peajes", "gopass": "peajes", "facilpass": "peajes",
+    # Multas (sub de carro)
+    "multa": "multas", "multas": "multas", "fotomulta": "multas", "fotomultas": "multas",
+    "comparendo": "multas", "comparendos": "multas", "infraccion": "multas",
+    "infracciones": "multas", "transito": "multas",
+    # Mecánica (sub de carro)
     "taller": "mecanica", "mecanica": "mecanica", "mecanico": "mecanica",
-    "arreglocarro": "mecanica", "aceite": "mecanica", "cambioaceite": "mecanica",
-    "llantas": "mantenimiento", "lavado": "mantenimiento", "mantenimiento": "mantenimiento",
-    "lavada": "mantenimiento", "revision": "mantenimiento",
-    "carro": "carro", "gastosvarios_carro": "carro",
+    "arreglocarro": "mecanica", "reparacioncarro": "mecanica",
+    "aceite": "mecanica", "cambioaceite": "mecanica", "filtro": "mecanica",
+    "freno": "mecanica", "frenos": "mecanica", "pastillas": "mecanica",
+    "bateria": "mecanica", "alternador": "mecanica", "cluch": "mecanica",
+    "embrague": "mecanica", "suspension": "mecanica", "amortiguadores": "mecanica",
+    # Mantenimiento (sub de carro — rutina)
+    "llanta": "mantenimiento", "llantas": "mantenimiento",
+    "lavado": "mantenimiento", "lavada": "mantenimiento", "lavaderoautos": "mantenimiento",
+    "carwash": "mantenimiento", "mantenimiento": "mantenimiento",
+    "revision": "mantenimiento", "revisiontecnomecanica": "mantenimiento",
+    "tecnomecanica": "mantenimiento", "soat": "mantenimiento",
+    "wax": "mantenimiento", "polichado": "mantenimiento",
+    # Accesorios (sub de carro, si Daniel la creó)
+    "accesorios": "accesorios", "audio": "accesorios", "radio": "accesorios",
+    # Carro (top-level, catch-all)
+    "carro": "carro", "auto": "carro", "automovil": "carro", "vehiculo": "carro",
 
-    # ── Hogar (subs de hogar) ──
+    # ═══════════════════════════════════════════════════════════
+    # HOGAR — hipoteca, admin, muebles, reparaciones, prediales, empleada...
+    # ═══════════════════════════════════════════════════════════
+    # Hipoteca (sub de hogar)
     "hipoteca": "hipoteca", "mortgage": "hipoteca", "creditohipotecario": "hipoteca",
-    "hogar": "hogar", "casa": "hogar", "casita": "hogar",
+    "creditocasa": "hipoteca", "davivienda_hipoteca": "hipoteca",
+    # Hogar (top-level, catch-all)
+    "hogar": "hogar", "casa": "hogar", "casita": "hogar", "apto": "hogar", "apartamento": "hogar",
+    # Muebles (sub de hogar)
     "mueble": "muebles", "muebles": "muebles", "mobiliario": "muebles",
-    "decoracion": "muebles", "silla": "muebles", "mesa": "muebles",
-    "sofa": "muebles", "cama": "muebles", "colchon": "muebles",
-    "escritorio": "muebles", "closet": "muebles", "lampara": "muebles",
+    "decoracion": "muebles", "decor": "muebles",
+    "silla": "muebles", "mesa": "muebles", "comedor": "muebles",
+    "sofa": "muebles", "poltrona": "muebles", "cama": "muebles", "camas": "muebles",
+    "colchon": "muebles", "colchones": "muebles", "almohada": "muebles",
+    "escritorio": "muebles", "closet": "muebles", "armario": "muebles",
+    "lampara": "muebles", "lamparas": "muebles", "cortinas": "muebles",
+    "alfombra": "muebles", "tapete": "muebles", "estanteria": "muebles",
+    "homecenter": "muebles", "tugo": "muebles", "sodimac": "muebles",
+    "falabella": "muebles", "ikea": "muebles",
+    # Reparaciones (sub de hogar — mano de obra + materiales)
     "reparacion": "reparaciones", "reparaciones": "reparaciones", "arreglo": "reparaciones",
-    "fontanero": "reparaciones", "plomero": "reparaciones", "electricista": "reparaciones",
-    "goteo": "reparaciones", "pintor": "reparaciones", "albañil": "reparaciones",
-    "cerrajero": "reparaciones", "manoobra": "reparaciones",
+    "arreglocasa": "reparaciones", "arreglos": "reparaciones",
+    "fontanero": "reparaciones", "plomero": "reparaciones", "plomeria": "reparaciones",
+    "electricista": "reparaciones", "electricidad_casa": "reparaciones",
+    "goteo": "reparaciones", "fuga": "reparaciones", "filtracion": "reparaciones",
+    "pintor": "reparaciones", "pintura": "reparaciones",
+    "albanil": "reparaciones", "albañil": "reparaciones", "cerrajero": "reparaciones",
+    "manoobra": "reparaciones", "cementos": "reparaciones", "ferreteria": "reparaciones",
+    # Prediales (sub de hogar — impuestos propiedad)
     "predial": "prediales", "prediales": "prediales", "impuestocasa": "prediales",
-    "catastro": "prediales", "impuestohogar": "prediales",
+    "impuestohogar": "prediales", "catastro": "prediales", "valorizacion": "prediales",
+    "impuestopredio": "prediales",
+    # Empleada (sub de hogar)
     "empleada": "empleada", "muchacha": "empleada", "aseadora": "empleada",
-    "limpieza": "empleada", "servicio": "empleada",
-    "admin": "admin", "administracion": "admin", "administración": "admin",
-    "cuota": "admin", "conjunto": "admin", "nuvo": "admin",
+    "limpieza": "empleada", "servicio": "empleada", "domestica": "empleada",
+    "paraguaya": "empleada",
+    # Admin (sub de hogar)
+    "admin": "admin", "administracion": "admin", "cuota": "admin",
+    "cuotaadmin": "admin", "conjunto": "admin", "nuvo": "admin", "nuvó": "admin",
+    "copropiedad": "admin", "edificio": "admin",
+    # Mado (sub de hogar — transferencias a Mado)
     "mado": "mado", "madeline": "mado", "mesada": "mado", "usdt": "mado", "wio": "mado",
+    "transferencia_mado": "mado",
+    # Servicios (sub de hogar — utilities)
     "servicios": "servicios", "agua": "servicios", "luz": "servicios",
-    "basura": "servicios", "acueducto": "servicios", "gas_servicio": "servicios",
-    "energia": "servicios",
+    "basura": "servicios", "acueducto": "servicios", "gasnatural": "servicios",
+    "energia": "servicios", "codensa": "servicios", "epm": "servicios",
+    "emcali": "servicios", "aseo": "servicios", "alcantarillado": "servicios",
 
-    # ── Salud (subs de salud) ──
+    # ═══════════════════════════════════════════════════════════
+    # SALUD — salud, trainer, segurosalud
+    # ═══════════════════════════════════════════════════════════
     "medico": "salud", "medicina": "salud", "farmacia": "salud",
     "drogueria": "salud", "cruzverde": "salud", "farmatodo": "salud",
-    "colsanitas": "salud", "exámen": "salud", "examen": "salud",
-    "segurosalud": "segurosalud", "medicinaprepagada": "segurosalud", "sanitas": "segurosalud",
-    "gym": "trainer", "entreno": "trainer", "entrenamiento": "trainer",
-    "trainer": "trainer", "crossfit": "trainer", "pesas": "trainer",
+    "locatel": "salud", "larebaja": "salud", "dollarcity": "salud",
+    "colsanitas": "salud", "examen": "salud", "examenes": "salud",
+    "laboratorio": "salud", "radiografia": "salud", "ecografia": "salud",
+    "dentista": "salud", "odontologo": "salud", "consulta": "salud",
+    "urgencias": "salud", "hospital": "salud", "clinica": "salud",
+    "fisioterapia": "salud", "terapeuta": "salud", "psicologo": "salud",
+    # Seguro de salud / medicina prepagada (top-level nuevo de Daniel)
+    "segurosalud": "segurosalud", "medicinaprepagada": "segurosalud",
+    "sanitas": "segurosalud", "medisanitas": "segurosalud", "sura_salud": "segurosalud",
+    "emi": "segurosalud",
+    # Trainer / gym (sub de salud)
+    "gym": "trainer", "gimnasio": "trainer", "entreno": "trainer",
+    "entrenamiento": "trainer", "trainer": "trainer", "crossfit": "trainer",
+    "pesas": "trainer", "yoga": "trainer", "pilates": "trainer",
+    "bodytech": "trainer", "smartfit": "trainer", "spinning": "trainer",
 
-    # ── Mascotas (subs) ──
+    # ═══════════════════════════════════════════════════════════
+    # MASCOTAS — mascotas, bubba
+    # ═══════════════════════════════════════════════════════════
     "veterinario": "bubba", "vet": "bubba", "perro": "bubba",
-    "bubba": "bubba", "gato": "bubba", "mascotas": "mascotas",
+    "bubba": "bubba", "gato": "bubba", "gata": "bubba",
+    "concentrado": "bubba", "purina": "bubba", "comidaperro": "bubba",
+    "croquetas": "bubba", "pet": "bubba", "petfood": "bubba",
+    "guarderiaperros": "bubba", "vacunaperro": "bubba",
+    "mascotas": "mascotas", "mascota": "mascotas",
 
-    # ── Suscripciones digitales ──
+    # ═══════════════════════════════════════════════════════════
+    # DIGITAL — suscripciones, claude, tecnologia
+    # ═══════════════════════════════════════════════════════════
     "netflix": "suscripciones", "spotify": "suscripciones", "streaming": "suscripciones",
-    "amazon": "suscripciones", "apple": "suscripciones", "suscripciones": "suscripciones",
-    "claude": "claude", "claudepro": "claude", "anthropic": "claude",
+    "disneyplus": "suscripciones", "disney": "suscripciones", "hbo": "suscripciones",
+    "hbomax": "suscripciones", "primevideo": "suscripciones", "prime": "suscripciones",
+    "appletv": "suscripciones", "youtube": "suscripciones", "youtubepremium": "suscripciones",
+    "dropbox": "suscripciones", "icloud": "suscripciones", "onedrive": "suscripciones",
+    "googleone": "suscripciones", "notion": "suscripciones", "figma": "suscripciones",
+    "suscripciones": "suscripciones", "subs": "suscripciones",
+    # Claude (sub de suscripciones — AI tooling)
+    "claude": "claude", "claudepro": "claude", "claudecode": "claude", "anthropic": "claude",
+    "chatgpt": "claude", "openai": "claude", "perplexity": "claude", "github_copilot": "claude",
+    "copilot": "claude",
+    # Tecnología (gadgets, hardware)
     "tech": "tecnologia", "tecnologia": "tecnologia", "electronica": "tecnologia",
     "computador": "tecnologia", "laptop": "tecnologia", "celular": "tecnologia",
+    "iphone": "tecnologia", "android": "tecnologia", "samsung": "tecnologia",
+    "apple": "tecnologia", "cable": "tecnologia", "cargador": "tecnologia",
+    "audifonos": "tecnologia", "audífonos": "tecnologia", "airpods": "tecnologia",
+    "monitor": "tecnologia", "teclado": "tecnologia", "mouse": "tecnologia",
 
-    # ── Telecom ──
-    "telecom": "telecom", "internet": "telecom", "claro": "telecom",
-    "movistar": "telecom", "etb": "telecom", "du": "telecom",
-    "une": "telecom", "plancelular": "telecom",
+    # ═══════════════════════════════════════════════════════════
+    # TELECOM — plan celular + internet
+    # ═══════════════════════════════════════════════════════════
+    "telecom": "telecom", "internet": "telecom", "wifi": "telecom",
+    "claro": "telecom", "movistar": "telecom", "tigo": "telecom",
+    "etb": "telecom", "une": "telecom", "du": "telecom",
+    "plancelular": "telecom", "plandatos": "telecom", "prepago": "telecom",
+    "pospago": "telecom", "recarga": "telecom",
 
-    # ── Viajes ──
-    "viaje": "viaje", "vuelo": "viaje", "hotel": "viaje",
-    "airbnb": "viaje", "avion": "viaje", "latam": "viaje",
-    "avianca": "viaje", "vueling": "viaje",
+    # ═══════════════════════════════════════════════════════════
+    # VIAJES
+    # ═══════════════════════════════════════════════════════════
+    "viaje": "viaje", "viajes": "viaje", "vuelo": "viaje", "vuelos": "viaje",
+    "hotel": "viaje", "hoteles": "viaje", "airbnb": "viaje", "avion": "viaje",
+    "latam": "viaje", "avianca": "viaje", "vueling": "viaje", "wingo": "viaje",
+    "americanairlines": "viaje", "delta": "viaje", "emirates": "viaje",
+    "booking": "viaje", "expedia": "viaje", "decolar": "viaje",
+    "aeropuerto": "viaje", "visa_aplicacion": "viaje", "pasaporte": "viaje",
+    "tour": "viaje", "crucero": "viaje",
 
-    # ── Seguros (subs) ──
-    "seguro": "seguros", "seguros": "seguros",
+    # ═══════════════════════════════════════════════════════════
+    # SEGUROS (general + subs específicos)
+    # ═══════════════════════════════════════════════════════════
+    "seguro": "seguros", "seguros": "seguros", "sura": "seguros",
+    "bolivar": "seguros", "mapfre": "seguros", "allianz": "seguros",
+    "liberty": "seguros", "polizaseguro": "seguros",
+    "seguro_bubba": "seguro_bubba", "bubbaseguro": "seguro_bubba",
+    "seguro_tesla": "seguro_tesla", "teslaseguro": "seguro_tesla",
+    "seguro_carro": "seguro_carro_land", "seguroauto": "seguro_carro_land",
+    "landrover": "seguro_carro_land", "seguro_land": "seguro_carro_land",
 
-    # ── Entretenimiento (top-level nuevo de Daniel) ──
+    # ═══════════════════════════════════════════════════════════
+    # ENTRETENIMIENTO (top-level nuevo de Daniel)
+    # ═══════════════════════════════════════════════════════════
     "entretenimiento": "entretenimiento", "cine": "entretenimiento",
-    "teatro": "entretenimiento", "concierto": "entretenimiento", "evento": "entretenimiento",
+    "teatro": "entretenimiento", "concierto": "entretenimiento", "conciertos": "entretenimiento",
+    "evento": "entretenimiento", "eventos": "entretenimiento", "fiesta": "entretenimiento",
+    "bar": "entretenimiento", "discoteca": "entretenimiento", "rumba": "entretenimiento",
+    "trago": "entretenimiento", "cerveza": "entretenimiento", "cocteles": "entretenimiento",
+    "cinecolombia": "entretenimiento", "procinal": "entretenimiento",
+    "museo": "entretenimiento", "libro": "entretenimiento", "libros": "entretenimiento",
+    "amazon_kindle": "entretenimiento",
 
-    # ── Otros / genéricos ──
-    "comisiones": "comisiones", "comision": "comisiones", "cuota_manejo": "comisiones",
-    "regalo": "obsequio", "obsequio": "obsequio", "gift": "obsequio", "cumpleaños": "obsequio",
+    # ═══════════════════════════════════════════════════════════
+    # COMISIONES (cuotas de manejo bancarias)
+    # ═══════════════════════════════════════════════════════════
+    "comisiones": "comisiones", "comision": "comisiones",
+    "cuotamanejo": "comisiones", "4x1000": "comisiones", "retiro": "comisiones",
+    "cajero": "comisiones", "atm": "comisiones", "gmf": "comisiones",
+
+    # ═══════════════════════════════════════════════════════════
+    # ROPA
+    # ═══════════════════════════════════════════════════════════
     "ropa": "ropa", "vestimenta": "ropa", "zapatos": "ropa", "clothing": "ropa",
-    "otro": "otro", "otros": "otro", "varios": "otro",
+    "camisa": "ropa", "pantalon": "ropa", "chaqueta": "ropa", "tenis": "ropa",
+    "nike": "ropa", "adidas": "ropa", "zara": "ropa", "hm": "ropa",
+    "uniqlo": "ropa", "underarmour": "ropa", "lacoste": "ropa",
+
+    # ═══════════════════════════════════════════════════════════
+    # OBSEQUIO / REGALO
+    # ═══════════════════════════════════════════════════════════
+    "regalo": "obsequio", "regalos": "obsequio", "obsequio": "obsequio",
+    "gift": "obsequio", "cumpleanos": "obsequio", "cumpleaños": "obsequio",
+    "aniversario": "obsequio", "navidad": "obsequio",
+
+    # ═══════════════════════════════════════════════════════════
+    # OTRO / fallback
+    # ═══════════════════════════════════════════════════════════
+    "otro": "otro", "otros": "otro", "varios": "otro", "miscelaneo": "otro",
+    "imprevisto": "otro", "compra": "otro", "compras": "otro",
 }
 
 # ════════════════════════════════════════
@@ -516,6 +678,32 @@ def init_db():
 
     _run_migration("004_annual_budget", _migration_004_annual_budget)
 
+    def _migration_005_budget_history(conn):
+        """Create the budget_history table so each month can have its own
+        per-category budget (overriding the baseline in config.budget).
+
+        Rows are sparse: only categories with explicit per-month overrides
+        live here. For any (month, category) without a row, the effective
+        budget falls back to config.budget[category]. This keeps the table
+        small and makes it easy to see 'what did Daniel change for April'.
+        """
+        conn.execute("""CREATE TABLE IF NOT EXISTS budget_history (
+            period TEXT NOT NULL,
+            category TEXT NOT NULL,
+            usd REAL NOT NULL,
+            annual_usd REAL,
+            note TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (period, category)
+        )""")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_budget_history_period "
+            "ON budget_history(period)"
+        )
+
+    _run_migration("005_budget_history", _migration_005_budget_history)
+
     conn.close()
 
 
@@ -623,9 +811,37 @@ def is_allowed(user_id):
 
 def resolve_category(text):
     t = text.lower().strip()
+    # Strip common accents so "café" = "cafe", "electrónica" = "electronica"
+    import unicodedata
+    t = ''.join(c for c in unicodedata.normalize('NFD', t) if unicodedata.category(c) != 'Mn')
     if t in BUDGET:
         return t
     return ALIASES.get(t, None)
+
+
+def smart_resolve_from_words(words):
+    """Try to resolve a category from any word in a list of words.
+
+    Primary: the FIRST word (preserves existing behavior).
+    Fallback: scan every other word and return the first alias match found.
+
+    Returns (category_key or None, nota_str).
+    When a non-first word matches, it is removed from the nota so it doesn't
+    get duplicated in the display.
+    """
+    if not words:
+        return None, ""
+    # Primary: first word
+    cat = resolve_category(words[0])
+    if cat:
+        return cat, " ".join(words[1:])
+    # Fallback: scan remaining words in order
+    for i in range(1, len(words)):
+        cat = resolve_category(words[i])
+        if cat:
+            remaining = words[:i] + words[i + 1:]
+            return cat, " ".join(remaining)
+    return None, " ".join(words)
 
 def fmt(n):
     return f"${n:,.0f}".replace(",", ".")
@@ -823,11 +1039,10 @@ async def cmd_gasto(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ '{args[0]}' no es un monto válido\n\nFormatos: 50000, 100usd, 350bob, bob 45")
         return
 
-    # If category provided, register directly
+    # If category provided, try to resolve from ANY word (not just the first)
     if rest:
-        cat = resolve_category(rest[0])
+        cat, nota = smart_resolve_from_words(rest)
         if cat:
-            nota = " ".join(rest[1:]) if len(rest) > 1 else ""
             await register_and_confirm(update.message, update.effective_user, monto_cop, cat, nota, display)
             return
 
@@ -1136,10 +1351,9 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if monto_cop is not None:
         # If category provided
         if rest:
-            cat = resolve_category(rest[0])
+            cat, nota_smart = smart_resolve_from_words(rest)
             if cat:
-                nota = " ".join(rest[1:]) if len(rest) > 1 else ""
-                await register_and_confirm(update.message, update.effective_user, monto_cop, cat, nota, display)
+                await register_and_confirm(update.message, update.effective_user, monto_cop, cat, nota_smart, display)
                 return
             else:
                 # Unknown category - offer to create or reassign
