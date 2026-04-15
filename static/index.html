@@ -266,6 +266,14 @@
         <span class="text-slate-900 dark:text-slate-100 font-medium" x-text="fmtUsd(perDay)"></span>/día
       </span>
     </div>
+    <!-- Dynamic budget indicator: shown when any month in the active range has per-month overrides -->
+    <div
+      x-show="pnl && pnl.budget_was_dynamic"
+      class="mt-2 text-[10px] text-amber-700 dark:text-amber-400 flex items-center gap-1"
+    >
+      <span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+      <span>Este rango incluye presupuestos dinámicos mes a mes</span>
+    </div>
   </section>
 
   <!-- ──────────────── Per user ──────────────── -->
