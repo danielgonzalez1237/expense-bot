@@ -486,6 +486,36 @@ def init_db():
 
     _run_migration("003_fix_income_period_from_fecha", _migration_003_fix_income_period_from_fecha)
 
+    def _migration_004_annual_budget(conn):
+        """Add an `annual_usd` field to every BUDGET entry in config.budget.
+
+        Default: annual_usd = usd * 12 (i.e. 12× the current monthly budget).
+        If the user later edits a category's annual target independently
+        (e.g. property tax is once a year, not 12× monthly), it's stored as
+        an explicit number and the default formula no longer applies.
+
+        Non-destructive: existing fields (usd, tipo, icon, label, parent) are
+        untouched. Only inserts the new `annual_usd` key when missing.
+        """
+        row = conn.execute("SELECT value FROM config WHERE key = 'budget'").fetchone()
+        if not row:
+            return
+        budget = json.loads(row[0])
+        changed = 0
+        for k, v in budget.items():
+            if "annual_usd" not in v:
+                monthly = float(v.get("usd") or 0)
+                v["annual_usd"] = round(monthly * 12, 2)
+                changed += 1
+        if changed:
+            print(f"[migration] added annual_usd to {changed} categories")
+            conn.execute(
+                "UPDATE config SET value = ?, updated_at = ? WHERE key = 'budget'",
+                (json.dumps(budget, ensure_ascii=False), datetime.now().isoformat()),
+            )
+
+    _run_migration("004_annual_budget", _migration_004_annual_budget)
+
     conn.close()
 
 

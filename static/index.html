@@ -103,9 +103,25 @@
     </div>
   </header>
 
-  <!-- ──────────────── Month button bar ──────────────── -->
+  <!-- ──────────────── Month + window selectors ──────────────── -->
   <section class="mb-4 sticky top-0 bg-slate-50 dark:bg-slate-950 z-20 py-2 border-b border-slate-100 dark:border-slate-900">
-    <div class="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600 mb-1.5 font-semibold">Mes</div>
+    <div class="flex items-center justify-between mb-1.5">
+      <div class="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600 font-semibold">Mes</div>
+      <!-- Window pills -->
+      <div class="flex gap-1 text-[10px]">
+        <template x-for="w in windowOptions" :key="w.value">
+          <button
+            @click="selectWindow(w.value)"
+            :class="windowSize === w.value
+              ? 'bg-sky-100 text-sky-900 dark:bg-sky-900/40 dark:text-sky-300 border-sky-300 dark:border-sky-700'
+              : 'bg-white text-slate-500 dark:bg-slate-900 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 border-slate-200 dark:border-slate-800'"
+            class="px-2 py-1 rounded-md font-semibold whitespace-nowrap border transition"
+            :title="w.title"
+            x-text="w.label"
+          ></button>
+        </template>
+      </div>
+    </div>
     <div
       id="month-bar"
       class="flex gap-1.5 overflow-x-auto pb-1"
@@ -115,13 +131,22 @@
         <button
           @click="selectMonth(m.value)"
           :data-month="m.value"
-          :class="month === m.value
-            ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 border-slate-900 dark:border-slate-100 shadow-sm'
-            : 'bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800'"
+          :class="monthIsInRange(m.value)
+            ? (month === m.value
+                ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 border-slate-900 dark:border-slate-100 shadow-sm'
+                : 'bg-sky-100 text-sky-900 dark:bg-sky-900/30 dark:text-sky-300 border-sky-300 dark:border-sky-700')
+              : 'bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800'"
           class="px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap border transition flex-shrink-0"
           x-text="m.shortLabel"
         ></button>
       </template>
+    </div>
+    <div
+      x-show="windowSize > 1"
+      class="text-[10px] text-sky-700 dark:text-sky-400 mt-1"
+    >
+      📊 Rango activo: <span class="font-semibold" x-text="rangeLabel"></span>
+      · <span x-text="windowSize"></span> meses · budget prorrateado ×<span x-text="windowSize"></span>
     </div>
   </section>
 
@@ -207,7 +232,10 @@
   <section class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm">
     <div class="flex items-start justify-between">
       <div>
-        <div class="text-xs text-slate-500 uppercase tracking-wide" x-text="monthLabel"></div>
+        <div class="text-xs text-slate-500 uppercase tracking-wide">
+          <span x-text="windowSize === 1 ? monthLabel : rangeLabel"></span>
+          <span x-show="windowSize !== 1" class="text-sky-600 dark:text-sky-400 font-semibold ml-1">(<span x-text="summary.n_months || 1"></span>m)</span>
+        </div>
         <div class="text-3xl font-bold mt-1">
           <span x-text="fmtUsd(summary.total_usd)"></span>
           <span class="text-base text-slate-400 dark:text-slate-500 font-medium">/ <span x-text="fmtUsd(summary.budget_limit_usd)"></span></span>
@@ -216,7 +244,7 @@
       </div>
       <div class="text-right">
         <div class="text-3xl font-bold" :class="gaugeTextColor" x-text="(Math.round(pct * 100)) + '%'"></div>
-        <div class="text-xs mt-0.5" :class="paceColor" x-text="paceLabel"></div>
+        <div class="text-xs mt-0.5" :class="paceColor" x-text="windowSize === 1 ? paceLabel : ''"></div>
       </div>
     </div>
 
@@ -1348,27 +1376,39 @@
         </button>
       </div>
 
-      <!-- LIVE running total — updates reactively as user edits rows -->
-      <div class="grid grid-cols-[1fr_auto] items-end gap-3">
-        <div>
-          <div class="text-[11px] uppercase tracking-wide text-slate-500">Presupuesto total asignado</div>
-          <div class="flex items-baseline gap-2 mt-0.5">
-            <span class="text-2xl font-bold" :class="$store.settings.totalColor" x-text="'$' + Math.round($store.settings.totalAssigned).toLocaleString('en-US')"></span>
-            <span class="text-sm text-slate-500">/ $<span x-text="$store.settings.limit.toLocaleString('en-US')"></span></span>
+      <!-- LIVE running totals — monthly + annual, updates reactively -->
+      <div class="grid grid-cols-2 gap-3">
+        <!-- Mensual -->
+        <div class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2.5 border border-slate-200 dark:border-slate-800">
+          <div class="text-[10px] uppercase tracking-wide text-slate-500">Mensual</div>
+          <div class="flex items-baseline gap-1 mt-0.5">
+            <span class="text-xl font-bold" :class="$store.settings.totalColor" x-text="'$' + Math.round($store.settings.totalAssigned).toLocaleString('en-US')"></span>
+            <span class="text-xs text-slate-500">/ $<span x-text="$store.settings.limit.toLocaleString('en-US')"></span></span>
           </div>
-          <div class="text-xs mt-0.5" :class="$store.settings.totalColor" x-text="$store.settings.statusMsg"></div>
-        </div>
-        <div class="w-32">
-          <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+          <div class="mt-1 w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
             <div
               class="h-full rounded-full bar"
               :class="$store.settings.totalBarColor"
               :style="'width:' + Math.min(Math.max($store.settings.totalAssigned / $store.settings.limit, 0) * 100, 100) + '%'"
             ></div>
           </div>
-          <div class="text-[10px] text-slate-400 dark:text-slate-600 text-right mt-0.5">
-            <span x-text="Math.round(($store.settings.totalAssigned / $store.settings.limit) * 100)"></span>%
+          <div class="text-[10px] mt-0.5" :class="$store.settings.totalColor" x-text="$store.settings.statusMsg"></div>
+        </div>
+        <!-- Anual -->
+        <div class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2.5 border border-slate-200 dark:border-slate-800">
+          <div class="text-[10px] uppercase tracking-wide text-slate-500">Anual (12 meses)</div>
+          <div class="flex items-baseline gap-1 mt-0.5">
+            <span class="text-xl font-bold" :class="$store.settings.annualColor" x-text="'$' + Math.round($store.settings.totalAnnual).toLocaleString('en-US')"></span>
+            <span class="text-xs text-slate-500">/ $<span x-text="(($store.settings.limit || 0) * 12).toLocaleString('en-US')"></span></span>
           </div>
+          <div class="mt-1 w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+            <div
+              class="h-full rounded-full bar"
+              :class="$store.settings.annualBarColor"
+              :style="'width:' + Math.min(Math.max($store.settings.totalAnnual / (($store.settings.limit || 1) * 12), 0) * 100, 100) + '%'"
+            ></div>
+          </div>
+          <div class="text-[10px] mt-0.5 text-slate-500" x-text="$store.settings.annualDelta"></div>
         </div>
       </div>
     </div>
@@ -1397,52 +1437,72 @@
 
           <div class="space-y-2" :class="group.parent && 'ml-4 border-l-2 border-slate-200 dark:border-slate-800 pl-3'">
             <template x-for="(c, idx) in group.items" :key="c.key">
-              <div class="flex items-center gap-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2 border border-slate-200 dark:border-slate-800">
-                <!-- Icon (emoji) — text input -->
-                <input
-                  type="text"
-                  x-model="c.icon"
-                  maxlength="4"
-                  class="w-10 text-center text-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-1 focus:ring-1 focus:ring-slate-400"
-                  :title="'Emoji de ' + c.label"
-                />
-                <!-- Label -->
-                <input
-                  type="text"
-                  x-model="c.label"
-                  placeholder="Etiqueta"
-                  class="flex-1 min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-slate-400"
-                />
-                <!-- Budget USD -->
-                <div class="relative">
-                  <span class="absolute left-2 top-1 text-slate-400 text-xs">$</span>
+              <div class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2 border border-slate-200 dark:border-slate-800">
+                <!-- Row 1: icon + label + parent + delete -->
+                <div class="flex items-center gap-2">
                   <input
-                    type="number"
-                    step="1"
-                    min="0"
-                    x-model.number="c.usd"
-                    class="w-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded pl-5 pr-1 py-1 text-sm text-right focus:ring-1 focus:ring-slate-400"
+                    type="text"
+                    x-model="c.icon"
+                    maxlength="4"
+                    class="w-10 text-center text-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-1 focus:ring-1 focus:ring-slate-400"
+                    :title="'Emoji de ' + c.label"
                   />
+                  <input
+                    type="text"
+                    x-model="c.label"
+                    placeholder="Etiqueta"
+                    class="flex-1 min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-slate-400"
+                  />
+                  <select
+                    x-model="c.parent"
+                    class="w-24 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-1 text-xs focus:ring-1 focus:ring-slate-400"
+                    title="Categoría padre"
+                  >
+                    <option value="">— top —</option>
+                    <template x-for="p in $store.settings.parentOptions" :key="p.key">
+                      <option :value="p.key" :disabled="p.key === c.key" x-text="p.icon + ' ' + p.label"></option>
+                    </template>
+                  </select>
+                  <button
+                    @click="$store.settings.remove(c.key)"
+                    class="text-slate-400 hover:text-red-600 dark:hover:text-red-400 p-1"
+                    :title="'Eliminar ' + c.key"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  </button>
                 </div>
-                <!-- Parent selector -->
-                <select
-                  x-model="c.parent"
-                  class="w-24 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-1 text-xs focus:ring-1 focus:ring-slate-400"
-                  title="Categoría padre"
-                >
-                  <option value="">— top —</option>
-                  <template x-for="p in $store.settings.parentOptions" :key="p.key">
-                    <option :value="p.key" :disabled="p.key === c.key" x-text="p.icon + ' ' + p.label"></option>
-                  </template>
-                </select>
-                <!-- Delete -->
-                <button
-                  @click="$store.settings.remove(c.key)"
-                  class="text-slate-400 hover:text-red-600 dark:hover:text-red-400 p-1"
-                  :title="'Eliminar ' + c.key"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                </button>
+                <!-- Row 2: mensual + anual budget inputs -->
+                <div class="flex items-center gap-2 mt-1.5 text-xs">
+                  <span class="text-[10px] text-slate-500 w-10 text-right">Mensual</span>
+                  <div class="relative">
+                    <span class="absolute left-2 top-1 text-slate-400 text-[10px]">$</span>
+                    <input
+                      type="number"
+                      step="1"
+                      min="0"
+                      x-model.number="c.usd"
+                      @change="$store.settings.onMonthlyChange(c)"
+                      class="w-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded pl-5 pr-1 py-1 text-sm text-right focus:ring-1 focus:ring-slate-400"
+                    />
+                  </div>
+                  <span class="text-[10px] text-slate-500 w-8 text-right">Anual</span>
+                  <div class="relative">
+                    <span class="absolute left-2 top-1 text-slate-400 text-[10px]">$</span>
+                    <input
+                      type="number"
+                      step="1"
+                      min="0"
+                      x-model.number="c.annual_usd"
+                      class="w-24 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded pl-5 pr-1 py-1 text-sm text-right focus:ring-1 focus:ring-slate-400"
+                    />
+                  </div>
+                  <!-- Reset annual to 12× monthly helper -->
+                  <button
+                    @click="c.annual_usd = Math.round((Number(c.usd) || 0) * 12)"
+                    class="text-[10px] text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 px-1"
+                    title="Reset a 12× mensual"
+                  >12×</button>
+                </div>
               </div>
             </template>
           </div>
@@ -1879,6 +1939,11 @@ document.addEventListener('alpine:init', () => {
         icon: v.icon || '📦',
         label: v.label || key,
         usd: Number(v.usd) || 0,
+        // If annual_usd exists in the stored config, use it; otherwise default
+        // to 12× monthly. Migration 004 backfilled this for existing rows.
+        annual_usd: v.annual_usd != null
+          ? Number(v.annual_usd)
+          : Math.round((Number(v.usd) || 0) * 12),
         tipo: v.tipo || 'variable',
         parent: v.parent || '',
       }));
@@ -1908,11 +1973,26 @@ document.addEventListener('alpine:init', () => {
       return this.draftList.reduce((s, c) => s + (Number(c.usd) || 0), 0);
     },
 
+    get totalAnnual() {
+      return this.draftList.reduce((s, c) => s + (Number(c.annual_usd) || 0), 0);
+    },
+
+    get annualLimit() {
+      return (this.limit || 0) * 12;
+    },
+
     get statusMsg() {
       const diff = this.limit - this.totalAssigned;
       if (Math.abs(diff) < 1) return '✓ Ajustado al límite';
       if (diff > 0) return '✓ $' + Math.round(diff).toLocaleString('en-US') + ' USD libres';
       return '⚠ $' + Math.round(-diff).toLocaleString('en-US') + ' USD sobregirado';
+    },
+
+    get annualDelta() {
+      const diff = this.annualLimit - this.totalAnnual;
+      if (Math.abs(diff) < 1) return '✓ Ajustado al tope anual';
+      if (diff > 0) return '✓ $' + Math.round(diff).toLocaleString('en-US') + ' libres al año';
+      return '⚠ $' + Math.round(-diff).toLocaleString('en-US') + ' sobre tope anual';
     },
 
     get totalColor() {
@@ -1922,12 +2002,42 @@ document.addEventListener('alpine:init', () => {
       return 'text-emerald-600 dark:text-emerald-400';
     },
 
+    get annualColor() {
+      const diff = this.annualLimit - this.totalAnnual;
+      if (diff < 0) return 'text-red-600 dark:text-red-400';
+      if (diff < this.annualLimit * 0.02) return 'text-amber-600 dark:text-amber-400';
+      return 'text-emerald-600 dark:text-emerald-400';
+    },
+
     get totalBarColor() {
       const p = this.totalAssigned / this.limit;
       if (p > 1) return 'bg-red-500';
       if (p > 0.98) return 'bg-amber-500';
       if (p > 0.9) return 'bg-yellow-500';
       return 'bg-emerald-500';
+    },
+
+    get annualBarColor() {
+      const p = this.totalAnnual / (this.annualLimit || 1);
+      if (p > 1) return 'bg-red-500';
+      if (p > 0.98) return 'bg-amber-500';
+      if (p > 0.9) return 'bg-yellow-500';
+      return 'bg-emerald-500';
+    },
+
+    // When user edits the monthly budget, auto-sync the annual if it was at
+    // the default (12× monthly). If the user has customized annual away from
+    // the 12× formula, leave it alone.
+    onMonthlyChange(c) {
+      const previousMonthlyImplied = Math.round((Number(c.annual_usd) || 0) / 12);
+      // If the current annual is close to 12× of the OLD monthly, treat as
+      // "still at default" and re-sync to the new 12× monthly.
+      // We approximate "old monthly" by checking if annual_usd / 12 is near
+      // any round value — conservative: only re-sync if annual is exactly
+      // (annual_usd % 12 === 0 AND annual_usd/12 ≈ other values). Simpler:
+      // just let the user hit the "12×" button manually if they want to
+      // resync. No implicit re-syncing from here to avoid surprising them.
+      // This method is a placeholder for future smart-sync logic.
     },
 
     get parentOptions() {
@@ -1978,6 +2088,7 @@ document.addEventListener('alpine:init', () => {
       for (const c of this.draftList) {
         out[c.key] = {
           usd: Number(c.usd) || 0,
+          annual_usd: Number(c.annual_usd) || 0,
           tipo: c.tipo || 'variable',
           icon: c.icon || '📦',
           label: c.label || c.key,
@@ -2004,6 +2115,7 @@ document.addEventListener('alpine:init', () => {
         icon: '📦',
         label: key.charAt(0).toUpperCase() + key.slice(1),
         usd: 0,
+        annual_usd: 0,
         tipo: 'variable',
         parent: '',
       });
@@ -2050,6 +2162,14 @@ function dashboard() {
   return {
     month: '',
     months: [],
+    windowSize: 1,  // 1 | 3 | 6 | 12, or 'ytd'
+    windowOptions: [
+      { value: 1,  label: '1m',  title: 'Solo el mes activo' },
+      { value: 3,  label: '3m',  title: 'Últimos 3 meses (trimestre)' },
+      { value: 6,  label: '6m',  title: 'Últimos 6 meses (semestre)' },
+      { value: 12, label: '12m', title: 'Últimos 12 meses' },
+      { value: 'ytd', label: 'YTD', title: 'Año en curso hasta hoy' },
+    ],
     loading: false,
     error: null,
     userFilter: null,
@@ -2194,14 +2314,63 @@ function dashboard() {
       return [...new Set(out)];
     },
 
+    // Range = (from, to) resolved from the active month + windowSize.
+    // For windowSize = 1: from == to == this.month
+    // For windowSize = N > 1: to = this.month, from = this.month − (N-1) months
+    // For windowSize = 'ytd': from = YYYY-01 of this.month's year, to = this.month
+    get rangeBounds() {
+      if (!this.month) return { from: '', to: '', n: 1 };
+      const [y, m] = this.month.split('-').map(Number);
+      const ws = this.windowSize;
+      if (ws === 1) return { from: this.month, to: this.month, n: 1 };
+      if (ws === 'ytd') {
+        const from = `${y}-01`;
+        // n = m (number of months from jan through current)
+        return { from, to: this.month, n: m };
+      }
+      // Last N months ending at this.month (inclusive)
+      const startDate = new Date(y, m - 1 - (ws - 1), 1);
+      const from = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}`;
+      return { from, to: this.month, n: ws };
+    },
+
+    get rangeLabel() {
+      const b = this.rangeBounds;
+      if (b.from === b.to) return this.monthLabel;
+      const lf = this.months.find(x => x.value === b.from);
+      const lt = this.months.find(x => x.value === b.to);
+      const fromLabel = lf ? lf.shortLabel : b.from;
+      const toLabel = lt ? lt.shortLabel : b.to;
+      return fromLabel + ' → ' + toLabel;
+    },
+
+    monthIsInRange(mValue) {
+      const b = this.rangeBounds;
+      return mValue >= b.from && mValue <= b.to;
+    },
+
+    async selectWindow(value) {
+      if (this.windowSize === value) return;
+      this.windowSize = value;
+      await this.reload();
+    },
+
     async reload() {
       this.loading = true;
       this.error = null;
       try {
+        const b = this.rangeBounds;
+        // Build query: use ?from&to for ranges, ?month= for single-month
+        // (keeps server-side backwards-compat path warm).
+        const rangeQs = (b.from === b.to)
+          ? 'month=' + encodeURIComponent(b.to)
+          : 'from=' + encodeURIComponent(b.from) + '&to=' + encodeURIComponent(b.to);
+        // The expenses endpoint still takes month only — show the active month's
+        // expenses even when the gauge/aggregates use a wider window.
         const [sumR, expR, pnlR] = await Promise.all([
-          fetch('/api/summary?month=' + this.month),
-          fetch('/api/expenses?month=' + this.month + '&limit=500'),
-          fetch('/api/pnl?month=' + this.month),
+          fetch('/api/summary?' + rangeQs),
+          fetch('/api/expenses?month=' + encodeURIComponent(this.month) + '&limit=500'),
+          fetch('/api/pnl?' + rangeQs),
         ]);
         if (!sumR.ok) throw new Error('No se pudo cargar el resumen (' + sumR.status + ')');
         if (!expR.ok) throw new Error('No se pudo cargar el historial (' + expR.status + ')');

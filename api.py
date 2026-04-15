@@ -107,6 +107,43 @@ def _month_prefix(month: Optional[str]) -> str:
     return f"{now.year}-{now.month:02d}"
 
 
+def _resolve_range(
+    month: Optional[str],
+    frm: Optional[str],
+    to: Optional[str],
+) -> tuple[str, str, int]:
+    """Resolve a range specifier to (from_period, to_period, n_months).
+
+    Precedence:
+      1. If both `frm` and `to` are supplied → that's the range (inclusive).
+      2. Else if only `month` is supplied → single-month range (from == to).
+      3. Else → current month as a single-month range.
+
+    Returns a 3-tuple: (from YYYY-MM, to YYYY-MM, months_in_range_inclusive).
+    Raises HTTPException on bad input or inverted ranges.
+    """
+    import re as _re_local
+    PAT = _re_local.compile(r"^\d{4}-\d{2}$")
+
+    if frm or to:
+        if not (frm and to):
+            raise HTTPException(400, "'from' y 'to' deben ir los dos o ninguno")
+        if not PAT.match(frm) or not PAT.match(to):
+            raise HTTPException(400, f"rango inválido: {frm}..{to}")
+        if frm > to:
+            raise HTTPException(400, f"rango inválido: from ({frm}) > to ({to})")
+        pfrom, pto = frm, to
+    else:
+        pfrom = pto = _month_prefix(month)
+
+    fy, fm = int(pfrom[:4]), int(pfrom[5:7])
+    ty, tm = int(pto[:4]), int(pto[5:7])
+    n_months = (ty - fy) * 12 + (tm - fm) + 1
+    if n_months <= 0 or n_months > 36:
+        raise HTTPException(400, f"rango de {n_months} meses fuera de límites (1-36)")
+    return pfrom, pto, n_months
+
+
 def make_api_app() -> FastAPI:
     api = FastAPI(
         title="Expense Bot API",
@@ -198,14 +235,25 @@ def make_api_app() -> FastAPI:
         return {"count": len(rows), "expenses": rows}
 
     @api.get("/api/summary")
-    def get_summary(month: Optional[str] = Query(None)):
-        """Month summary — totals, % of budget, per-category, per-user."""
-        prefix = _month_prefix(month)
+    def get_summary(
+        month: Optional[str] = Query(None),
+        frm: Optional[str] = Query(None, alias="from"),
+        to: Optional[str] = Query(None),
+    ):
+        """Summary for a month or a range of months.
+
+        - Single month (backward-compat): pass `month=YYYY-MM`
+        - Range: pass `from=YYYY-MM&to=YYYY-MM` (both inclusive)
+        - Nothing → current month
+        All per-category / global budgets are PRORATED to the window size:
+        a 3-month range compares vs `monthly_budget * 3`.
+        """
+        pfrom, pto, n_months = _resolve_range(month, frm, to)
         rows = _query_all(
             "SELECT user_name, fecha, monto_cop, monto_usd, categoria, "
             "COALESCE(metodo_pago, 'Sin especificar') AS metodo_pago "
-            "FROM expenses WHERE fecha LIKE ?",
-            (f"{prefix}%",),
+            "FROM expenses WHERE substr(fecha, 1, 7) BETWEEN ? AND ?",
+            (pfrom, pto),
         )
         total_usd = sum(r["monto_usd"] for r in rows)
         total_cop = sum(r["monto_cop"] for r in rows)
@@ -213,13 +261,15 @@ def make_api_app() -> FastAPI:
         for r in rows:
             cat = r["categoria"]
             cat_info = bot.BUDGET.get(cat, {"usd": 0, "icon": "📦", "label": cat})
+            monthly_budget = cat_info.get("usd", 0)
             slot = by_cat.setdefault(
                 cat,
                 {
                     "categoria": cat,
                     "icon": cat_info.get("icon", "📦"),
                     "label": cat_info.get("label", cat),
-                    "budget_usd": cat_info.get("usd", 0),
+                    "monthly_budget_usd": monthly_budget,
+                    "budget_usd": monthly_budget * n_months,  # prorated
                     "spent_usd": 0,
                     "count": 0,
                 },
@@ -237,13 +287,20 @@ def make_api_app() -> FastAPI:
             slot["spent_usd"] += r["monto_usd"]
             slot["count"] += 1
 
+        # Global budget is prorated across the window
+        budget_limit = bot.BUDGET_LIMIT_USD * n_months
+
         return {
-            "month": prefix,
-            "budget_limit_usd": bot.BUDGET_LIMIT_USD,
+            "month": pto,  # legacy field — points at the end of the window
+            "from": pfrom,
+            "to": pto,
+            "n_months": n_months,
+            "monthly_budget_limit_usd": bot.BUDGET_LIMIT_USD,
+            "budget_limit_usd": budget_limit,
             "total_usd": round(total_usd, 2),
             "total_cop": round(total_cop, 0),
-            "pct_of_budget": round(total_usd / bot.BUDGET_LIMIT_USD, 4) if bot.BUDGET_LIMIT_USD else 0,
-            "available_usd": round(bot.BUDGET_LIMIT_USD - total_usd, 2),
+            "pct_of_budget": round(total_usd / budget_limit, 4) if budget_limit else 0,
+            "available_usd": round(budget_limit - total_usd, 2),
             "count": len(rows),
             "categories": categories,
             "by_user": list(by_user.values()),
@@ -611,16 +668,22 @@ def make_api_app() -> FastAPI:
     # ──────────────── P&L — THE main view ────────────────
 
     @api.get("/api/pnl")
-    def get_pnl(month: Optional[str] = Query(None)):
-        """Consolidated P&L for a month: income (from income_entries) vs
-        expenses (from expenses table). Uses the period's historical rates
-        if available, otherwise current globals.
+    def get_pnl(
+        month: Optional[str] = Query(None),
+        frm: Optional[str] = Query(None, alias="from"),
+        to: Optional[str] = Query(None),
+    ):
+        """Consolidated P&L for a month or a range of months.
+
+        - Single month: pass `month=YYYY-MM` (backward compatible)
+        - Range:        pass `from=YYYY-MM&to=YYYY-MM` (inclusive on both ends)
+        - Expense budget is PRORATED to the window (monthly × n_months).
         """
-        period = _month_prefix(month)
+        pfrom, pto, n_months = _resolve_range(month, frm, to)
         conn = sqlite3.connect(bot.DB_PATH)
         conn.row_factory = sqlite3.Row
         try:
-            # Income side
+            # Income side — range query on period
             income_rows = conn.execute(
                 "SELECT e.source_key, "
                 "  COALESCE(s.label, e.source_key) AS label, "
@@ -629,10 +692,10 @@ def make_api_app() -> FastAPI:
                 "  COUNT(*) AS n "
                 "FROM income_entries e "
                 "LEFT JOIN income_sources s ON e.source_key = s.key "
-                "WHERE e.period = ? "
+                "WHERE e.period BETWEEN ? AND ? "
                 "GROUP BY e.source_key, s.label, s.icon "
                 "ORDER BY total_usd DESC",
-                (period,),
+                (pfrom, pto),
             ).fetchall()
             income_by_source = [
                 {
@@ -646,34 +709,42 @@ def make_api_app() -> FastAPI:
             ]
             income_total = round(sum(r["total_usd"] for r in income_by_source), 2)
 
-            # Expenses side — use stored monto_usd (historical)
+            # Expenses — range query on fecha's month substring
             exp_rows = conn.execute(
                 "SELECT categoria, SUM(monto_usd) AS total_usd, COUNT(*) AS n "
-                "FROM expenses WHERE fecha LIKE ? GROUP BY categoria "
-                "ORDER BY total_usd DESC",
-                (f"{period}%",),
+                "FROM expenses WHERE substr(fecha, 1, 7) BETWEEN ? AND ? "
+                "GROUP BY categoria ORDER BY total_usd DESC",
+                (pfrom, pto),
             ).fetchall()
             expense_by_cat = []
             for r in exp_rows:
                 cat = r["categoria"]
                 info = bot.BUDGET.get(cat, {})
+                monthly_budget = info.get("usd", 0) or 0
                 expense_by_cat.append({
                     "categoria": cat,
                     "label": info.get("label", cat),
                     "icon": info.get("icon", "📦"),
-                    "budget_usd": info.get("usd", 0),
+                    "monthly_budget_usd": monthly_budget,
+                    "budget_usd": monthly_budget * n_months,  # prorated
                     "total_usd": round(float(r["total_usd"] or 0), 2),
                     "count": r["n"],
                 })
             expense_total = round(sum(c["total_usd"] for c in expense_by_cat), 2)
 
-            rates = _rates_for_period(conn, period)
+            # Rates: use the TO-period's historical rates as the reference
+            rates = _rates_for_period(conn, pto)
 
             net = round(income_total - expense_total, 2)
             pct_of_income = round(net / income_total, 4) if income_total > 0 else None
 
+            budget_limit = bot.BUDGET_LIMIT_USD * n_months
+
             return {
-                "month": period,
+                "month": pto,  # legacy: points at the end of the window
+                "from": pfrom,
+                "to": pto,
+                "n_months": n_months,
                 "rates": rates,
                 "income": {
                     "total_usd": income_total,
@@ -682,7 +753,8 @@ def make_api_app() -> FastAPI:
                 "expenses": {
                     "total_usd": expense_total,
                     "by_category": expense_by_cat,
-                    "budget_limit_usd": bot.BUDGET_LIMIT_USD,
+                    "budget_limit_usd": budget_limit,
+                    "monthly_budget_limit_usd": bot.BUDGET_LIMIT_USD,
                 },
                 "net": {
                     "usd": net,
@@ -721,11 +793,23 @@ def make_api_app() -> FastAPI:
                 raise HTTPException(400, f"categoría {key}: 'usd' debe ser numérico")
             if usd < 0:
                 raise HTTPException(400, f"categoría {key}: 'usd' debe ser ≥ 0")
+            # Annual budget: default to 12× monthly if not explicitly provided
+            raw_annual = info.get("annual_usd")
+            if raw_annual is None or raw_annual == "":
+                annual = round(usd * 12, 2)
+            else:
+                try:
+                    annual = float(raw_annual)
+                except (TypeError, ValueError):
+                    raise HTTPException(400, f"categoría {key}: 'annual_usd' debe ser numérico")
+                if annual < 0:
+                    raise HTTPException(400, f"categoría {key}: 'annual_usd' debe ser ≥ 0")
             parent = info.get("parent")
             if parent == "":
                 parent = None
             cleaned[key] = {
                 "usd": usd,
+                "annual_usd": annual,
                 "tipo": (info.get("tipo") or "variable"),
                 "icon": (info.get("icon") or "📦"),
                 "label": (info.get("label") or key.title()),
