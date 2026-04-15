@@ -13,18 +13,26 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 import sqlite3
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 
 # Importing bot gives us access to DB_PATH and the live config dicts
 # (BUDGET, PAYMENT_METHODS, TRM, BOB_RATE, AED_RATE, BUDGET_LIMIT_USD) without
 # re-reading the config table on every request. It also means bot.py is the
 # single source of truth for schema and config — api.py is a thin wrapper.
 import bot
+
+STATIC_DIR = Path(os.environ.get("STATIC_DIR", "/app/static"))
+if not STATIC_DIR.exists():
+    # Local dev fallback — api.py is in the repo root, static/ sibling.
+    STATIC_DIR = Path(__file__).parent / "static"
 
 
 def _query_all(sql: str, params: tuple = ()) -> list[dict]:
@@ -246,5 +254,26 @@ def make_api_app() -> FastAPI:
                 "Content-Disposition": f'attachment; filename="gastos_{prefix.replace("-", "_")}.csv"'
             },
         )
+
+    # ──────────────── Static frontend ────────────────
+    # Serve index.html at / and any other static assets under /static/*.
+    # Keeping these AFTER the /api/* routes above ensures they don't shadow
+    # the JSON API.
+    index_file = STATIC_DIR / "index.html"
+
+    @api.get("/", include_in_schema=False)
+    def root():
+        if not index_file.exists():
+            raise HTTPException(500, f"index.html missing at {index_file}")
+        return FileResponse(index_file)
+
+    # /favicon.ico is served inline as a data URI in index.html, but browsers
+    # still hit this path — return 204 so we don't spam logs with 404s.
+    @api.get("/favicon.ico", include_in_schema=False)
+    def favicon():
+        return JSONResponse(content=None, status_code=204)
+
+    if STATIC_DIR.exists():
+        api.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
     return api

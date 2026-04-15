@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="es" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#020617">
+<title>Gastos GG</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%92%B0%3C/text%3E%3C/svg%3E">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['system-ui', '-apple-system', 'Inter', 'sans-serif'],
+        },
+      },
+    },
+  };
+</script>
+<script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+<style>
+  html, body { background: #020617; }
+  body { -webkit-font-smoothing: antialiased; }
+  [x-cloak] { display: none !important; }
+  .bar { transition: width .35s cubic-bezier(.4,0,.2,1); }
+  .fade { animation: fade .25s ease-out; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  /* scrollbar polish for the history list */
+  .scroll-area::-webkit-scrollbar { width: 6px; }
+  .scroll-area::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+</style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen">
+
+<div
+  x-data="dashboard()"
+  x-init="init()"
+  x-cloak
+  class="max-w-xl mx-auto px-4 pt-6 pb-16"
+>
+
+  <!-- ──────────────── Header ──────────────── -->
+  <header class="flex items-center justify-between mb-5">
+    <div>
+      <h1 class="text-xl font-bold tracking-tight">💰 Gastos GG</h1>
+      <p class="text-xs text-slate-500">González-Guevara · Budget familiar</p>
+    </div>
+    <div class="flex items-center gap-2">
+      <button
+        @click="reload()"
+        :disabled="loading"
+        class="text-slate-400 hover:text-slate-200 disabled:opacity-30 transition p-2"
+        title="Recargar"
+        aria-label="Recargar"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="loading && 'animate-spin'"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+      </button>
+      <select
+        x-model="month"
+        @change="reload()"
+        class="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-slate-600"
+      >
+        <template x-for="m in months" :key="m.value">
+          <option :value="m.value" x-text="m.label"></option>
+        </template>
+      </select>
+    </div>
+  </header>
+
+  <!-- ──────────────── Error state ──────────────── -->
+  <div
+    x-show="error"
+    class="bg-red-950/50 border border-red-900 rounded-xl p-3 mb-4 text-sm text-red-300"
+    x-text="error"
+  ></div>
+
+  <!-- ──────────────── Overall gauge ──────────────── -->
+  <section class="bg-slate-900 border border-slate-800 rounded-2xl p-5 mb-4 fade">
+    <div class="flex items-start justify-between">
+      <div>
+        <div class="text-xs text-slate-500 uppercase tracking-wide" x-text="monthLabel"></div>
+        <div class="text-3xl font-bold mt-1">
+          <span x-text="fmtUsd(summary.total_usd)"></span>
+          <span class="text-base text-slate-500 font-medium">/ <span x-text="fmtUsd(summary.budget_limit_usd)"></span></span>
+        </div>
+        <div class="text-xs text-slate-500 mt-0.5" x-text="fmtCop(summary.total_cop) + ' COP'"></div>
+      </div>
+      <div class="text-right">
+        <div class="text-3xl font-bold" :class="gaugeTextColor" x-text="(Math.round(pct * 100)) + '%'"></div>
+        <div class="text-xs mt-0.5" :class="paceColor" x-text="paceLabel"></div>
+      </div>
+    </div>
+
+    <!-- Progress bar -->
+    <div class="mt-4 w-full bg-slate-800/80 rounded-full h-3 overflow-hidden">
+      <div
+        class="h-full rounded-full bar"
+        :class="gaugeBarColor"
+        :style="'width:' + Math.min(Math.max(pct, 0) * 100, 100) + '%'"
+      ></div>
+    </div>
+
+    <!-- Footer row -->
+    <div class="flex justify-between text-xs mt-3 text-slate-500">
+      <span>
+        Disponible
+        <span class="text-slate-300 font-medium" x-text="fmtUsd(summary.available_usd)"></span>
+      </span>
+      <span x-show="daysLeft > 0">
+        <span x-text="daysLeft"></span> días →
+        <span class="text-slate-300 font-medium" x-text="fmtUsd(perDay)"></span>/día
+      </span>
+    </div>
+  </section>
+
+  <!-- ──────────────── Per user ──────────────── -->
+  <section class="grid grid-cols-2 gap-3 mb-4" x-show="summary.by_user && summary.by_user.length">
+    <template x-for="u in summary.by_user" :key="u.user">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 fade">
+        <div class="text-xs text-slate-500 uppercase tracking-wide" x-text="u.user"></div>
+        <div class="text-xl font-bold mt-1" x-text="fmtUsd(u.spent_usd)"></div>
+        <div class="text-xs text-slate-500 mt-0.5">
+          <span x-text="u.count"></span> gastos
+        </div>
+      </div>
+    </template>
+  </section>
+
+  <!-- ──────────────── Empty state ──────────────── -->
+  <section
+    x-show="!loading && summary.count === 0"
+    class="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center mb-4"
+  >
+    <div class="text-4xl mb-2">🪙</div>
+    <div class="text-sm text-slate-400">No hay gastos registrados en <span x-text="monthLabel"></span></div>
+    <div class="text-xs text-slate-600 mt-1">Abre Telegram y registra uno con <code class="text-slate-500">@gastos_gg_bot</code></div>
+  </section>
+
+  <!-- ──────────────── Categories ──────────────── -->
+  <section
+    x-show="summary.categories && summary.categories.length"
+    class="bg-slate-900 border border-slate-800 rounded-2xl p-5 mb-4 fade"
+  >
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-sm font-semibold text-slate-300">Categorías con gasto</h2>
+      <span class="text-xs text-slate-600"><span x-text="summary.categories.length"></span> activas</span>
+    </div>
+    <div class="space-y-3">
+      <template x-for="c in summary.categories" :key="c.categoria">
+        <div>
+          <div class="flex justify-between text-sm">
+            <span class="truncate min-w-0 mr-2">
+              <span x-text="c.icon"></span>
+              <span class="font-medium" x-text="c.label"></span>
+              <span class="text-slate-600 text-xs" x-text="' · ' + c.count + (c.count === 1 ? ' gasto' : ' gastos')"></span>
+            </span>
+            <span class="whitespace-nowrap">
+              <span class="font-semibold" x-text="fmtUsd(c.spent_usd)"></span>
+              <span class="text-slate-600 text-xs" x-show="c.budget_usd > 0">
+                / <span x-text="fmtUsd(c.budget_usd)"></span>
+              </span>
+            </span>
+          </div>
+          <div
+            class="mt-1.5 w-full bg-slate-800/80 rounded-full h-1.5 overflow-hidden"
+            x-show="c.budget_usd > 0"
+          >
+            <div
+              class="h-full rounded-full bar"
+              :class="catBarColor(c.pct_of_budget)"
+              :style="'width:' + Math.min((c.pct_of_budget || 0) * 100, 100) + '%'"
+            ></div>
+          </div>
+          <!-- No budget defined: just a hint line -->
+          <div
+            class="mt-1 text-[10px] text-slate-600 italic"
+            x-show="!c.budget_usd"
+          >sin presupuesto asignado</div>
+        </div>
+      </template>
+    </div>
+  </section>
+
+  <!-- ──────────────── History ──────────────── -->
+  <section class="bg-slate-900 border border-slate-800 rounded-2xl p-5 mb-4 fade" x-show="expenses.length">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-sm font-semibold text-slate-300">Movimientos</h2>
+      <a
+        :href="'/api/export/csv?month=' + month"
+        class="text-xs bg-slate-800 hover:bg-slate-700 rounded-lg px-3 py-1.5 text-slate-300 transition"
+        download
+      >📁 CSV</a>
+    </div>
+
+    <!-- Filters -->
+    <div class="flex gap-2 mb-3 text-xs">
+      <button
+        @click="userFilter = null"
+        :class="userFilter === null ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400'"
+        class="px-2.5 py-1 rounded-md"
+      >Todos</button>
+      <template x-for="u in uniqueUsers" :key="u">
+        <button
+          @click="userFilter = u"
+          :class="userFilter === u ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400'"
+          class="px-2.5 py-1 rounded-md"
+          x-text="u"
+        ></button>
+      </template>
+    </div>
+
+    <!-- Rows -->
+    <div class="divide-y divide-slate-800/80 max-h-[28rem] overflow-y-auto scroll-area -mx-1 px-1">
+      <template x-for="e in filteredExpenses" :key="e.id">
+        <div class="py-2.5 flex items-start gap-3">
+          <div class="text-lg leading-none pt-0.5" x-text="catIcon(e.categoria)"></div>
+          <div class="flex-1 min-w-0">
+            <div class="flex justify-between items-baseline gap-2">
+              <span class="font-medium truncate" x-text="catLabel(e.categoria)"></span>
+              <span class="font-semibold whitespace-nowrap text-sm" x-text="fmtUsd(e.monto_usd)"></span>
+            </div>
+            <div class="text-[11px] text-slate-500 flex justify-between gap-2">
+              <span class="truncate">
+                <span x-text="formatDate(e.fecha)"></span>
+                · <span x-text="e.user_name"></span>
+                <span x-show="e.nota" x-text="' · ' + e.nota"></span>
+              </span>
+              <span class="whitespace-nowrap truncate max-w-[8rem]" x-text="e.metodo_pago" :title="e.metodo_pago"></span>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <div class="text-[11px] text-slate-600 mt-3 text-center" x-show="filteredExpenses.length">
+      <span x-text="filteredExpenses.length"></span> de <span x-text="expenses.length"></span> gastos
+    </div>
+  </section>
+
+  <!-- ──────────────── Footer ──────────────── -->
+  <footer class="text-center text-[11px] text-slate-700 mt-8 space-y-1">
+    <div>@gastos_gg_bot · TRM <span x-text="rates.TRM"></span> · BOB <span x-text="rates.BOB_RATE"></span> · AED <span x-text="rates.AED_RATE"></span></div>
+    <div class="text-slate-800">v8 · <span x-text="summary.budget_limit_usd ? '$' + summary.budget_limit_usd + ' USD/mes' : ''"></span></div>
+  </footer>
+</div>
+
+<script>
+function dashboard() {
+  return {
+    month: '',
+    months: [],
+    loading: false,
+    error: null,
+    userFilter: null,
+    summary: {
+      month: '',
+      total_usd: 0,
+      total_cop: 0,
+      budget_limit_usd: 5000,
+      pct_of_budget: 0,
+      available_usd: 5000,
+      count: 0,
+      categories: [],
+      by_user: [],
+    },
+    expenses: [],
+    budget: {},      // cat → {usd, icon, label}
+    rates: { TRM: 3700, BOB_RATE: 9.20, AED_RATE: 3.67 },
+
+    async init() {
+      // Build month selector (last 12 months, starting with current)
+      const now = new Date();
+      for (let i = 0; i < 12; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+        const label = d.toLocaleDateString('es-CO', { month: 'long', year: 'numeric' });
+        this.months.push({ value, label: label.charAt(0).toUpperCase() + label.slice(1) });
+      }
+      this.month = this.months[0].value;
+
+      // Fetch global config once (budget + rates)
+      try {
+        const [budgetResp, ratesResp] = await Promise.all([
+          fetch('/api/budget'),
+          fetch('/api/rates'),
+        ]);
+        if (budgetResp.ok) this.budget = (await budgetResp.json()).categories || {};
+        if (ratesResp.ok) this.rates = await ratesResp.json();
+      } catch (e) {
+        /* non-fatal — dashboard still works with fallback icons/labels */
+      }
+
+      await this.reload();
+    },
+
+    async reload() {
+      this.loading = true;
+      this.error = null;
+      try {
+        const [sumR, expR] = await Promise.all([
+          fetch('/api/summary?month=' + this.month),
+          fetch('/api/expenses?month=' + this.month + '&limit=500'),
+        ]);
+        if (!sumR.ok) throw new Error('No se pudo cargar el resumen (' + sumR.status + ')');
+        if (!expR.ok) throw new Error('No se pudo cargar el historial (' + expR.status + ')');
+        this.summary = await sumR.json();
+        this.expenses = (await expR.json()).expenses || [];
+      } catch (e) {
+        this.error = e.message || String(e);
+        console.error(e);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    // ── Computed ─────────────────────────────────
+
+    get pct() {
+      return this.summary.pct_of_budget || 0;
+    },
+
+    get monthLabel() {
+      const m = this.months.find(x => x.value === this.month);
+      return m ? m.label : this.month;
+    },
+
+    get daysLeft() {
+      if (!this.month) return 0;
+      const [y, m] = this.month.split('-').map(Number);
+      const now = new Date();
+      // Only show days remaining if we're looking at the current month
+      if (now.getFullYear() !== y || now.getMonth() + 1 !== m) return 0;
+      const lastDay = new Date(y, m, 0).getDate();
+      return lastDay - now.getDate();
+    },
+
+    get perDay() {
+      if (this.daysLeft <= 0) return 0;
+      return (this.summary.available_usd || 0) / this.daysLeft;
+    },
+
+    get paceLabel() {
+      if (!this.daysLeft) return '';
+      const [y, m] = this.month.split('-').map(Number);
+      const lastDay = new Date(y, m, 0).getDate();
+      const now = new Date();
+      const idealPct = now.getDate() / lastDay;
+      if (this.pct > idealPct + 0.1) return '⚡ Vas rápido';
+      if (this.pct < idealPct - 0.1) return '✨ Buen ritmo';
+      return '👌 En línea';
+    },
+
+    get paceColor() {
+      if (!this.daysLeft) return 'text-slate-600';
+      const [y, m] = this.month.split('-').map(Number);
+      const lastDay = new Date(y, m, 0).getDate();
+      const now = new Date();
+      const idealPct = now.getDate() / lastDay;
+      if (this.pct > idealPct + 0.1) return 'text-amber-400';
+      if (this.pct < idealPct - 0.1) return 'text-emerald-400';
+      return 'text-slate-500';
+    },
+
+    get gaugeTextColor() {
+      if (this.pct > 1) return 'text-red-400';
+      if (this.pct > 0.9) return 'text-amber-400';
+      return 'text-emerald-400';
+    },
+
+    get gaugeBarColor() {
+      if (this.pct > 1) return 'bg-red-500';
+      if (this.pct > 0.9) return 'bg-amber-500';
+      if (this.pct > 0.75) return 'bg-yellow-500';
+      return 'bg-emerald-500';
+    },
+
+    get uniqueUsers() {
+      const s = new Set();
+      for (const e of this.expenses) if (e.user_name) s.add(e.user_name);
+      return [...s];
+    },
+
+    get filteredExpenses() {
+      if (!this.userFilter) return this.expenses;
+      return this.expenses.filter(e => e.user_name === this.userFilter);
+    },
+
+    // ── Helpers ─────────────────────────────────
+
+    catBarColor(pct) {
+      if (pct == null) return 'bg-slate-700';
+      if (pct > 1) return 'bg-red-500';
+      if (pct > 0.9) return 'bg-amber-500';
+      if (pct > 0.75) return 'bg-yellow-500';
+      return 'bg-emerald-500';
+    },
+
+    catIcon(cat) {
+      return (this.budget[cat] && this.budget[cat].icon) || '📦';
+    },
+
+    catLabel(cat) {
+      return (this.budget[cat] && this.budget[cat].label) || cat;
+    },
+
+    fmtUsd(v) {
+      if (v == null || isNaN(v)) return '$0';
+      return '$' + Math.round(v).toLocaleString('en-US');
+    },
+
+    fmtCop(v) {
+      if (v == null || isNaN(v)) return '$0';
+      return '$' + Math.round(v).toLocaleString('de-DE');
+    },
+
+    formatDate(s) {
+      if (!s) return '';
+      // s is YYYY-MM-DD; show as "DD mmm"
+      const [y, m, d] = s.split('-');
+      const months = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+      return d + ' ' + (months[parseInt(m, 10) - 1] || m);
+    },
+  };
+}
+</script>
+</body>
+</html>
