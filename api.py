@@ -36,6 +36,54 @@ if not STATIC_DIR.exists():
     STATIC_DIR = Path(__file__).parent / "static"
 
 
+# ──────────────── Pydantic models (module level) ────────────────
+# IMPORTANT: these MUST live at module level, not nested inside
+# make_api_app(). Otherwise FastAPI's type resolution — which goes
+# through typing.get_type_hints() and only looks at module globals —
+# can't find them, and falls back to treating the parameter as a
+# primitive query param. That's why an earlier refactor where these
+# were nested caused POST/PUT bodies to be rejected with
+# `loc: ["query", "<param>"]` errors.
+
+class ExpenseUpdate(BaseModel):
+    monto_cop: Optional[float] = None
+    monto_usd: Optional[float] = None
+    fecha: Optional[str] = None
+    categoria: Optional[str] = None
+    nota: Optional[str] = None
+    metodo_pago: Optional[str] = None
+
+
+class RatesUpdate(BaseModel):
+    TRM: float
+    BOB_RATE: float
+    AED_RATE: float
+
+
+class IncomeSourceCreate(BaseModel):
+    key: str
+    label: str
+    icon: Optional[str] = "💰"
+    currency: Optional[str] = "USD"
+    expected_usd: Optional[float] = 0.0
+    active: Optional[int] = 1
+
+
+class IncomeEntryCreate(BaseModel):
+    source_key: str
+    period: str  # YYYY-MM
+    fecha: Optional[str] = None  # YYYY-MM-DD
+    monto: float
+    currency: str
+    nota: Optional[str] = ""
+
+
+class RatesHistoryUpdate(BaseModel):
+    TRM: float
+    BOB_RATE: float
+    AED_RATE: float
+
+
 def _query_all(sql: str, params: tuple = ()) -> list[dict]:
     """Run a SELECT against the expenses DB and return list of dicts."""
     conn = sqlite3.connect(bot.DB_PATH)
@@ -280,14 +328,6 @@ def make_api_app() -> FastAPI:
         finally:
             conn.close()
 
-    class IncomeSourceCreate(BaseModel):
-        key: str
-        label: str
-        icon: Optional[str] = "💰"
-        currency: Optional[str] = "USD"
-        expected_usd: Optional[float] = 0.0
-        active: Optional[int] = 1
-
     @api.post("/api/income/sources")
     def create_income_source(src: IncomeSourceCreate):
         if not _VALID_KEY.match(src.key):
@@ -379,14 +419,6 @@ def make_api_app() -> FastAPI:
             return {"month": period, "entries": [dict(r) for r in rows]}
         finally:
             conn.close()
-
-    class IncomeEntryCreate(BaseModel):
-        source_key: str
-        period: str  # YYYY-MM
-        fecha: Optional[str] = None  # YYYY-MM-DD
-        monto: float
-        currency: str
-        nota: Optional[str] = ""
 
     @api.post("/api/income/entries")
     def create_income_entry(entry: IncomeEntryCreate):
@@ -520,11 +552,6 @@ def make_api_app() -> FastAPI:
             return {"period": period, "rates": rates, "is_historical": has_row}
         finally:
             conn.close()
-
-    class RatesHistoryUpdate(BaseModel):
-        TRM: float
-        BOB_RATE: float
-        AED_RATE: float
 
     @api.put("/api/rates/history/{period}")
     def update_rates_history(period: str, rates: RatesHistoryUpdate):
@@ -742,11 +769,6 @@ def make_api_app() -> FastAPI:
             "total_usd": round(sum(v["usd"] for v in cleaned.values()), 2),
         }
 
-    class RatesUpdate(BaseModel):
-        TRM: float
-        BOB_RATE: float
-        AED_RATE: float
-
     @api.put("/api/rates")
     def update_rates(rates: RatesUpdate):
         if rates.TRM <= 0 or rates.BOB_RATE <= 0 or rates.AED_RATE <= 0:
@@ -795,14 +817,6 @@ def make_api_app() -> FastAPI:
         return {"ok": True, "groups": len(cleaned)}
 
     # ──────────────── Write endpoints: expenses ────────────────
-
-    class ExpenseUpdate(BaseModel):
-        monto_cop: Optional[float] = None
-        monto_usd: Optional[float] = None
-        fecha: Optional[str] = None
-        categoria: Optional[str] = None
-        nota: Optional[str] = None
-        metodo_pago: Optional[str] = None
 
     @api.put("/api/expenses/{expense_id}")
     def update_expense(expense_id: int, update: ExpenseUpdate):
