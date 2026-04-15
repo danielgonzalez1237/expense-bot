@@ -228,38 +228,84 @@
     </div>
   </section>
 
-  <!-- ──────────────── Overall gauge ──────────────── -->
+  <!-- ──────────────── Overall gauge — dual reference (Ideal + Configurado) ──────────────── -->
   <section class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm">
+    <!-- Top row: month label + big total spent + pace -->
     <div class="flex items-start justify-between">
       <div>
         <div class="text-xs text-slate-500 uppercase tracking-wide">
           <span x-text="windowSize === 1 ? monthLabel : rangeLabel"></span>
           <span x-show="windowSize !== 1" class="text-sky-600 dark:text-sky-400 font-semibold ml-1">(<span x-text="summary.n_months || 1"></span>m)</span>
         </div>
-        <div class="text-3xl font-bold mt-1">
-          <span x-text="fmtUsd(summary.total_usd)"></span>
-          <span class="text-base text-slate-400 dark:text-slate-500 font-medium">/ <span x-text="fmtUsd(summary.budget_limit_usd)"></span></span>
-        </div>
+        <div class="text-3xl font-bold mt-1" x-text="fmtUsd(summary.total_usd)"></div>
         <div class="text-xs text-slate-500 mt-0.5" x-text="fmtCop(summary.total_cop) + ' COP'"></div>
       </div>
       <div class="text-right">
-        <div class="text-3xl font-bold" :class="gaugeTextColor" x-text="(Math.round(pct * 100)) + '%'"></div>
-        <div class="text-xs mt-0.5" :class="paceColor" x-text="windowSize === 1 ? paceLabel : ''"></div>
+        <div class="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600 font-semibold">Ritmo</div>
+        <div class="text-xs mt-0.5" :class="paceColor" x-text="windowSize === 1 ? paceLabel : '—'"></div>
       </div>
     </div>
 
-    <div class="mt-4 w-full bg-slate-100 dark:bg-slate-800/80 rounded-full h-3 overflow-hidden">
-      <div
-        class="h-full rounded-full bar"
-        :class="gaugeBarColor"
-        :style="'width:' + Math.min(Math.max(pct, 0) * 100, 100) + '%'"
-      ></div>
+    <!-- Two mini gauges side by side -->
+    <div class="grid grid-cols-2 gap-3 mt-4">
+      <!-- 🎯 IDEAL — lifestyle cap ($5,000/mo fixed) × n_months -->
+      <div class="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-3 border border-slate-200 dark:border-slate-800">
+        <div class="flex items-baseline justify-between mb-1.5">
+          <div class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">🎯 Ideal</div>
+          <div class="text-lg font-bold" :class="idealTextColor" x-text="Math.round(pctIdeal * 100) + '%'"></div>
+        </div>
+        <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+          <div
+            class="h-full rounded-full bar"
+            :class="catBarColor(pctIdeal)"
+            :style="'width:' + Math.min(Math.max(pctIdeal, 0) * 100, 100) + '%'"
+          ></div>
+        </div>
+        <div class="text-[10px] text-slate-500 mt-1 flex justify-between">
+          <span x-text="fmtUsd(summary.budget_limit_usd) + ' tope'"></span>
+          <span :class="idealTextColor">
+            <span x-show="pctIdeal <= 1">libre <span x-text="fmtUsd(summary.budget_limit_usd - summary.total_usd)"></span></span>
+            <span x-show="pctIdeal > 1">sobre <span x-text="fmtUsd(summary.total_usd - summary.budget_limit_usd)"></span></span>
+          </span>
+        </div>
+      </div>
+
+      <!-- ⚙️ CONFIGURADO — sum of all configured category budgets for the window -->
+      <div class="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-3 border border-slate-200 dark:border-slate-800">
+        <div class="flex items-baseline justify-between mb-1.5">
+          <div class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">⚙️ Configurado</div>
+          <div
+            class="text-lg font-bold"
+            :class="configuredTextColor"
+            x-text="configuredBudget > 0 ? Math.round(pctConfigured * 100) + '%' : '—'"
+          ></div>
+        </div>
+        <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+          <div
+            class="h-full rounded-full bar"
+            :class="catBarColor(pctConfigured)"
+            :style="'width:' + Math.min(Math.max(pctConfigured, 0) * 100, 100) + '%'"
+          ></div>
+        </div>
+        <div class="text-[10px] text-slate-500 mt-1 flex justify-between">
+          <span x-show="configuredBudget > 0" x-text="fmtUsd(configuredBudget) + ' plan'"></span>
+          <span x-show="configuredBudget === 0" class="italic">sin configurar</span>
+          <span x-show="configuredBudget > 0" :class="configuredTextColor">
+            <span x-show="pctConfigured <= 1">libre <span x-text="fmtUsd(configuredBudget - summary.total_usd)"></span></span>
+            <span x-show="pctConfigured > 1">sobre <span x-text="fmtUsd(summary.total_usd - configuredBudget)"></span></span>
+          </span>
+        </div>
+      </div>
     </div>
 
+    <!-- Days remaining context -->
     <div class="flex justify-between text-xs mt-3 text-slate-500">
-      <span>
-        Disponible
-        <span class="text-slate-900 dark:text-slate-100 font-medium" x-text="fmtUsd(summary.available_usd)"></span>
+      <span x-show="configuredBudget === 0">
+        <span class="italic text-slate-400 dark:text-slate-600">Define budgets en ⚙️ para ver tu plan</span>
+      </span>
+      <span x-show="configuredBudget > 0">
+        Cobertura del ideal:
+        <span class="text-slate-900 dark:text-slate-100 font-medium" x-text="Math.round((configuredBudget / (summary.budget_limit_usd || 1)) * 100) + '%'"></span>
       </span>
       <span x-show="daysLeft > 0">
         <span x-text="daysLeft"></span> días →
@@ -2700,6 +2746,49 @@ function dashboard() {
       if (this.pct > 0.9) return 'bg-amber-500';
       if (this.pct > 0.75) return 'bg-yellow-500';
       return 'bg-emerald-500';
+    },
+
+    // ── Dual reference gauges: Ideal (lifestyle cap) vs Configurado (user's plan)
+
+    // The ideal cap from the backend: BUDGET_LIMIT_USD × n_months.
+    // summary.budget_limit_usd already includes the window proration.
+    get idealBudget() {
+      return Number(this.summary && this.summary.budget_limit_usd) || 0;
+    },
+
+    // The user-configured total: sum of all effective per-category budgets
+    // across the window. Comes from the backend and already honors per-month
+    // overrides (budget_history) + the parents-zeroed-when-they-have-subs rule.
+    get configuredBudget() {
+      return Number(this.summary && this.summary.effective_total_budget_usd) || 0;
+    },
+
+    get pctIdeal() {
+      const b = this.idealBudget;
+      if (!b) return 0;
+      return (Number(this.summary && this.summary.total_usd) || 0) / b;
+    },
+
+    get pctConfigured() {
+      const b = this.configuredBudget;
+      if (!b) return 0;
+      return (Number(this.summary && this.summary.total_usd) || 0) / b;
+    },
+
+    get idealTextColor() {
+      const p = this.pctIdeal;
+      if (p > 1) return 'text-red-600 dark:text-red-400';
+      if (p > 0.9) return 'text-amber-600 dark:text-amber-400';
+      if (p > 0.75) return 'text-yellow-600 dark:text-yellow-400';
+      return 'text-emerald-600 dark:text-emerald-400';
+    },
+
+    get configuredTextColor() {
+      const p = this.pctConfigured;
+      if (p > 1) return 'text-red-600 dark:text-red-400';
+      if (p > 0.9) return 'text-amber-600 dark:text-amber-400';
+      if (p > 0.75) return 'text-yellow-600 dark:text-yellow-400';
+      return 'text-emerald-600 dark:text-emerald-400';
     },
 
     get uniqueUsers() {
