@@ -1,7 +1,12 @@
 """
-Expense Tracker Bot v7 · González-Guevara
+Expense Tracker Bot v8 · González-Guevara
 Telegram bot con menú interactivo · $5,000 USD/mes · Multi-moneda (COP/USD/BOB/AED)
 Reset automático el 1ro de cada mes 00:01 COL
+
+v8 notas: BUDGET, PAYMENT_METHODS y rates viven en la tabla `config` de SQLite.
+Los dicts hardcoded de abajo (_DEFAULT_*) solo se usan para sembrar la tabla en
+la primera ejecución. Después de eso, el bot lee siempre de la DB, y la API
+(api.py) puede mutarlas sin redeploy.
 """
 
 import os, re, json, sqlite3, csv, io, traceback
@@ -14,14 +19,12 @@ COL_TZ = timezone(timedelta(hours=-5))
 
 TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 ALLOWED_USERS = [int(x) for x in os.environ.get("ALLOWED_USER_IDS", "").split(",") if x.strip()]
-TRM = int(os.environ.get("TRM", "3700"))
-BOB_RATE = float(os.environ.get("BOB_RATE", "9.20"))
-AED_RATE = float(os.environ.get("AED_RATE", "3.67"))
+DB_PATH = os.environ.get("DB_PATH", "expenses.db")
 
 # ════════════════════════════════════════
-# MÉTODOS DE PAGO
+# DEFAULTS (solo para seeding inicial de la tabla `config`)
 # ════════════════════════════════════════
-PAYMENT_METHODS = {
+_DEFAULT_PAYMENT_METHODS = {
     "BDB": ["Visa Latam Dani", "Visa Latam Mado", "MC Dani"],
     "BBVA": ["MC Dani", "MC Mado"],
     "WIO": ["MC Dani", "MC Mado"],
@@ -29,12 +32,14 @@ PAYMENT_METHODS = {
     "Transferencia": ["BBVA", "BDB", "BANCOLOMBIA", "WIO", "ENBD", "CHASE"],
     "Efectivo": ["Efectivo"],
 }
-DB_PATH = os.environ.get("DB_PATH", "expenses.db")
 
-# ════════════════════════════════════════
-# PRESUPUESTO (USD/mes) · $5,000
-# ════════════════════════════════════════
-BUDGET = {
+_DEFAULT_RATES = {
+    "TRM": int(os.environ.get("TRM", "3700")),
+    "BOB_RATE": float(os.environ.get("BOB_RATE", "9.20")),
+    "AED_RATE": float(os.environ.get("AED_RATE", "3.67")),
+}
+
+_DEFAULT_BUDGET = {
     "hipoteca":       {"usd": 1486, "tipo": "fijo",      "icon": "🏠", "label": "Hipoteca"},
     "admin":          {"usd": 446,  "tipo": "fijo",      "icon": "🏢", "label": "Admin Nuvó"},
     "empleada":       {"usd": 659,  "tipo": "fijo",      "icon": "🧹", "label": "Empleada"},
@@ -58,6 +63,8 @@ BUDGET = {
     "peajes":         {"usd": 15,   "tipo": "variable",  "icon": "🛣️", "label": "Peajes"},
     "mantenimiento":  {"usd": 15,   "tipo": "variable",  "icon": "🔧", "label": "Mant. Vehículo"},
     "seguros":        {"usd": 12,   "tipo": "fijo",      "icon": "🛡️", "label": "Seguros"},
+    "hogar":          {"usd": 0,    "tipo": "variable",  "icon": "🏠", "label": "Hogar"},
+    "carro":          {"usd": 0,    "tipo": "variable",  "icon": "🚗", "label": "Carro"},
     "tecnologia":     {"usd": 0,    "tipo": "variable",  "icon": "💻", "label": "Tecnología"},
     "muebles":        {"usd": 0,    "tipo": "variable",  "icon": "🪑", "label": "Muebles"},
     "ropa":           {"usd": 0,    "tipo": "variable",  "icon": "👕", "label": "Ropa"},
@@ -65,7 +72,14 @@ BUDGET = {
     "otro":           {"usd": 0,    "tipo": "variable",  "icon": "📌", "label": "Otro"},
 }
 
-TOTAL_BUDGET_USD = sum(v["usd"] for v in BUDGET.values())
+# Valores LIVE — se cargan desde la tabla `config` al arranque (load_config).
+# El resto del código usa estos nombres como siempre.
+BUDGET = {}
+PAYMENT_METHODS = {}
+TRM = _DEFAULT_RATES["TRM"]
+BOB_RATE = _DEFAULT_RATES["BOB_RATE"]
+AED_RATE = _DEFAULT_RATES["AED_RATE"]
+TOTAL_BUDGET_USD = 0  # recomputado en load_config
 BUDGET_LIMIT_USD = 5000
 # Categorías agrupadas para el menú
 CAT_GROUPS = {
@@ -220,6 +234,11 @@ def init_db():
         label TEXT,
         created_at TEXT
     )""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS config (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )""")
     conn.commit()
     # Migration: add metodo_pago column if missing
     try:
@@ -227,13 +246,76 @@ def init_db():
         conn.commit()
     except sqlite3.OperationalError:
         pass  # column already exists
-    # Load custom categories into BUDGET at startup
+
+    # Seed `config` from hardcoded defaults the first time ONLY. After first
+    # run, edits via the dashboard/API are authoritative — we don't overwrite.
+    now_iso = datetime.now().isoformat()
+    seed = (
+        ("budget", _DEFAULT_BUDGET),
+        ("payment_methods", _DEFAULT_PAYMENT_METHODS),
+        ("rates", _DEFAULT_RATES),
+    )
+    for key, default in seed:
+        exists = conn.execute("SELECT 1 FROM config WHERE key = ?", (key,)).fetchone()
+        if not exists:
+            conn.execute(
+                "INSERT INTO config (key, value, updated_at) VALUES (?, ?, ?)",
+                (key, json.dumps(default, ensure_ascii=False), now_iso),
+            )
+    conn.commit()
+    conn.close()
+
+
+def load_config():
+    """Populate module-level BUDGET / PAYMENT_METHODS / TRM / BOB_RATE / AED_RATE
+    from the `config` table. Idempotent — safe to call multiple times.
+
+    Also merges:
+      - rows in `custom_categories` (legacy table, still honored)
+      - any distinct `categoria` values in `expenses` that aren't in BUDGET,
+        so that historical rows with custom/recovered categories don't crash
+        BUDGET[cat] direct-access sites.
+    """
+    global BUDGET, PAYMENT_METHODS, TRM, BOB_RATE, AED_RATE, TOTAL_BUDGET_USD
+    conn = sqlite3.connect(DB_PATH)
+    rows = dict(conn.execute("SELECT key, value FROM config").fetchall())
+
+    # BUDGET
+    BUDGET.clear()
+    BUDGET.update(json.loads(rows.get("budget", "{}")))
+
+    # Merge custom_categories (legacy table)
     for row in conn.execute("SELECT name, icon, label FROM custom_categories").fetchall():
         if row[0] not in BUDGET:
-            BUDGET[row[0]] = {"usd": 0, "tipo": "variable", "icon": row[1], "label": row[2]}
-            if row[0] not in ALIASES:
-                ALIASES[row[0]] = row[0]
+            BUDGET[row[0]] = {"usd": 0, "tipo": "variable", "icon": row[1] or "📌", "label": row[2] or row[0]}
+
+    # Merge categorías que existen en `expenses` pero no en BUDGET (e.g. recovered
+    # rows with categories from an older version of the bot). Ensures that
+    # register_and_confirm's `BUDGET[categoria]` direct access never KeyErrors.
+    for (cat,) in conn.execute("SELECT DISTINCT categoria FROM expenses").fetchall():
+        if cat and cat not in BUDGET:
+            BUDGET[cat] = {"usd": 0, "tipo": "variable", "icon": "📦", "label": cat.title()}
+
     conn.close()
+
+    # PAYMENT_METHODS
+    PAYMENT_METHODS.clear()
+    PAYMENT_METHODS.update(json.loads(rows.get("payment_methods", "{}")))
+
+    # Rates
+    r = json.loads(rows.get("rates", "{}"))
+    TRM = int(r.get("TRM", _DEFAULT_RATES["TRM"]))
+    BOB_RATE = float(r.get("BOB_RATE", _DEFAULT_RATES["BOB_RATE"]))
+    AED_RATE = float(r.get("AED_RATE", _DEFAULT_RATES["AED_RATE"]))
+
+    # Recompute TOTAL_BUDGET_USD
+    TOTAL_BUDGET_USD = sum(v.get("usd", 0) for v in BUDGET.values())
+
+    # Also register unknown categories in ALIASES so resolve_category() returns
+    # them rather than None.
+    for cat in BUDGET:
+        if cat not in ALIASES:
+            ALIASES[cat] = cat
 
 def add_expense(user_id, user_name, monto_cop, categoria, nota=""):
     conn = sqlite3.connect(DB_PATH)
@@ -930,14 +1012,14 @@ async def send_monthly_csv(context: ContextTypes.DEFAULT_TYPE):
 
     conn = sqlite3.connect(DB_PATH)
     rows = conn.execute(
-        "SELECT fecha, monto_cop, monto_usd, categoria, nota, usuario "
-        "FROM gastos WHERE fecha BETWEEN ? AND ? ORDER BY fecha",
+        "SELECT fecha, monto_cop, monto_usd, categoria, nota, user_name "
+        "FROM expenses WHERE fecha BETWEEN ? AND ? ORDER BY fecha",
         (first_day, last_day)
     ).fetchall()
     conn.close()
 
     if not rows:
-        for cid in ALLOWED:
+        for cid in ALLOWED_USERS:
             await context.bot.send_message(cid, f"No hay gastos registrados en {month_name} {year}.")
         return
 
@@ -983,7 +1065,7 @@ async def send_monthly_csv(context: ContextTypes.DEFAULT_TYPE):
     for u, t in sorted(totals_by_user.items()):
         summary += f"\n  {u}: ${t:,.2f}"
 
-    for cid in ALLOWED:
+    for cid in ALLOWED_USERS:
         await context.bot.send_message(cid, summary, parse_mode="Markdown")
         await context.bot.send_document(cid, document=io.BytesIO(csv_bytes), filename=f"gastos_{year}_{month:02d}.csv", caption=f"Detalle gastos {month_name} {year}")
 
@@ -1082,6 +1164,7 @@ async def cmd_dashboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Error en /dashboard: {type(ex).__name__}: {ex}\n{traceback.format_exc()[-500:]}")
 def main():
     init_db()
+    load_config()
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
@@ -1109,7 +1192,12 @@ def main():
     csv_time = dtime(hour=13, minute=0, second=0)
     job_queue.run_daily(send_monthly_csv, time=csv_time, name="monthly_csv")
 
-    print(f"🤖 Bot v7 iniciado | TRM: {TRM} | BOB: {BOB_RATE} | Budget: ${TOTAL_BUDGET_USD} USD | Reset: 1ro 00:01 COL")
+    print(
+        f"🤖 Bot v8 iniciado | TRM: {TRM} | BOB: {BOB_RATE} | AED: {AED_RATE} | "
+        f"Budget: ${TOTAL_BUDGET_USD} USD | {len(BUDGET)} cats | "
+        f"{sum(len(v) for v in PAYMENT_METHODS.values())} payment methods | "
+        f"Reset: 1ro 00:01 COL"
+    )
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
