@@ -704,6 +704,69 @@ def init_db():
 
     _run_migration("005_budget_history", _migration_005_budget_history)
 
+    def _migration_006_clear_parent_amounts(conn):
+        """Parents-with-children should have usd = 0 and annual_usd = 0
+        because their effective budget is the sum of their subs. Prior
+        versions of the UI and the PUT endpoint allowed parents to carry
+        their own non-zero amounts, leading to double-counting in the
+        rollup display. This migration walks config.budget (baseline) and
+        any budget_history rows, and zeros out parent rows that currently
+        have at least one child.
+
+        Non-destructive to any gasto or income. Only budget reference
+        numbers change. Idempotent — rerunning yields the same state.
+        """
+        import json as _json
+        row = conn.execute("SELECT value FROM config WHERE key = 'budget'").fetchone()
+        if not row:
+            return
+        budget = _json.loads(row[0])
+        parents_with_children = set()
+        for k, v in budget.items():
+            if v.get("parent"):
+                parents_with_children.add(v["parent"])
+
+        changed_baseline = 0
+        for pk in parents_with_children:
+            v = budget.get(pk)
+            if not v:
+                continue
+            had = (v.get("usd") or 0) or (v.get("annual_usd") or 0)
+            if had:
+                v["usd"] = 0
+                v["annual_usd"] = 0
+                changed_baseline += 1
+        if changed_baseline:
+            print(f"[migration] zeroed {changed_baseline} parent budgets in config.budget")
+            conn.execute(
+                "UPDATE config SET value = ?, updated_at = ? WHERE key = 'budget'",
+                (_json.dumps(budget, ensure_ascii=False), datetime.now().isoformat()),
+            )
+
+        # Same cleanup for budget_history overrides: if any row is a parent
+        # that has children in the baseline, zero it.
+        if parents_with_children:
+            placeholders = ", ".join("?" * len(parents_with_children))
+            hist_rows = conn.execute(
+                f"SELECT period, category, usd, annual_usd FROM budget_history "
+                f"WHERE category IN ({placeholders})",
+                tuple(parents_with_children),
+            ).fetchall()
+            changed_hist = 0
+            now_iso = datetime.now().isoformat()
+            for period, cat, usd, annual in hist_rows:
+                if (usd or 0) or (annual or 0):
+                    conn.execute(
+                        "UPDATE budget_history SET usd = 0, annual_usd = 0, updated_at = ? "
+                        "WHERE period = ? AND category = ?",
+                        (now_iso, period, cat),
+                    )
+                    changed_hist += 1
+            if changed_hist:
+                print(f"[migration] zeroed {changed_hist} parent overrides in budget_history")
+
+    _run_migration("006_clear_parent_amounts", _migration_006_clear_parent_amounts)
+
     conn.close()
 
 

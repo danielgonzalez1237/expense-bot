@@ -128,10 +128,15 @@ def _effective_budget_for_period(conn, period: str) -> dict:
       - Overlay any rows from budget_history WHERE period=? (period overrides)
       - Metadata (label, icon, parent, tipo) always comes from the baseline —
         overrides only carry monetary amounts (usd, annual_usd)
+      - Parents-with-children have their own monetary amounts force-zeroed:
+        the parent budget is semantically the sum of its children, and any
+        stored value at the parent level is treated as a vestigial duplicate.
 
     Returns: { category_key: {usd, annual_usd, tipo, icon, label, parent,
-                              is_override} }
+                              is_override, baseline_usd, baseline_annual_usd,
+                              has_children} }
     """
+    # First pass: raw baseline + metadata
     out: dict[str, dict] = {}
     for k, v in bot.BUDGET.items():
         out[k] = {
@@ -144,7 +149,20 @@ def _effective_budget_for_period(conn, period: str) -> dict:
             "is_override": False,
             "baseline_usd": float(v.get("usd", 0) or 0),
             "baseline_annual_usd": float(v.get("annual_usd", (v.get("usd", 0) or 0) * 12) or 0),
+            "has_children": False,
         }
+
+    # Identify parents-with-children (top-level categories that have at
+    # least one sub pointing at them)
+    parents_with_children: set[str] = set()
+    for k, v in out.items():
+        if v.get("parent"):
+            parents_with_children.add(v["parent"])
+    for pk in parents_with_children:
+        if pk in out:
+            out[pk]["has_children"] = True
+
+    # Overlay overrides from budget_history for the requested period
     for cat, usd, annual in conn.execute(
         "SELECT category, usd, annual_usd FROM budget_history WHERE period = ?",
         (period,),
@@ -154,8 +172,17 @@ def _effective_budget_for_period(conn, period: str) -> dict:
             if annual is not None:
                 out[cat]["annual_usd"] = float(annual)
             out[cat]["is_override"] = True
-        # If the override points at a category that no longer exists in baseline,
-        # silently skip — user can clean it up via DELETE.
+
+    # Belt-and-suspenders: parents-with-children have their direct amounts
+    # forced to zero, regardless of what's stored in baseline or overrides.
+    # The parent budget == sum of its children (computed elsewhere on read).
+    for pk in parents_with_children:
+        if pk in out:
+            out[pk]["usd"] = 0.0
+            out[pk]["annual_usd"] = 0.0
+            out[pk]["baseline_usd"] = 0.0
+            out[pk]["baseline_annual_usd"] = 0.0
+
     return out
 
 
@@ -1107,6 +1134,20 @@ def make_api_app() -> FastAPI:
                     400,
                     f"categoría {key}: parent {parent!r} ya es una subcategoría (no se permite anidamiento > 1 nivel)",
                 )
+
+        # Defense-in-depth: parents-with-children should never carry their own
+        # budget amount — the parent budget is implicit in the sum of its subs.
+        # If the frontend accidentally sends non-zero values for a parent that
+        # now has children, zero them out here so the stored data stays
+        # consistent with the 'rolled-up from subs' rule.
+        parents_with_children = set()
+        for key, info in cleaned.items():
+            if info["parent"]:
+                parents_with_children.add(info["parent"])
+        for pk in parents_with_children:
+            if pk in cleaned:
+                cleaned[pk]["usd"] = 0.0
+                cleaned[pk]["annual_usd"] = 0.0
 
         # Preserve existing expense categorías that aren't in the new budget —
         # refuse the save so the user is forced to either keep the category or

@@ -1457,18 +1457,47 @@
       <!-- Group by parent for visual grouping -->
       <template x-for="group in $store.settings.groupedList" :key="group.parent || '__top__'">
         <div class="mb-4">
+          <!-- Top-level leaves header -->
           <div
-            x-show="group.parent"
-            class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1 flex items-center gap-1"
-          >
-            <span x-text="group.parentInfo && group.parentInfo.icon"></span>
-            <span x-text="group.parentInfo && group.parentInfo.label"></span>
-            <span class="text-slate-400 dark:text-slate-600">· subcategorías</span>
-          </div>
-          <div
-            x-show="!group.parent"
+            x-show="group.isTopLevelLeaves"
             class="text-[11px] uppercase tracking-wide text-slate-400 dark:text-slate-600 mb-1"
           >Categorías principales</div>
+
+          <!-- Parent-with-children header: read-only summary row showing rolled-up totals -->
+          <div
+            x-show="group.parent && group.parent !== '__orphan__'"
+            class="bg-slate-100 dark:bg-slate-800 rounded-lg px-3 py-2 mb-1.5 border border-slate-300 dark:border-slate-700"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="text-xl" x-text="group.parentInfo && group.parentInfo.icon"></span>
+                <div class="min-w-0">
+                  <div class="text-sm font-bold truncate" x-text="group.parentInfo && group.parentInfo.label"></div>
+                  <div class="text-[10px] text-slate-500">
+                    <span x-text="group.parentInfo && group.parentInfo.child_count"></span> subs · presupuesto rolled-up
+                  </div>
+                </div>
+              </div>
+              <div class="text-right whitespace-nowrap">
+                <div class="text-sm font-semibold">
+                  $<span x-text="Math.round((group.parentInfo && group.parentInfo.usd) || 0).toLocaleString('en-US')"></span>
+                  <span class="text-[10px] text-slate-500">/mes</span>
+                </div>
+                <div class="text-[10px] text-slate-500">
+                  $<span x-text="Math.round((group.parentInfo && group.parentInfo.annual_usd) || 0).toLocaleString('en-US')"></span> / año
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Orphan children warning header -->
+          <div
+            x-show="group.parent === '__orphan__'"
+            class="text-[11px] uppercase tracking-wide text-amber-600 dark:text-amber-500 mb-1 flex items-center gap-1"
+          >
+            <span>⚠️</span>
+            <span>Subcategorías sin padre válido</span>
+          </div>
 
           <div class="space-y-2" :class="group.parent && 'ml-4 border-l-2 border-slate-200 dark:border-slate-800 pl-3'">
             <template x-for="(c, idx) in group.items" :key="c.key">
@@ -2115,11 +2144,19 @@ document.addEventListener('alpine:init', () => {
     // ── Reactive computed ──
 
     get totalAssigned() {
-      return this.draftList.reduce((s, c) => s + (Number(c.usd) || 0), 0);
+      // Skip parents-with-children — their budget is implicit in their subs,
+      // counting their own .usd would double up.
+      const parents = this._parentKeysWithChildren;
+      return this.draftList
+        .filter(c => !parents.has(c.key))
+        .reduce((s, c) => s + (Number(c.usd) || 0), 0);
     },
 
     get totalAnnual() {
-      return this.draftList.reduce((s, c) => s + (Number(c.annual_usd) || 0), 0);
+      const parents = this._parentKeysWithChildren;
+      return this.draftList
+        .filter(c => !parents.has(c.key))
+        .reduce((s, c) => s + (Number(c.annual_usd) || 0), 0);
     },
 
     get annualLimit() {
@@ -2191,34 +2228,69 @@ document.addEventListener('alpine:init', () => {
         .map(c => ({ key: c.key, icon: c.icon, label: c.label }));
     },
 
+    // Set of parent keys that have at least one child in the draft. Used to
+    // identify "parents with subs" which should NOT appear as independently
+    // editable rows — their budget is always the sum of their children.
+    get _parentKeysWithChildren() {
+      const s = new Set();
+      for (const c of this.draftList) {
+        if (c.parent) s.add(c.parent);
+      }
+      return s;
+    },
+
     get groupedList() {
       // Produce {parent, parentInfo, items} entries for rendering.
-      // Top-level group first, then one group per parent key (in order of the top-level list).
-      const topLevel = this.draftList.filter(c => !c.parent);
+      //
+      // 'Categorías principales' contains only TOP-LEVEL LEAVES (no subs).
+      // Parents that have subs do NOT appear here — they appear ONLY as
+      // group headers (read-only summary rows) with their children below.
+      // This prevents the double-row problem Daniel reported.
+      const parentsWithChildren = this._parentKeysWithChildren;
+      const topLevelLeaves = this.draftList.filter(
+        c => !c.parent && !parentsWithChildren.has(c.key),
+      );
       const groups = [{
         parent: null,
         parentInfo: null,
-        items: topLevel,
+        items: topLevelLeaves,
+        isTopLevelLeaves: true,
       }];
-      for (const top of topLevel) {
+
+      // One group per parent-with-children, with a read-only header showing
+      // the rolled-up mensual + anual totals computed from the children.
+      const topLevelParents = this.draftList.filter(
+        c => !c.parent && parentsWithChildren.has(c.key),
+      );
+      for (const top of topLevelParents) {
         const children = this.draftList.filter(c => c.parent === top.key);
-        if (children.length) {
-          groups.push({
-            parent: top.key,
-            parentInfo: { icon: top.icon, label: top.label },
-            items: children,
-          });
-        }
+        const sumUsd = children.reduce((s, c) => s + (Number(c.usd) || 0), 0);
+        const sumAnnual = children.reduce((s, c) => s + (Number(c.annual_usd) || 0), 0);
+        groups.push({
+          parent: top.key,
+          parentInfo: {
+            key: top.key,
+            icon: top.icon,
+            label: top.label,
+            usd: sumUsd,
+            annual_usd: sumAnnual,
+            child_count: children.length,
+          },
+          items: children,
+          isTopLevelLeaves: false,
+        });
       }
-      // Also catch orphan children (parent doesn't exist) so user can fix
+
+      // Catch orphan children (parent references a missing top-level key)
       const orphanChildren = this.draftList.filter(
         c => c.parent && !this.draftList.some(t => t.key === c.parent && !t.parent),
       );
       if (orphanChildren.length) {
         groups.push({
           parent: '__orphan__',
-          parentInfo: { icon: '⚠️', label: 'Subcategorías sin padre válido' },
+          parentInfo: { key: null, icon: '⚠️', label: 'Subcategorías sin padre válido', usd: 0, annual_usd: 0, child_count: 0 },
           items: orphanChildren,
+          isTopLevelLeaves: false,
         });
       }
       return groups;
@@ -2229,11 +2301,17 @@ document.addEventListener('alpine:init', () => {
     },
 
     _toNewBudget() {
+      // For baseline save: parents-with-children get their own usd/annual_usd
+      // forced to 0 so the stored data stays consistent with 'parent budget
+      // is the sum of its children'. If a parent later loses all its subs
+      // (children reparented away), it becomes editable again as a leaf.
+      const parents = this._parentKeysWithChildren;
       const out = {};
       for (const c of this.draftList) {
+        const isParentWithChildren = parents.has(c.key);
         out[c.key] = {
-          usd: Number(c.usd) || 0,
-          annual_usd: Number(c.annual_usd) || 0,
+          usd: isParentWithChildren ? 0 : (Number(c.usd) || 0),
+          annual_usd: isParentWithChildren ? 0 : (Number(c.annual_usd) || 0),
           tipo: c.tipo || 'variable',
           icon: c.icon || '📦',
           label: c.label || c.key,
@@ -2699,7 +2777,13 @@ function dashboard() {
       for (const g of Object.values(groups)) {
         g.totalSpent = g.directSpent + g.children.reduce((s, c) => s + (c.spent_usd || 0), 0);
         g.totalCount = g.directCount + g.children.reduce((s, c) => s + (c.count || 0), 0);
-        g.totalBudget = g.directBudget + g.children.reduce((s, c) => s + (c.budget_usd || 0), 0);
+        // When a group has children, the parent's own `directBudget` is
+        // SEMANTICALLY ZERO: the total comes only from summing the children.
+        // This matches the rule that parent categories are nourished from
+        // their subs. Direct spent still counts (it's real money) — just
+        // the BUDGET number doesn't double up.
+        const childBudget = g.children.reduce((s, c) => s + (c.budget_usd || 0), 0);
+        g.totalBudget = g.children.length > 0 ? childBudget : g.directBudget;
         // Sort children by spending desc
         g.children.sort((a, b) => (b.spent_usd || 0) - (a.spent_usd || 0));
       }
