@@ -434,8 +434,14 @@
 
   <div class="md:grid md:grid-cols-3 md:gap-4">
 
+  <!-- ──────────────── Col 1: Usuario + Método de pago stacked ──────────────── -->
+  <!-- Daniel's layout request 2026-04-15: stack Usuario on top of Método inside
+       a single narrow column, so Categorías (the most-read section) can take
+       the other 2 cols and breathe wider. -->
+  <div class="md:col-span-1 space-y-4">
+
   <!-- ──────────────── Per user ──────────────── -->
-  <section class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 mb-4 fade shadow-sm" x-show="summary.by_user && summary.by_user.length">
+  <section class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 mb-0 fade shadow-sm" x-show="summary.by_user && summary.by_user.length">
     <div class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-3">Por usuario</div>
     <div class="space-y-2">
       <template x-for="u in summary.by_user" :key="u.user">
@@ -455,7 +461,7 @@
   <!-- ──────────────── Por método de pago ──────────────── -->
   <section
     x-show="summary.by_payment_method && summary.by_payment_method.length"
-    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 mb-4 fade shadow-sm"
+    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 mb-0 fade shadow-sm"
   >
     <div class="flex items-center justify-between mb-3">
       <div class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Por método de pago</div>
@@ -500,6 +506,9 @@
     </div>
   </section>
 
+  </div>
+  <!-- END col 1 wrapper (Usuario + Método stacked) -->
+
   <!-- ──────────────── Empty state (full width inside the gastos 3-col grid) ──────────────── -->
   <section
     x-show="!loading && summary.count === 0"
@@ -511,9 +520,11 @@
   </section>
 
   <!-- ──────────────── Categories (rollup: parents with indented children) ──────────────── -->
+  <!-- Spans cols 2-3 on md+ so Categorías (most-read panel) has plenty of
+       horizontal room next to the narrower Usuario+Método stack. -->
   <section
     x-show="summary.categories && summary.categories.length"
-    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm md:col-span-3 lg:col-span-1"
+    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm md:col-span-2"
   >
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-sm font-semibold">Categorías con gasto</h2>
@@ -644,25 +655,35 @@
       <span class="ml-auto text-[11px] text-slate-400 dark:text-slate-600 self-center">tap para editar</span>
     </div>
 
-    <div class="divide-y divide-slate-100 dark:divide-slate-800/80 max-h-[28rem] overflow-y-auto scroll-area -mx-1 px-1">
+    <!--
+      Flat chronological list, newest first. No internal max-h — let the
+      section grow to its natural height so Daniel can scroll the whole
+      page normally. Each row shows: nota (prominent) / date · user ·
+      category · method (secondary) / amount USD · amount COP on the right.
+    -->
+    <div class="divide-y divide-slate-100 dark:divide-slate-800/80 -mx-1 px-1">
       <template x-for="e in filteredExpenses" :key="e.id">
         <div
           @click="openEdit(e)"
-          class="py-2.5 flex items-start gap-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 -mx-2 px-2 rounded-md transition"
+          class="py-3 flex items-start gap-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 -mx-2 px-2 rounded-md transition"
         >
-          <div class="text-lg leading-none pt-0.5" x-text="catIcon(e.categoria)"></div>
+          <div class="text-2xl leading-none pt-0.5 shrink-0" x-text="catIcon(e.categoria)"></div>
           <div class="flex-1 min-w-0">
-            <div class="flex justify-between items-baseline gap-2">
-              <span class="font-medium truncate" x-text="catLabel(e.categoria)"></span>
-              <span class="font-semibold whitespace-nowrap text-sm" x-text="fmtUsd(e.monto_usd)"></span>
+            <div class="flex justify-between items-baseline gap-3">
+              <!-- Primary line: the NOTE is the transaction identity. If no note, fall back to category label. -->
+              <span class="font-medium truncate text-sm" x-text="e.nota || catLabel(e.categoria)"></span>
+              <span class="font-bold whitespace-nowrap text-sm" x-text="fmtUsd(e.monto_usd)"></span>
             </div>
-            <div class="text-[11px] text-slate-500 flex justify-between gap-2">
+            <div class="text-[11px] text-slate-500 dark:text-slate-400 flex justify-between gap-2 mt-0.5">
               <span class="truncate">
                 <span x-text="formatDate(e.fecha)"></span>
                 · <span x-text="e.user_name"></span>
-                <span x-show="e.nota" x-text="' · ' + e.nota"></span>
+                · <span class="text-slate-600 dark:text-slate-300" x-text="catLabel(e.categoria)"></span>
               </span>
-              <span class="whitespace-nowrap truncate max-w-[8rem]" x-text="e.metodo_pago" :title="e.metodo_pago"></span>
+              <span class="text-[10px] text-slate-400 dark:text-slate-600 whitespace-nowrap" x-text="'$' + Math.round(e.monto_cop || 0).toLocaleString('de-DE') + ' COP'"></span>
+            </div>
+            <div class="text-[10px] text-slate-400 dark:text-slate-600 truncate mt-0.5" x-show="e.metodo_pago && e.metodo_pago !== 'Sin especificar'">
+              💳 <span x-text="e.metodo_pago"></span>
             </div>
           </div>
         </div>
@@ -670,7 +691,7 @@
     </div>
 
     <div class="text-[11px] text-slate-400 dark:text-slate-600 mt-3 text-center" x-show="filteredExpenses.length">
-      <span x-text="filteredExpenses.length"></span> de <span x-text="expenses.length"></span> gastos
+      <span x-text="filteredExpenses.length"></span> de <span x-text="expenses.length"></span> gastos · tap para editar
     </div>
   </section>
 
@@ -1888,11 +1909,17 @@ document.addEventListener('alpine:init', () => {
     init() {},
 
     openFor(expense, opts) {
+      // Normalize fecha to YYYY-MM-DD (drops the "HH:MM" suffix that
+      // <input type="date"> refuses to parse). The original full timestamp
+      // isn't needed because the PUT endpoint accepts the date-only form
+      // and preserves the existing time.
+      const fullFecha = expense.fecha || '';
+      const dateOnly = fullFecha.slice(0, 10); // "YYYY-MM-DD"
       this.form = {
         id: expense.id,
         user_name: expense.user_name,
         monto_cop: Math.round(expense.monto_cop || 0),
-        fecha: expense.fecha,
+        fecha: dateOnly,
         categoria: expense.categoria,
         metodo_pago: expense.metodo_pago || 'Sin especificar',
         nota: expense.nota || '',
@@ -1904,6 +1931,18 @@ document.addEventListener('alpine:init', () => {
       this.onDeleted = opts.onDeleted || null;
       this.error = null;
       this.open = true;
+      // Belt-and-suspenders: after Alpine renders the x-for options, force
+      // the selects to display the store values. x-model occasionally
+      // misses the initial sync when the <option> list is built from
+      // x-for in the same tick as the modal opens, leaving the select on
+      // its first option by default (visual bug only — save still sends
+      // the stored value, but Daniel gets confused seeing the wrong cat).
+      setTimeout(() => {
+        const catSel = document.querySelector('select[x-model="$store.edit.form.categoria"]');
+        if (catSel) catSel.value = this.form.categoria;
+        const payEl = document.querySelector('select[x-model="$store.edit.form.metodo_pago"]');
+        if (payEl) payEl.value = this.form.metodo_pago;
+      }, 0);
     },
 
     close() {
@@ -2803,10 +2842,47 @@ function dashboard() {
     },
 
     get categoryOptions() {
-      // Build a sorted list of {key, label} from current budget dict
-      return Object.entries(this.budget)
-        .map(([k, v]) => ({ key: k, label: (v.icon || '📦') + ' ' + (v.label || k) }))
-        .sort((a, b) => a.label.localeCompare(b.label));
+      // Group by parent: top-level categories first, then each parent's
+      // children indented with "  ↳ " so Daniel can pick a subcategoría
+      // without having to remember which sub belongs to which parent.
+      //
+      // Orphan children (parent key missing from budget) get hoisted to
+      // top-level so nothing disappears.
+      const budget = this.budget || {};
+      const tops = [];
+      const childrenByParent = {};
+      for (const [k, v] of Object.entries(budget)) {
+        if (v && v.parent) {
+          (childrenByParent[v.parent] = childrenByParent[v.parent] || []).push({ key: k, ...v });
+        } else {
+          tops.push({ key: k, ...v });
+        }
+      }
+      // Sort top-level alphabetically by label
+      tops.sort((a, b) => (a.label || a.key).localeCompare(b.label || b.key));
+      const out = [];
+      for (const p of tops) {
+        const pIcon = p.icon || '📦';
+        const pLabel = p.label || p.key;
+        out.push({ key: p.key, label: `${pIcon} ${pLabel}` });
+        const kids = (childrenByParent[p.key] || [])
+          .sort((a, b) => (a.label || a.key).localeCompare(b.label || b.key));
+        for (const c of kids) {
+          const cIcon = c.icon || '📦';
+          const cLabel = c.label || c.key;
+          out.push({ key: c.key, label: `   ↳ ${cIcon} ${cLabel}` });
+        }
+        delete childrenByParent[p.key];
+      }
+      // Orphans — parent key not found in budget, render them flat at the bottom
+      for (const kids of Object.values(childrenByParent)) {
+        for (const c of kids) {
+          const cIcon = c.icon || '📦';
+          const cLabel = c.label || c.key;
+          out.push({ key: c.key, label: `${cIcon} ${cLabel}` });
+        }
+      }
+      return out;
     },
 
     get paymentOptions() {
@@ -3033,7 +3109,15 @@ function dashboard() {
       let out = this.expenses;
       if (this.userFilter) out = out.filter(e => e.user_name === this.userFilter);
       if (this.methodFilter) out = out.filter(e => e.metodo_pago === this.methodFilter);
-      return out;
+      // Chronological (newest first). `fecha` is "YYYY-MM-DD HH:MM" so lex sort works.
+      // Clone before sort so the underlying expenses array stays stable for other getters.
+      return [...out].sort((a, b) => {
+        const af = a.fecha || '';
+        const bf = b.fecha || '';
+        if (bf !== af) return bf.localeCompare(af);
+        // Tiebreak by id desc so the most recently inserted wins within same timestamp
+        return (b.id || 0) - (a.id || 0);
+      });
     },
 
     // Build a parent→children rollup from the flat summary.categories array.
@@ -3145,7 +3229,9 @@ function dashboard() {
 
     formatDate(s) {
       if (!s) return '';
-      const [y, m, d] = s.split('-');
+      // Strip any time suffix: "2026-04-15 18:00" → "2026-04-15"
+      const datePart = s.slice(0, 10);
+      const [y, m, d] = datePart.split('-');
       const months = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
       return d + ' ' + (months[parseInt(m, 10) - 1] || m);
     },
