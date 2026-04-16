@@ -56,7 +56,7 @@
 <div
   x-data="dashboard()"
   x-cloak
-  class="max-w-xl mx-auto px-4 pt-6 pb-16"
+  class="max-w-xl md:max-w-5xl lg:max-w-6xl xl:max-w-7xl mx-auto px-4 pt-6 pb-16"
 >
 
   <!-- ──────────────── Header ──────────────── -->
@@ -260,83 +260,100 @@
       </div>
     </div>
 
-    <!-- Three mini gauges side by side: Ideal / Plan / Config, each with subtitle -->
-    <div class="grid grid-cols-3 gap-2 mt-4">
+    <!--
+      Three reference gauges, stacked VERTICALLY inside the Objetivos card.
+      Each gauge gets the full card width so the "$X tope / libre $Y" row
+      never truncates. Prior version used grid-cols-3 which crammed them
+      into ~120px each on md:grid-cols-2 parents and cut off labels.
+    -->
+    <div class="space-y-2.5 mt-4">
 
       <!-- 🎯 IDEAL — hardcoded $5,000/mo aspirational cap -->
-      <div class="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-2.5 border border-slate-200 dark:border-slate-800">
-        <div class="mb-1">
-          <div class="flex items-baseline justify-between">
-            <div class="text-[10px] uppercase tracking-wide text-slate-600 dark:text-slate-300 font-bold">🎯 Ideal</div>
-            <div class="text-base font-bold leading-none" :class="idealTextColor" x-text="Math.round(pctIdeal * 100) + '%'"></div>
+      <div class="bg-slate-50 dark:bg-slate-800/40 rounded-xl px-3.5 py-3 border border-slate-200 dark:border-slate-800">
+        <div class="flex items-center justify-between gap-3">
+          <div class="min-w-0">
+            <div class="flex items-baseline gap-2 flex-wrap">
+              <span class="text-xs uppercase tracking-wide text-slate-700 dark:text-slate-200 font-bold">🎯 Ideal</span>
+              <span class="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">Tope aspiracional fijo</span>
+            </div>
           </div>
-          <div class="text-[9px] text-slate-400 dark:text-slate-500 leading-tight mt-0.5">Tope aspiracional fijo</div>
+          <div class="text-xl font-bold leading-none shrink-0" :class="idealTextColor" x-text="Math.round(pctIdeal * 100) + '%'"></div>
         </div>
-        <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+        <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden mt-2">
           <div
             class="h-full rounded-full bar"
             :class="catBarColor(pctIdeal)"
             :style="'width:' + Math.min(Math.max(pctIdeal, 0) * 100, 100) + '%'"
           ></div>
         </div>
-        <div class="text-[9px] text-slate-500 mt-1 truncate" x-text="fmtUsd(summary.budget_limit_usd) + ' tope'"></div>
-        <div class="text-[9px] truncate font-medium" :class="idealTextColor">
-          <span x-show="pctIdeal <= 1">libre <span x-text="fmtUsd(summary.budget_limit_usd - summary.total_usd)"></span></span>
-          <span x-show="pctIdeal > 1">sobre <span x-text="fmtUsd(summary.total_usd - summary.budget_limit_usd)"></span></span>
+        <div class="flex items-baseline justify-between text-[11px] mt-1.5 gap-2">
+          <span class="text-slate-500 dark:text-slate-400" x-text="fmtUsd(summary.budget_limit_usd) + ' tope'"></span>
+          <span class="font-medium" :class="idealTextColor">
+            <span x-show="pctIdeal <= 1">libre <span x-text="fmtUsd(summary.budget_limit_usd - summary.total_usd)"></span></span>
+            <span x-show="pctIdeal > 1">sobre <span x-text="fmtUsd(summary.total_usd - summary.budget_limit_usd)"></span></span>
+          </span>
         </div>
       </div>
 
       <!-- 💰 PLAN — sum of expected_usd across income sources -->
-      <div class="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-2.5 border border-slate-200 dark:border-slate-800">
-        <div class="mb-1">
-          <div class="flex items-baseline justify-between">
-            <div class="text-[10px] uppercase tracking-wide text-slate-600 dark:text-slate-300 font-bold">💰 Plan</div>
-            <div class="text-base font-bold leading-none" :class="planIncomeTextColor" x-text="planIncome > 0 ? Math.round(pctPlan * 100) + '%' : '—'"></div>
+      <div class="bg-slate-50 dark:bg-slate-800/40 rounded-xl px-3.5 py-3 border border-slate-200 dark:border-slate-800">
+        <div class="flex items-center justify-between gap-3">
+          <div class="min-w-0">
+            <div class="flex items-baseline gap-2 flex-wrap">
+              <span class="text-xs uppercase tracking-wide text-slate-700 dark:text-slate-200 font-bold">💰 Plan</span>
+              <span class="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">Gasto vs ingreso esperado</span>
+            </div>
           </div>
-          <div class="text-[9px] text-slate-400 dark:text-slate-500 leading-tight mt-0.5">Gasto vs ingreso esperado</div>
+          <div class="text-xl font-bold leading-none shrink-0" :class="planIncomeTextColor" x-text="planIncome > 0 ? Math.round(pctPlan * 100) + '%' : '—'"></div>
         </div>
-        <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+        <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden mt-2">
           <div
             class="h-full rounded-full bar"
             :class="catBarColor(pctPlan)"
             :style="'width:' + Math.min(Math.max(pctPlan, 0) * 100, 100) + '%'"
           ></div>
         </div>
-        <div class="text-[9px] text-slate-500 mt-1 truncate">
-          <span x-show="planIncome > 0" x-text="fmtUsd(planIncome) + ' plan'"></span>
-          <span x-show="planIncome === 0" class="italic">sin plan</span>
-        </div>
-        <div class="text-[9px] truncate font-medium" :class="planIncomeTextColor">
-          <span x-show="planIncome > 0 && pctPlan <= 1">libre <span x-text="fmtUsd(planIncome - summary.total_usd)"></span></span>
-          <span x-show="planIncome > 0 && pctPlan > 1">sobre <span x-text="fmtUsd(summary.total_usd - planIncome)"></span></span>
-          <span x-show="planIncome === 0" class="italic text-slate-400 dark:text-slate-600">—</span>
+        <div class="flex items-baseline justify-between text-[11px] mt-1.5 gap-2">
+          <span class="text-slate-500 dark:text-slate-400">
+            <span x-show="planIncome > 0" x-text="fmtUsd(planIncome) + ' plan'"></span>
+            <span x-show="planIncome === 0" class="italic">sin plan</span>
+          </span>
+          <span class="font-medium" :class="planIncomeTextColor">
+            <span x-show="planIncome > 0 && pctPlan <= 1">libre <span x-text="fmtUsd(planIncome - summary.total_usd)"></span></span>
+            <span x-show="planIncome > 0 && pctPlan > 1">sobre <span x-text="fmtUsd(summary.total_usd - planIncome)"></span></span>
+            <span x-show="planIncome === 0" class="italic text-slate-400 dark:text-slate-600">—</span>
+          </span>
         </div>
       </div>
 
       <!-- ⚙️ CONFIG — sum of per-category budgets -->
-      <div class="bg-slate-50 dark:bg-slate-800/40 rounded-xl p-2.5 border border-slate-200 dark:border-slate-800">
-        <div class="mb-1">
-          <div class="flex items-baseline justify-between">
-            <div class="text-[10px] uppercase tracking-wide text-slate-600 dark:text-slate-300 font-bold">⚙️ Config</div>
-            <div class="text-base font-bold leading-none" :class="configuredTextColor" x-text="configuredBudget > 0 ? Math.round(pctConfigured * 100) + '%' : '—'"></div>
+      <div class="bg-slate-50 dark:bg-slate-800/40 rounded-xl px-3.5 py-3 border border-slate-200 dark:border-slate-800">
+        <div class="flex items-center justify-between gap-3">
+          <div class="min-w-0">
+            <div class="flex items-baseline gap-2 flex-wrap">
+              <span class="text-xs uppercase tracking-wide text-slate-700 dark:text-slate-200 font-bold">⚙️ Config</span>
+              <span class="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">Plan por categoría</span>
+            </div>
           </div>
-          <div class="text-[9px] text-slate-400 dark:text-slate-500 leading-tight mt-0.5">Plan por categoría</div>
+          <div class="text-xl font-bold leading-none shrink-0" :class="configuredTextColor" x-text="configuredBudget > 0 ? Math.round(pctConfigured * 100) + '%' : '—'"></div>
         </div>
-        <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+        <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden mt-2">
           <div
             class="h-full rounded-full bar"
             :class="catBarColor(pctConfigured)"
             :style="'width:' + Math.min(Math.max(pctConfigured, 0) * 100, 100) + '%'"
           ></div>
         </div>
-        <div class="text-[9px] text-slate-500 mt-1 truncate">
-          <span x-show="configuredBudget > 0" x-text="fmtUsd(configuredBudget) + ' plan'"></span>
-          <span x-show="configuredBudget === 0" class="italic">sin config</span>
-        </div>
-        <div class="text-[9px] truncate font-medium" :class="configuredTextColor">
-          <span x-show="configuredBudget > 0 && pctConfigured <= 1">libre <span x-text="fmtUsd(configuredBudget - summary.total_usd)"></span></span>
-          <span x-show="configuredBudget > 0 && pctConfigured > 1">sobre <span x-text="fmtUsd(summary.total_usd - configuredBudget)"></span></span>
-          <span x-show="configuredBudget === 0" class="italic text-slate-400 dark:text-slate-600">—</span>
+        <div class="flex items-baseline justify-between text-[11px] mt-1.5 gap-2">
+          <span class="text-slate-500 dark:text-slate-400">
+            <span x-show="configuredBudget > 0" x-text="fmtUsd(configuredBudget) + ' plan'"></span>
+            <span x-show="configuredBudget === 0" class="italic">sin config</span>
+          </span>
+          <span class="font-medium" :class="configuredTextColor">
+            <span x-show="configuredBudget > 0 && pctConfigured <= 1">libre <span x-text="fmtUsd(configuredBudget - summary.total_usd)"></span></span>
+            <span x-show="configuredBudget > 0 && pctConfigured > 1">sobre <span x-text="fmtUsd(summary.total_usd - configuredBudget)"></span></span>
+            <span x-show="configuredBudget === 0" class="italic text-slate-400 dark:text-slate-600">—</span>
+          </span>
         </div>
       </div>
     </div>
