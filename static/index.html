@@ -699,21 +699,97 @@
       >📁 CSV</a>
     </div>
 
-    <div class="flex gap-2 mb-3 text-xs">
-      <button
-        @click="userFilter = null"
-        :class="userFilter === null ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
-        class="px-2.5 py-1 rounded-md"
-      >Todos</button>
-      <template x-for="u in uniqueUsers" :key="u">
+    <!-- Filtros · Conciliación (3 filas) -->
+    <div class="space-y-2 mb-3 text-xs">
+
+      <!-- Fila 1: usuario -->
+      <div class="flex gap-2 flex-wrap">
+        <span class="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600 self-center font-semibold w-16">Usuario</span>
         <button
-          @click="userFilter = u"
-          :class="userFilter === u ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
+          @click="userFilter = null"
+          :class="userFilter === null ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
           class="px-2.5 py-1 rounded-md"
-          x-text="u"
-        ></button>
-      </template>
-      <span class="ml-auto text-[11px] text-slate-400 dark:text-slate-600 self-center">tap para editar</span>
+        >Todos</button>
+        <template x-for="u in uniqueUsers" :key="u">
+          <button
+            @click="userFilter = u"
+            :class="userFilter === u ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
+            class="px-2.5 py-1 rounded-md"
+            x-text="u"
+          ></button>
+        </template>
+      </div>
+
+      <!-- Fila 2: clase contable (OPEX/CAPEX) -->
+      <div class="flex gap-2 flex-wrap">
+        <span class="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600 self-center font-semibold w-16">Tipo</span>
+        <button
+          @click="claseFilter = null"
+          :class="claseFilter === null ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
+          class="px-2.5 py-1 rounded-md"
+        >Todos</button>
+        <template x-for="c in clasesContables" :key="c.key">
+          <button
+            @click="claseFilter = c.key"
+            :class="claseFilter === c.key ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
+            class="px-2.5 py-1 rounded-md"
+          ><span x-text="c.icon"></span> <span x-text="c.label"></span></button>
+        </template>
+      </div>
+
+      <!-- Fila 3: categoría (dropdown jerárquico, reusa categoryOptions) -->
+      <div class="flex gap-2 items-center">
+        <span class="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600 self-center font-semibold w-16">Categoría</span>
+        <select
+          x-model="categoryFilter"
+          class="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-xs flex-1 max-w-xs"
+        >
+          <option :value="null">— Todas las categorías —</option>
+          <template x-for="opt in categoryOptions" :key="opt.key">
+            <option :value="opt.key" x-text="opt.label"></option>
+          </template>
+        </select>
+        <span class="ml-auto text-[11px] text-slate-400 dark:text-slate-600 self-center">tap para editar</span>
+      </div>
+    </div>
+
+    <!--
+      Banner consolidado: cuando algún filtro está activo, muestro arriba
+      de la lista el TOTAL FILTRADO con count de transacciones y un botón
+      para limpiar todos los filtros de una vez. Daniel lo necesita para
+      conciliar con su esposa al final del mes (filtra "Restaurante +
+      Daniel + Gasto" y ve el subtotal vs lo que figura en el extracto).
+    -->
+    <div
+      x-show="hasActiveFilters"
+      class="mb-3 bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-900 rounded-lg px-3 py-2.5"
+    >
+      <div class="flex items-center justify-between gap-2 flex-wrap">
+        <div class="flex items-baseline gap-3">
+          <span class="text-base">🔍</span>
+          <div>
+            <div class="text-[10px] uppercase tracking-wide text-sky-700 dark:text-sky-400 font-semibold">Total filtrado</div>
+            <div class="text-base font-bold text-slate-800 dark:text-slate-100">
+              <span x-text="fmtUsd(filteredTotal.usd)"></span>
+              <span class="text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                · <span x-text="filteredExpenses.length"></span> <span x-text="filteredExpenses.length === 1 ? 'transacción' : 'transacciones'"></span>
+                · <span x-text="'$' + Math.round(filteredTotal.cop).toLocaleString('de-DE') + ' COP'"></span>
+              </span>
+            </div>
+          </div>
+        </div>
+        <button
+          @click="userFilter = null; methodFilter = null; categoryFilter = null; claseFilter = null"
+          class="text-[11px] bg-white dark:bg-slate-800 border border-sky-300 dark:border-sky-700 text-sky-700 dark:text-sky-400 hover:bg-sky-100 dark:hover:bg-sky-900/40 rounded-md px-2.5 py-1 font-medium"
+        >✕ Limpiar filtros</button>
+      </div>
+      <div class="mt-1.5 text-[11px] text-slate-600 dark:text-slate-400">
+        <span class="text-slate-400 dark:text-slate-600">Filtros activos:</span>
+        <span x-show="userFilter" class="ml-1 inline-block bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5">👤 <span x-text="userFilter"></span></span>
+        <span x-show="claseFilter" class="ml-1 inline-block bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5"><span x-text="claseIcon(claseFilter)"></span> <span x-text="claseLabel(claseFilter)"></span></span>
+        <span x-show="categoryFilter" class="ml-1 inline-block bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5"><span x-text="catIcon(categoryFilter)"></span> <span x-text="catLabel(categoryFilter)"></span></span>
+        <span x-show="methodFilter" class="ml-1 inline-block bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5">💳 <span x-text="methodFilter"></span></span>
+      </div>
     </div>
 
     <!--
@@ -3214,6 +3290,8 @@ function dashboard() {
       let out = this.expenses;
       if (this.userFilter) out = out.filter(e => e.user_name === this.userFilter);
       if (this.methodFilter) out = out.filter(e => e.metodo_pago === this.methodFilter);
+      if (this.categoryFilter) out = out.filter(e => e.categoria === this.categoryFilter);
+      if (this.claseFilter) out = out.filter(e => (e.clase_contable || 'gasto') === this.claseFilter);
       // Chronological (newest first). `fecha` is "YYYY-MM-DD HH:MM" so lex sort works.
       // Clone before sort so the underlying expenses array stays stable for other getters.
       return [...out].sort((a, b) => {
@@ -3223,6 +3301,25 @@ function dashboard() {
         // Tiebreak by id desc so the most recently inserted wins within same timestamp
         return (b.id || 0) - (a.id || 0);
       });
+    },
+
+    // True when any filter is active. Drives the consolidated banner
+    // visibility (no banner if no filters → no clutter for "ver todo").
+    get hasActiveFilters() {
+      return !!(this.userFilter || this.methodFilter || this.categoryFilter || this.claseFilter);
+    },
+
+    // Sum the filtered set in USD + COP for the consolidated banner.
+    // Computed client-side from filteredExpenses (already in memory) —
+    // no extra API roundtrip needed. Daniel uses this for monthly
+    // reconciliation: filtra por categoría y ve el subtotal vs el extracto.
+    get filteredTotal() {
+      let usd = 0, cop = 0;
+      for (const e of this.filteredExpenses) {
+        usd += Number(e.monto_usd || 0);
+        cop += Number(e.monto_cop || 0);
+      }
+      return { usd, cop };
     },
 
     // Build a parent→children rollup from the flat summary.categories array.
