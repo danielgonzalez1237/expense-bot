@@ -801,6 +801,48 @@ def init_db():
 
     _run_migration("007_add_falabella_and_bancolombia", _migration_007_add_falabella_and_bancolombia)
 
+    def _migration_008_add_clase_contable(conn):
+        """Agrega columna `clase_contable` a expenses para distinguir
+        gasto corriente (OPEX) de compras patrimoniales (CAPEX).
+
+        Valores permitidos: 'gasto' (default), 'mobiliario', 'equipos', 'vehiculo'.
+        Daniel puede marcar gastos como bienes/equipos desde el dashboard.
+        Los gauges existentes siguen contando todo (no break).
+
+        Defensas:
+          - Idempotente: si la columna ya existe, sale sin tocar nada.
+          - Transacción explícita con rollback en error.
+          - Count-check antes/después: si la cuenta de filas cambia, aborta.
+          - Fuerza 'gasto' a todas las filas existentes (SQLite < 3.35
+            tiene un quirk donde ALTER ADD COLUMN con DEFAULT no aplica
+            el default a filas existentes — el UPDATE lo cubre).
+        """
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(expenses)").fetchall()]
+        if "clase_contable" in cols:
+            return
+        count_before = conn.execute("SELECT COUNT(*) FROM expenses").fetchone()[0]
+        try:
+            conn.execute("BEGIN")
+            conn.execute("ALTER TABLE expenses ADD COLUMN clase_contable TEXT DEFAULT 'gasto'")
+            conn.execute("UPDATE expenses SET clase_contable = 'gasto' WHERE clase_contable IS NULL")
+            count_after = conn.execute("SELECT COUNT(*) FROM expenses").fetchone()[0]
+            if count_after != count_before:
+                conn.execute("ROLLBACK")
+                raise RuntimeError(
+                    f"[migration 008] count drift detected: {count_before} -> {count_after}. "
+                    "Aborting to protect data."
+                )
+            conn.execute("COMMIT")
+            print(f"[migration 008] expenses count: {count_before} -> {count_after} OK")
+        except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            raise
+
+    _run_migration("008_add_clase_contable", _migration_008_add_clase_contable)
+
     conn.close()
 
 
