@@ -423,6 +423,67 @@
   <!-- END 2-col wrapper for Ingresos + Objetivos -->
 
   <!-- ═══════════════════════════════════════════════════════════════
+       VISTA CONTABLE — OPEX vs CAPEX split
+       Solo se muestra cuando el usuario haya marcado al menos un gasto
+       como bien/equipo (total_capex_usd > 0). Si no, no clutter.
+       Daniel marca cada gasto desde el edit modal (campo "Tipo contable").
+       Los gauges de arriba siguen contando TODO — esto es info adicional.
+       ═══════════════════════════════════════════════════════════════ -->
+  <section
+    x-show="summary.total_capex_usd && summary.total_capex_usd > 0"
+    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm"
+  >
+    <div class="flex items-center justify-between mb-3">
+      <div>
+        <h2 class="text-sm font-semibold flex items-center gap-2">
+          📊 Vista contable
+          <span class="text-[10px] text-slate-400 dark:text-slate-600 font-normal" x-text="windowSize === 1 ? monthLabel : rangeLabel"></span>
+        </h2>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400">
+          Separa gasto corriente de compras de bienes/equipos. Tap en una fila para filtrar Movimientos.
+        </p>
+      </div>
+      <div class="text-right">
+        <div class="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600">Total egresos</div>
+        <div class="text-lg font-bold" x-text="fmtUsd(summary.total_usd)"></div>
+      </div>
+    </div>
+    <div class="space-y-2">
+      <template x-for="cc in (summary.by_clase_contable || [])" :key="cc.clase">
+        <button
+          x-show="cc.count > 0"
+          @click="claseFilter = (claseFilter === cc.clase ? null : cc.clase); document.querySelector('h2.movimientos-anchor')?.scrollIntoView({behavior: 'smooth', block: 'start'})"
+          class="w-full text-left bg-slate-50 dark:bg-slate-800/40 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 transition"
+          :class="claseFilter === cc.clase ? 'ring-2 ring-sky-400 dark:ring-sky-600' : ''"
+          :title="'Tap para filtrar Movimientos por ' + cc.label"
+        >
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-baseline gap-2 min-w-0">
+              <span class="text-base" x-text="cc.icon"></span>
+              <span class="text-sm font-medium truncate" x-text="cc.label"></span>
+              <span class="text-[10px] text-slate-400 dark:text-slate-600" x-text="'· ' + cc.count + (cc.count === 1 ? ' gasto' : ' gastos')"></span>
+            </div>
+            <div class="flex items-baseline gap-3 shrink-0">
+              <span class="text-sm font-semibold" x-text="fmtUsd(cc.total_usd)"></span>
+              <span class="text-[11px] text-slate-500 dark:text-slate-400 w-12 text-right"
+                    x-text="(summary.total_usd > 0 ? Math.round((cc.total_usd / summary.total_usd) * 100) : 0) + '%'"></span>
+            </div>
+          </div>
+          <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden mt-1.5">
+            <div class="h-full rounded-full bar"
+                 :class="cc.clase === 'gasto' ? 'bg-slate-400 dark:bg-slate-500' : 'bg-amber-500'"
+                 :style="'width:' + (summary.total_usd > 0 ? Math.min((cc.total_usd / summary.total_usd) * 100, 100) : 0) + '%'"></div>
+          </div>
+        </button>
+      </template>
+    </div>
+    <div class="mt-3 text-[11px] text-slate-500 dark:text-slate-400 italic">
+      Total OPEX (gasto corriente): <span class="font-semibold text-slate-700 dark:text-slate-300" x-text="fmtUsd(summary.total_opex_usd)"></span>
+      · Total CAPEX (bienes/equipos): <span class="font-semibold text-amber-600 dark:text-amber-400" x-text="fmtUsd(summary.total_capex_usd)"></span>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════════
        ZONA GASTOS: per-user + por método de pago + por categoría
        On desktop this is a 3-column grid. On mobile everything stacks.
        ═══════════════════════════════════════════════════════════════ -->
@@ -630,7 +691,7 @@
   <!-- ──────────────── History ──────────────── -->
   <section class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm" x-show="expenses.length">
     <div class="flex items-center justify-between mb-3">
-      <h2 class="text-sm font-semibold">Movimientos</h2>
+      <h2 class="text-sm font-semibold movimientos-anchor">Movimientos</h2>
       <a
         :href="'/api/export/csv?month=' + month"
         class="text-xs bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg px-3 py-1.5 transition"
@@ -671,7 +732,14 @@
           <div class="flex-1 min-w-0">
             <div class="flex justify-between items-baseline gap-3">
               <!-- Primary line: the NOTE is the transaction identity. If no note, fall back to category label. -->
-              <span class="font-medium truncate text-sm" x-text="e.nota || catLabel(e.categoria)"></span>
+              <span class="font-medium truncate text-sm">
+                <span x-text="e.nota || catLabel(e.categoria)"></span>
+                <!-- CAPEX badge: only shown if marked as bien/equipo (not 'gasto') -->
+                <span x-show="e.clase_contable && e.clase_contable !== 'gasto'"
+                      :title="claseLabel(e.clase_contable)"
+                      class="ml-1 text-[11px]"
+                      x-text="claseIcon(e.clase_contable)"></span>
+              </span>
               <span class="font-bold whitespace-nowrap text-sm" x-text="fmtUsd(e.monto_usd)"></span>
             </div>
             <div class="text-[11px] text-slate-500 dark:text-slate-400 flex justify-between gap-2 mt-0.5">
@@ -766,6 +834,25 @@
             <option :value="opt.key" x-text="opt.label"></option>
           </template>
         </select>
+      </label>
+
+      <!-- Tipo contable: distingue gasto corriente (OPEX) de compras de
+           bienes / equipos (CAPEX). Default 'gasto' — los gauges existentes
+           cuentan todo, esto solo alimenta la nueva Vista Contable. -->
+      <label class="block">
+        <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">Tipo contable</span>
+        <select
+          x-model="$store.edit.form.clase_contable"
+          class="mt-1 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 focus:ring-1 focus:ring-slate-400"
+        >
+          <option value="gasto">💸 Gasto corriente</option>
+          <option value="mobiliario">🛋️ Mobiliario / Enseres</option>
+          <option value="equipos">💻 Equipos</option>
+          <option value="vehiculo">🚗 Vehículo</option>
+        </select>
+        <span class="text-[11px] text-slate-500 mt-0.5 block">
+          Marca como bien o equipo para separarlo del gasto corriente en la vista contable.
+        </span>
       </label>
 
       <!-- Método de pago -->
@@ -1923,6 +2010,9 @@ document.addEventListener('alpine:init', () => {
         categoria: expense.categoria,
         metodo_pago: expense.metodo_pago || 'Sin especificar',
         nota: expense.nota || '',
+        // Default 'gasto' if the field is missing — handles legacy
+        // expenses loaded before migration 008 was applied (defensive).
+        clase_contable: expense.clase_contable || 'gasto',
       };
       this.trm = opts.trm || 3700;
       this.categoryOptions = opts.categoryOptions || [];
@@ -1942,6 +2032,8 @@ document.addEventListener('alpine:init', () => {
         if (catSel) catSel.value = this.form.categoria;
         const payEl = document.querySelector('select[x-model="$store.edit.form.metodo_pago"]');
         if (payEl) payEl.value = this.form.metodo_pago;
+        const claseSel = document.querySelector('select[x-model="$store.edit.form.clase_contable"]');
+        if (claseSel) claseSel.value = this.form.clase_contable;
       }, 0);
     },
 
@@ -1963,6 +2055,7 @@ document.addEventListener('alpine:init', () => {
             categoria: this.form.categoria,
             metodo_pago: this.form.metodo_pago,
             nota: this.form.nota,
+            clase_contable: this.form.clase_contable || 'gasto',
           }),
         });
         if (!resp.ok) {
@@ -2699,11 +2792,23 @@ document.addEventListener('alpine:init', () => {
   });
 });
 
+// Single source of truth for the OPEX/CAPEX taxonomy. Mirrors
+// CLASES_CONTABLES_META in api.py — if you change one, change the other.
+// These 4 keys MUST match what the backend accepts in PUT /api/expenses/{id}.
+const CLASES_CONTABLES = [
+  { key: 'gasto',      label: 'Gasto corriente',     icon: '💸' },
+  { key: 'mobiliario', label: 'Mobiliario / Enseres', icon: '🛋️' },
+  { key: 'equipos',    label: 'Equipos',              icon: '💻' },
+  { key: 'vehiculo',   label: 'Vehículo',             icon: '🚗' },
+];
+
 function dashboard() {
   return {
     month: '',
     months: [],
     methodFilter: null,   // when set, filters Movimientos to this payment method
+    categoryFilter: null, // when set, filters Movimientos to this categoria key
+    claseFilter: null,    // when set, filters Movimientos to this clase_contable
     windowSize: 1,  // 1 | 3 | 6 | 12, or 'ytd'
     windowOptions: [
       { value: 1,  label: '1m',  title: 'Solo el mes activo' },
@@ -3216,6 +3321,17 @@ function dashboard() {
     catLabel(cat) {
       return (this.budget[cat] && this.budget[cat].label) || cat;
     },
+
+    // ── Clase contable helpers (OPEX/CAPEX) ─────────────────
+    claseIcon(k) {
+      const c = CLASES_CONTABLES.find(x => x.key === k);
+      return c ? c.icon : '📦';
+    },
+    claseLabel(k) {
+      const c = CLASES_CONTABLES.find(x => x.key === k);
+      return c ? c.label : k;
+    },
+    get clasesContables() { return CLASES_CONTABLES; },
 
     fmtUsd(v) {
       if (v == null || isNaN(v)) return '$0';
