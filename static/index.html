@@ -484,6 +484,119 @@
   </section>
 
   <!-- ═══════════════════════════════════════════════════════════════
+       PIE CHART · Distribución de gastos por rubro (categoría top-level)
+       Cada slice = una categoría top-level (rollup parent + subs).
+       Si la categoría tiene CAPEX, dentro del slice se dibuja un overlay
+       con stripe pattern del color CAPEX correspondiente — eso es el
+       "shadowing" que pidió Daniel para distinguir visualmente cuáles
+       rubros contienen compras de bienes/equipos.
+       Click en un slice → setea categoryFilter y scrolea a Movimientos.
+       ═══════════════════════════════════════════════════════════════ -->
+  <section
+    x-show="pieChartData && pieChartData.length"
+    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm"
+  >
+    <div class="flex items-center justify-between mb-3">
+      <div>
+        <h2 class="text-sm font-semibold flex items-center gap-2">
+          🥧 Distribución por rubro
+          <span class="text-[10px] text-slate-400 dark:text-slate-600 font-normal" x-text="windowSize === 1 ? monthLabel : rangeLabel"></span>
+        </h2>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400">
+          Tap en un slice para filtrar Movimientos por ese rubro. Las rayas indican qué fracción es bien o equipo.
+        </p>
+      </div>
+    </div>
+
+    <div class="md:grid md:grid-cols-2 md:gap-6 items-center">
+      <!-- ─── Pie chart SVG ───
+           Montado via x-html porque Alpine v3 NO procesa <template x-for>
+           dentro de SVG namespaces (quirk conocido). El getter svgPieChart
+           construye el markup completo como string. Click handlers se
+           agregan via @click delegado en el wrapper. -->
+      <div
+        class="flex justify-center"
+        x-html="svgPieChart"
+        @click="(e) => {
+          const path = e.target.closest('[data-pie-key]');
+          if (!path) return;
+          const k = path.getAttribute('data-pie-key');
+          categoryFilter = (categoryFilter === k ? null : k);
+          document.querySelector('h2.movimientos-anchor')?.scrollIntoView({behavior: 'smooth', block: 'start'});
+        }"
+      ></div>
+
+      <!-- ─── Leyenda ─── -->
+      <div class="space-y-1.5 mt-4 md:mt-0 max-h-80 overflow-y-auto scroll-area pr-2">
+        <template x-for="slice in pieChartData" :key="slice.key">
+          <button
+            @click="categoryFilter = (categoryFilter === slice.key ? null : slice.key); document.querySelector('h2.movimientos-anchor')?.scrollIntoView({behavior: 'smooth', block: 'start'})"
+            :class="categoryFilter === slice.key ? 'bg-sky-50 dark:bg-sky-950/40 ring-1 ring-sky-300 dark:ring-sky-700' : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'"
+            class="w-full text-left rounded-md px-2 py-1.5 transition flex items-center gap-2"
+          >
+            <!-- Color swatch -->
+            <span class="inline-block w-3 h-3 rounded shrink-0" :style="'background-color: ' + slice.color"></span>
+            <span class="text-base shrink-0" x-text="slice.icon"></span>
+            <span class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2">
+                <span class="text-xs font-medium truncate" x-text="slice.label"></span>
+                <span class="text-xs font-semibold whitespace-nowrap" x-text="fmtUsd(slice.total)"></span>
+              </div>
+              <div class="flex items-baseline justify-between gap-2 text-[10px] text-slate-500 dark:text-slate-400">
+                <span>
+                  <span x-text="Math.round(slice.percentage * 10) / 10 + '%'"></span>
+                  <span class="text-slate-400 dark:text-slate-600" x-text="' · ' + slice.count + (slice.count === 1 ? ' gasto' : ' gastos')"></span>
+                </span>
+                <!-- CAPEX badges si hay -->
+                <span class="flex gap-0.5">
+                  <span x-show="slice.byClase.mobiliario > 0"
+                        :title="'Mobiliario: $' + Math.round(slice.byClase.mobiliario)"
+                        class="bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 rounded px-1 text-[9px] font-semibold">🛋️</span>
+                  <span x-show="slice.byClase.equipos > 0"
+                        :title="'Equipos: $' + Math.round(slice.byClase.equipos)"
+                        class="bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 rounded px-1 text-[9px] font-semibold">💻</span>
+                  <span x-show="slice.byClase.vehiculo > 0"
+                        :title="'Vehículo: $' + Math.round(slice.byClase.vehiculo)"
+                        class="bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 rounded px-1 text-[9px] font-semibold">🚗</span>
+                </span>
+              </div>
+            </span>
+          </button>
+        </template>
+      </div>
+    </div>
+
+    <!-- Mini-leyenda de patrones CAPEX, solo si hay alguno -->
+    <div
+      x-show="(summary.total_capex_usd || 0) > 0"
+      class="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-3 flex-wrap"
+    >
+      <span class="font-semibold">Patrón CAPEX:</span>
+      <span class="flex items-center gap-1">
+        <svg width="14" height="14" class="rounded">
+          <rect width="14" height="14" fill="#94a3b8"/>
+          <rect width="14" height="14" fill="url(#stripe-mobiliario)"/>
+        </svg>
+        🛋️ Mobiliario
+      </span>
+      <span class="flex items-center gap-1">
+        <svg width="14" height="14" class="rounded">
+          <rect width="14" height="14" fill="#94a3b8"/>
+          <rect width="14" height="14" fill="url(#stripe-equipos)"/>
+        </svg>
+        💻 Equipos
+      </span>
+      <span class="flex items-center gap-1">
+        <svg width="14" height="14" class="rounded">
+          <rect width="14" height="14" fill="#94a3b8"/>
+          <rect width="14" height="14" fill="url(#stripe-vehiculo)"/>
+        </svg>
+        🚗 Vehículo
+      </span>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════════════════════════════════════════════
        ZONA GASTOS: per-user + por método de pago + por categoría
        On desktop this is a 3-column grid. On mobile everything stacks.
        ═══════════════════════════════════════════════════════════════ -->
@@ -2878,6 +2991,24 @@ const CLASES_CONTABLES = [
   { key: 'vehiculo',   label: 'Vehículo',             icon: '🚗' },
 ];
 
+// Colores por clase contable (usados en el pie chart como overlay
+// "shadowing" cuando una categoría contiene CAPEX).
+const CLASE_COLORS = {
+  gasto:      null,        // sin overlay — el slice se ve solo en color de la categoría
+  mobiliario: '#f59e0b',   // ámbar
+  equipos:    '#8b5cf6',   // violeta
+  vehiculo:   '#06b6d4',   // cyan
+};
+
+// Paleta para slices del pie chart por categoría top-level.
+// Tailwind-derivada, suficientemente distinguibles para ~16 categorías.
+const PIE_COLORS = [
+  '#6366f1', '#10b981', '#ef4444', '#f59e0b',
+  '#8b5cf6', '#06b6d4', '#84cc16', '#f97316',
+  '#ec4899', '#14b8a6', '#eab308', '#a855f7',
+  '#3b82f6', '#22c55e', '#f43f5e', '#0ea5e9',
+];
+
 function dashboard() {
   return {
     month: '',
@@ -3286,11 +3417,30 @@ function dashboard() {
       return [...s];
     },
 
+    // When categoryFilter is a parent (Hogar, Carro), the filter must
+    // also include all its subcategories (Reparaciones, Prediales,
+    // Multas, etc.) — Daniel expects "Hogar" to show everything that
+    // rolls up under Hogar, not just rows whose categoria is literally
+    // 'hogar'. Returns null when no filter is active (so callers can
+    // skip the filter step entirely).
+    get categoryFilterKeys() {
+      if (!this.categoryFilter) return null;
+      const set = new Set([this.categoryFilter]);
+      const budget = this.budget || {};
+      for (const [k, v] of Object.entries(budget)) {
+        if (v && v.parent === this.categoryFilter) set.add(k);
+      }
+      return set;
+    },
+
     get filteredExpenses() {
       let out = this.expenses;
       if (this.userFilter) out = out.filter(e => e.user_name === this.userFilter);
       if (this.methodFilter) out = out.filter(e => e.metodo_pago === this.methodFilter);
-      if (this.categoryFilter) out = out.filter(e => e.categoria === this.categoryFilter);
+      if (this.categoryFilter) {
+        const ks = this.categoryFilterKeys;
+        out = out.filter(e => ks.has(e.categoria));
+      }
       if (this.claseFilter) out = out.filter(e => (e.clase_contable || 'gasto') === this.claseFilter);
       // Chronological (newest first). `fecha` is "YYYY-MM-DD HH:MM" so lex sort works.
       // Clone before sort so the underlying expenses array stays stable for other getters.
@@ -3428,7 +3578,168 @@ function dashboard() {
       const c = CLASES_CONTABLES.find(x => x.key === k);
       return c ? c.label : k;
     },
+    claseColor(k) { return CLASE_COLORS[k] || null; },
     get clasesContables() { return CLASES_CONTABLES; },
+
+    // ── Pie chart: gasto por categoría top-level con CAPEX shadowing ────
+    //
+    // Construye los datos para el pie chart desde this.expenses (los
+    // expenses del mes activo ya cargados en memoria). Agrupa por
+    // categoría top-level (rollup: subcategorías suben a su parent),
+    // y dentro de cada top-level desglosa por clase contable
+    // (gasto / mobiliario / equipos / vehiculo) para que el SVG pueda
+    // pintar el shadowing.
+    //
+    // Output:
+    //   [
+    //     {
+    //       key: 'restaurante', label: 'Restaurante', icon: '🍽️',
+    //       total: 850.30, color: '#6366f1',
+    //       byClase: { gasto: 800, mobiliario: 50, equipos: 0, vehiculo: 0 },
+    //       startAngle: 0, endAngle: 1.234, // radianes
+    //       slicePath: 'M ...', capexOverlays: [{ clase, path, color }],
+    //     },
+    //     ...
+    //   ]
+    get pieChartData() {
+      const exps = this.expenses || [];
+      const budget = this.budget || {};
+      // Step 1: agregar por categoría top-level
+      const byTop = {};
+      for (const e of exps) {
+        const meta = budget[e.categoria] || {};
+        const topKey = meta.parent || e.categoria;
+        const topMeta = budget[topKey] || {};
+        if (!byTop[topKey]) {
+          byTop[topKey] = {
+            key: topKey,
+            label: topMeta.label || topKey,
+            icon: topMeta.icon || '📦',
+            total: 0,
+            byClase: { gasto: 0, mobiliario: 0, equipos: 0, vehiculo: 0 },
+            count: 0,
+          };
+        }
+        const amount = Number(e.monto_usd || 0);
+        const clase = e.clase_contable || 'gasto';
+        byTop[topKey].total += amount;
+        byTop[topKey].byClase[clase] = (byTop[topKey].byClase[clase] || 0) + amount;
+        byTop[topKey].count += 1;
+      }
+      // Step 2: ordenar desc por total, asignar colores y ángulos
+      const slices = Object.values(byTop)
+        .filter(c => c.total > 0)
+        .sort((a, b) => b.total - a.total);
+      const grandTotal = slices.reduce((s, c) => s + c.total, 0);
+      if (grandTotal === 0) return [];
+      // SVG geometry: pie centered at (100,100) radius 90 (en viewBox 0 0 200 200)
+      const cx = 100, cy = 100, r = 90;
+      const arcPath = (a0, a1) => {
+        // Si es 100% (un solo slice), el "arc" tiene que ser un círculo completo
+        // — SVG no puede renderizar un arc de 360°, así que lo emulo con dos semicírculos.
+        if (a1 - a0 >= 2 * Math.PI - 0.0001) {
+          return `M ${cx} ${cy - r} A ${r} ${r} 0 1 1 ${cx} ${cy + r} A ${r} ${r} 0 1 1 ${cx} ${cy - r} Z`;
+        }
+        const x0 = cx + r * Math.sin(a0);
+        const y0 = cy - r * Math.cos(a0);
+        const x1 = cx + r * Math.sin(a1);
+        const y1 = cy - r * Math.cos(a1);
+        const large = (a1 - a0) > Math.PI ? 1 : 0;
+        return `M ${cx} ${cy} L ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1} Z`;
+      };
+      let cursor = 0;
+      slices.forEach((s, idx) => {
+        s.color = PIE_COLORS[idx % PIE_COLORS.length];
+        s.percentage = (s.total / grandTotal) * 100;
+        const angularSpan = (s.total / grandTotal) * 2 * Math.PI;
+        s.startAngle = cursor;
+        s.endAngle = cursor + angularSpan;
+        s.slicePath = arcPath(s.startAngle, s.endAngle);
+        // CAPEX overlays — sub-slices dentro del slice, ordenados por clase
+        // (mobiliario, equipos, vehiculo). Cada uno se pinta con un stripe
+        // pattern cuyo color base = color de la categoría, rayas = color CAPEX.
+        s.capexOverlays = [];
+        let subCursor = s.startAngle;
+        for (const claseKey of ['mobiliario', 'equipos', 'vehiculo']) {
+          const claseAmt = s.byClase[claseKey] || 0;
+          if (claseAmt > 0) {
+            const subSpan = (claseAmt / s.total) * angularSpan;
+            const subEnd = subCursor + subSpan;
+            s.capexOverlays.push({
+              clase: claseKey,
+              path: arcPath(subCursor, subEnd),
+              color: CLASE_COLORS[claseKey],
+              amount: claseAmt,
+              fraction: claseAmt / s.total,
+            });
+            subCursor = subEnd;
+          }
+        }
+        // Total CAPEX en este slice (para badge en leyenda)
+        s.capexTotal = s.byClase.mobiliario + s.byClase.equipos + s.byClase.vehiculo;
+        s.opexTotal = s.byClase.gasto;
+        cursor = s.endAngle;
+      });
+      return slices;
+    },
+
+    get pieChartGrandTotal() {
+      return this.pieChartData.reduce((s, c) => s + c.total, 0);
+    },
+
+    // Build the pie chart SVG as a complete markup string. Alpine v3 has
+    // a known quirk where <template x-for> doesn't render inside SVG
+    // namespaces, so we bypass the directive and emit the full SVG via
+    // x-html on a wrapper div. Click delegation handles the slice clicks.
+    get svgPieChart() {
+      const slices = this.pieChartData;
+      if (!slices || !slices.length) return '';
+      const total = this.pieChartGrandTotal;
+      const fmt = (n) => '$' + Math.round(n).toLocaleString('en-US');
+      const escape = (s) => String(s).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+      // SVG defs (gradients/patterns)
+      const defs = `
+        <defs>
+          <pattern id="stripe-mobiliario" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+            <rect width="6" height="6" fill="transparent"></rect>
+            <line x1="0" y1="0" x2="0" y2="6" stroke="#f59e0b" stroke-width="3" stroke-opacity="0.85"></line>
+          </pattern>
+          <pattern id="stripe-equipos" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+            <rect width="6" height="6" fill="transparent"></rect>
+            <line x1="0" y1="0" x2="0" y2="6" stroke="#8b5cf6" stroke-width="3" stroke-opacity="0.85"></line>
+          </pattern>
+          <pattern id="stripe-vehiculo" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+            <rect width="6" height="6" fill="transparent"></rect>
+            <line x1="0" y1="0" x2="0" y2="6" stroke="#06b6d4" stroke-width="3" stroke-opacity="0.85"></line>
+          </pattern>
+        </defs>`;
+      // Slice paths
+      const sliceMarkup = slices.map(s => {
+        const tooltip = `${s.icon} ${s.label} · ${fmt(s.total)} · ${Math.round(s.percentage)}%`;
+        const overlays = (s.capexOverlays || []).map(ov =>
+          `<path d="${ov.path}" fill="url(#stripe-${ov.clase})" pointer-events="none"></path>`
+        ).join('');
+        return `<g>
+          <path d="${s.slicePath}" fill="${s.color}" stroke="white" stroke-width="1"
+                style="cursor:pointer" data-pie-key="${escape(s.key)}">
+            <title>${escape(tooltip)}</title>
+          </path>
+          ${overlays}
+        </g>`;
+      }).join('');
+      // Donut hole + center label
+      const isDark = document.documentElement.classList.contains('dark');
+      const centerFill = isDark ? '#0f172a' : 'white';
+      const labelColor = isDark ? '#94a3b8' : '#64748b';
+      const totalColor = isDark ? '#f1f5f9' : '#1e293b';
+      return `<svg viewBox="0 0 200 200" class="w-full max-w-[280px] aspect-square" aria-label="Distribución de gastos por rubro">
+        ${defs}
+        ${sliceMarkup}
+        <circle cx="100" cy="100" r="42" fill="${centerFill}"></circle>
+        <text x="100" y="92" text-anchor="middle" font-size="10" fill="${labelColor}" letter-spacing="1">TOTAL</text>
+        <text x="100" y="110" text-anchor="middle" font-size="14" font-weight="bold" fill="${totalColor}">${fmt(total)}</text>
+      </svg>`;
+    },
 
     fmtUsd(v) {
       if (v == null || isNaN(v)) return '$0';
