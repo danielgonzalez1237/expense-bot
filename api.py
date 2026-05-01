@@ -52,6 +52,25 @@ class ExpenseUpdate(BaseModel):
     categoria: Optional[str] = None
     nota: Optional[str] = None
     metodo_pago: Optional[str] = None
+    # Accounting class: 'gasto' (default OPEX), 'mobiliario', 'equipos',
+    # 'vehiculo' (CAPEX subtypes). Validated below in the endpoint
+    # against CLASES_CONTABLES_PERMITIDAS so a malformed PUT can't insert
+    # garbage values.
+    clase_contable: Optional[str] = None
+
+
+# ──────────────── Accounting metadata ────────────────
+# Single source of truth for the OPEX/CAPEX split. Used by the
+# /api/summary aggregation, the /api/expenses validation, and exposed
+# to the frontend so it doesn't have to hardcode the same labels.
+CLASES_CONTABLES_PERMITIDAS = {"gasto", "mobiliario", "equipos", "vehiculo"}
+
+CLASES_CONTABLES_META = [
+    {"clase": "gasto",      "label": "Gasto corriente",     "icon": "💸"},
+    {"clase": "mobiliario", "label": "Mobiliario / Enseres", "icon": "🛋️"},
+    {"clase": "equipos",    "label": "Equipos",              "icon": "💻"},
+    {"clase": "vehiculo",   "label": "Vehículo",             "icon": "🚗"},
+]
 
 
 class RatesUpdate(BaseModel):
@@ -383,7 +402,8 @@ def make_api_app() -> FastAPI:
         rows = _query_all(
             "SELECT id, user_id, user_name, fecha, monto_cop, monto_usd, "
             "categoria, nota, created_at, "
-            "COALESCE(metodo_pago, 'Sin especificar') AS metodo_pago "
+            "COALESCE(metodo_pago, 'Sin especificar') AS metodo_pago, "
+            "COALESCE(clase_contable, 'gasto') AS clase_contable "
             "FROM expenses WHERE fecha LIKE ? "
             "ORDER BY fecha DESC, id DESC LIMIT ?",
             (f"{prefix}%", limit),
@@ -395,7 +415,8 @@ def make_api_app() -> FastAPI:
         """Latest N expenses across all months."""
         rows = _query_all(
             "SELECT id, user_name, fecha, monto_cop, monto_usd, categoria, nota, "
-            "COALESCE(metodo_pago, 'Sin especificar') AS metodo_pago "
+            "COALESCE(metodo_pago, 'Sin especificar') AS metodo_pago, "
+            "COALESCE(clase_contable, 'gasto') AS clase_contable "
             "FROM expenses ORDER BY id DESC LIMIT ?",
             (limit,),
         )
@@ -418,12 +439,56 @@ def make_api_app() -> FastAPI:
         pfrom, pto, n_months = _resolve_range(month, frm, to)
         rows = _query_all(
             "SELECT user_name, fecha, monto_cop, monto_usd, categoria, "
-            "COALESCE(metodo_pago, 'Sin especificar') AS metodo_pago "
+            "COALESCE(metodo_pago, 'Sin especificar') AS metodo_pago, "
+            "COALESCE(clase_contable, 'gasto') AS clase_contable "
             "FROM expenses WHERE substr(fecha, 1, 7) BETWEEN ? AND ?",
             (pfrom, pto),
         )
         total_usd = sum(r["monto_usd"] for r in rows)
         total_cop = sum(r["monto_cop"] for r in rows)
+
+        # Accounting view: split spending into OPEX (gasto corriente) vs CAPEX
+        # (compras de bienes/equipos). Daniel marca cada gasto desde el
+        # dashboard. Default 'gasto' garantiza que pre-flag todo cuenta como OPEX.
+        # IMPORTANTE: total_usd sigue contando todo — los gauges existentes
+        # (IDEAL/PLAN/CONFIG) no cambian. Esto es info adicional.
+        by_clase_acc: dict[str, dict] = {
+            m["clase"]: {**m, "total_usd": 0.0, "total_cop": 0.0, "count": 0}
+            for m in CLASES_CONTABLES_META
+        }
+        for r in rows:
+            c = r["clase_contable"] or "gasto"
+            slot = by_clase_acc.setdefault(
+                c, {"clase": c, "label": c, "icon": "📦", "total_usd": 0.0, "total_cop": 0.0, "count": 0}
+            )
+            slot["total_usd"] += float(r["monto_usd"] or 0)
+            slot["total_cop"] += float(r["monto_cop"] or 0)
+            slot["count"] += 1
+        # Round and order: 'gasto' first (always primary), then by total desc
+        by_clase_contable = []
+        for clase_key in ["gasto", "mobiliario", "equipos", "vehiculo"]:
+            if clase_key in by_clase_acc:
+                slot = by_clase_acc.pop(clase_key)
+                by_clase_contable.append({
+                    **slot,
+                    "total_usd": round(slot["total_usd"], 2),
+                    "total_cop": round(slot["total_cop"], 0),
+                })
+        # Append any unexpected/legacy classes at the end (defensive)
+        for slot in sorted(by_clase_acc.values(), key=lambda s: -s["total_usd"]):
+            by_clase_contable.append({
+                **slot,
+                "total_usd": round(slot["total_usd"], 2),
+                "total_cop": round(slot["total_cop"], 0),
+            })
+        total_opex_usd = round(
+            next((s["total_usd"] for s in by_clase_contable if s["clase"] == "gasto"), 0.0),
+            2,
+        )
+        total_capex_usd = round(
+            sum(s["total_usd"] for s in by_clase_contable if s["clase"] != "gasto"),
+            2,
+        )
 
         # Pull effective budgets for the window — this walks each month and
         # merges baseline with any per-month overrides in budget_history.
@@ -527,6 +592,13 @@ def make_api_app() -> FastAPI:
             "categories": categories,
             "by_user": list(by_user.values()),
             "by_payment_method": by_payment_method,
+            # Vista contable (OPEX vs CAPEX). Estos campos son INFORMATIVOS
+            # — no cambian el comportamiento de los gauges existentes que
+            # siguen usando total_usd. Daniel marca cada gasto desde el
+            # dashboard (PUT /api/expenses/{id} con clase_contable).
+            "total_opex_usd": total_opex_usd,
+            "total_capex_usd": total_capex_usd,
+            "by_clase_contable": by_clase_contable,
         }
 
     @api.get("/api/categories")
@@ -1356,6 +1428,19 @@ def make_api_app() -> FastAPI:
                 except ValueError:
                     raise HTTPException(400, f"invalid fecha {data['fecha']!r}, expected YYYY-MM-DD")
 
+            # Validate clase_contable: only the canonical 4 values are
+            # accepted. A malformed PUT shouldn't be able to insert
+            # arbitrary strings into this column — it's used to drive
+            # the dashboard's accounting view, garbage values would
+            # silently disappear from the by_clase_contable rollup.
+            if "clase_contable" in data and data["clase_contable"] is not None:
+                if data["clase_contable"] not in CLASES_CONTABLES_PERMITIDAS:
+                    raise HTTPException(
+                        400,
+                        f"invalid clase_contable {data['clase_contable']!r}, "
+                        f"expected one of {sorted(CLASES_CONTABLES_PERMITIDAS)}",
+                    )
+
             # Keep monto_usd in sync if monto_cop was edited alone
             if "monto_cop" in data and "monto_usd" not in data:
                 try:
@@ -1370,7 +1455,8 @@ def make_api_app() -> FastAPI:
 
             row = conn.execute(
                 "SELECT id, user_name, fecha, monto_cop, monto_usd, categoria, nota, "
-                "COALESCE(metodo_pago, 'Sin especificar') AS metodo_pago "
+                "COALESCE(metodo_pago, 'Sin especificar') AS metodo_pago, "
+                "COALESCE(clase_contable, 'gasto') AS clase_contable "
                 "FROM expenses WHERE id = ?",
                 (expense_id,),
             ).fetchone()
@@ -1378,6 +1464,7 @@ def make_api_app() -> FastAPI:
                 "id": row[0], "user_name": row[1], "fecha": row[2],
                 "monto_cop": row[3], "monto_usd": row[4],
                 "categoria": row[5], "nota": row[6], "metodo_pago": row[7],
+                "clase_contable": row[8],
             }
         finally:
             conn.close()
@@ -1399,7 +1486,8 @@ def make_api_app() -> FastAPI:
         prefix = _month_prefix(month)
         rows = _query_all(
             "SELECT id, user_name, fecha, monto_cop, monto_usd, categoria, nota, "
-            "COALESCE(metodo_pago, 'Sin especificar') AS metodo_pago "
+            "COALESCE(metodo_pago, 'Sin especificar') AS metodo_pago, "
+            "COALESCE(clase_contable, 'gasto') AS clase_contable "
             "FROM expenses WHERE fecha LIKE ? ORDER BY fecha DESC, id DESC",
             (f"{prefix}%",),
         )
@@ -1407,12 +1495,15 @@ def make_api_app() -> FastAPI:
             raise HTTPException(404, f"no expenses for {prefix}")
         buf = io.StringIO()
         writer = csv.writer(buf)
-        writer.writerow(["ID", "Usuario", "Fecha", "Monto_COP", "Monto_USD", "Categoría", "Nota", "Método de Pago"])
+        writer.writerow([
+            "ID", "Usuario", "Fecha", "Monto_COP", "Monto_USD",
+            "Categoría", "Nota", "Método de Pago", "Clase Contable",
+        ])
         for r in rows:
             writer.writerow([
                 r["id"], r["user_name"], r["fecha"],
                 r["monto_cop"], r["monto_usd"], r["categoria"],
-                r["nota"] or "", r["metodo_pago"],
+                r["nota"] or "", r["metodo_pago"], r["clase_contable"],
             ])
         buf.seek(0)
         return StreamingResponse(
