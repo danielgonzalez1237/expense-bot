@@ -59,6 +59,24 @@ class ExpenseUpdate(BaseModel):
     clase_contable: Optional[str] = None
 
 
+class ExpenseCreate(BaseModel):
+    """Create a new expense from the dashboard or restore one from a backup.
+
+    `id` is optional: if provided and free, it's used (handy for restoring
+    a deleted row by its original id); if omitted, SQLite assigns the
+    next autoincrement.
+    """
+    user_name: str
+    fecha: str  # YYYY-MM-DD
+    monto_cop: float
+    monto_usd: Optional[float] = None
+    categoria: str
+    nota: Optional[str] = ""
+    metodo_pago: Optional[str] = "Sin especificar"
+    clase_contable: Optional[str] = "gasto"
+    id: Optional[int] = None  # only for restore-by-id; usually leave blank
+
+
 # ──────────────── Accounting metadata ────────────────
 # Single source of truth for the OPEX/CAPEX split. Used by the
 # /api/summary aggregation, the /api/expenses validation, and exposed
@@ -1427,6 +1445,77 @@ def make_api_app() -> FastAPI:
         return {"ok": True, "groups": len(cleaned)}
 
     # ──────────────── Write endpoints: expenses ────────────────
+
+    @api.post("/api/expenses")
+    def create_expense(body: ExpenseCreate):
+        """Create a new expense from the dashboard.
+
+        Útil para:
+          - Restaurar un gasto borrado por accidente (pasando `id`).
+          - Crear gastos desde el dashboard sin pasar por Telegram.
+        """
+        if body.clase_contable and body.clase_contable not in CLASES_CONTABLES_PERMITIDAS:
+            raise HTTPException(
+                400,
+                f"invalid clase_contable {body.clase_contable!r}, "
+                f"expected one of {sorted(CLASES_CONTABLES_PERMITIDAS)}",
+            )
+        try:
+            datetime.strptime(body.fecha, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(400, f"invalid fecha {body.fecha!r}, expected YYYY-MM-DD")
+        # Compute monto_usd if not provided
+        monto_usd = body.monto_usd
+        if monto_usd is None:
+            try:
+                monto_usd = round(float(body.monto_cop) / bot.TRM, 2)
+            except (TypeError, ValueError, ZeroDivisionError):
+                raise HTTPException(400, f"invalid monto_cop {body.monto_cop!r}")
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            # If id is requested and free, use it; if taken, return 409.
+            if body.id is not None:
+                taken = conn.execute("SELECT 1 FROM expenses WHERE id = ?", (body.id,)).fetchone()
+                if taken:
+                    raise HTTPException(
+                        409,
+                        f"id {body.id} ya existe — usa otro o omite el campo para autoincrement",
+                    )
+                cur = conn.execute(
+                    "INSERT INTO expenses "
+                    "(id, user_id, user_name, fecha, monto_cop, monto_usd, categoria, "
+                    " nota, created_at, metodo_pago, clase_contable, deferred_total, deferred_index) "
+                    "VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1)",
+                    (body.id, body.user_name, body.fecha, body.monto_cop, monto_usd,
+                     body.categoria, body.nota or "", datetime.now().isoformat(),
+                     body.metodo_pago or "Sin especificar", body.clase_contable or "gasto"),
+                )
+            else:
+                cur = conn.execute(
+                    "INSERT INTO expenses "
+                    "(user_id, user_name, fecha, monto_cop, monto_usd, categoria, "
+                    " nota, created_at, metodo_pago, clase_contable, deferred_total, deferred_index) "
+                    "VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1)",
+                    (body.user_name, body.fecha, body.monto_cop, monto_usd,
+                     body.categoria, body.nota or "", datetime.now().isoformat(),
+                     body.metodo_pago or "Sin especificar", body.clase_contable or "gasto"),
+                )
+            new_id = cur.lastrowid
+            conn.commit()
+            return {
+                "ok": True,
+                "id": new_id,
+                "user_name": body.user_name,
+                "fecha": body.fecha,
+                "monto_cop": body.monto_cop,
+                "monto_usd": monto_usd,
+                "categoria": body.categoria,
+                "nota": body.nota or "",
+                "metodo_pago": body.metodo_pago or "Sin especificar",
+                "clase_contable": body.clase_contable or "gasto",
+            }
+        finally:
+            conn.close()
 
     @api.put("/api/expenses/{expense_id}")
     def update_expense(expense_id: int, update: ExpenseUpdate):
