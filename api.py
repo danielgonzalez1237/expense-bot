@@ -73,6 +73,26 @@ CLASES_CONTABLES_META = [
 ]
 
 
+# ──────────────── Diferimiento (Approach A: filas hijas ligadas) ────────────────
+# Cuando Daniel difiere un gasto en N meses, el sistema modifica el gasto
+# original para que su monto pase a 1/N, y crea N-1 hijos con la misma
+# metadata (categoria, user, método, nota, clase) en cada mes futuro.
+# Todos comparten un deferred_group_id (= id del padre original) para que
+# se puedan borrar como grupo.
+DEFERRAL_MODES_PERMITIDOS = {"upfront", "credito"}
+DEFERRAL_MODES_META = [
+    {"mode": "upfront", "label": "Pagado completo este mes", "icon": "💳",
+     "description": "La tarjeta cobró todo de una. Solo distribuyo contablemente."},
+    {"mode": "credito", "label": "Difiriendo con tarjeta",   "icon": "📅",
+     "description": "El banco cobra 1/N por mes durante N meses."},
+]
+
+
+class DeferralRequest(BaseModel):
+    months: int  # 2..12
+    mode: str    # 'upfront' or 'credito'
+
+
 class RatesUpdate(BaseModel):
     TRM: float
     BOB_RATE: float
@@ -403,7 +423,10 @@ def make_api_app() -> FastAPI:
             "SELECT id, user_id, user_name, fecha, monto_cop, monto_usd, "
             "categoria, nota, created_at, "
             "COALESCE(metodo_pago, 'Sin especificar') AS metodo_pago, "
-            "COALESCE(clase_contable, 'gasto') AS clase_contable "
+            "COALESCE(clase_contable, 'gasto') AS clase_contable, "
+            "COALESCE(deferred_total, 1) AS deferred_total, "
+            "COALESCE(deferred_index, 1) AS deferred_index, "
+            "deferred_group_id, deferred_mode "
             "FROM expenses WHERE fecha LIKE ? "
             "ORDER BY fecha DESC, id DESC LIMIT ?",
             (f"{prefix}%", limit),
@@ -416,7 +439,10 @@ def make_api_app() -> FastAPI:
         rows = _query_all(
             "SELECT id, user_name, fecha, monto_cop, monto_usd, categoria, nota, "
             "COALESCE(metodo_pago, 'Sin especificar') AS metodo_pago, "
-            "COALESCE(clase_contable, 'gasto') AS clase_contable "
+            "COALESCE(clase_contable, 'gasto') AS clase_contable, "
+            "COALESCE(deferred_total, 1) AS deferred_total, "
+            "COALESCE(deferred_index, 1) AS deferred_index, "
+            "deferred_group_id, deferred_mode "
             "FROM expenses ORDER BY id DESC LIMIT ?",
             (limit,),
         )
@@ -1478,6 +1504,161 @@ def make_api_app() -> FastAPI:
             if r.rowcount == 0:
                 raise HTTPException(404, f"expense {expense_id} not found")
             return {"ok": True, "deleted": expense_id}
+        finally:
+            conn.close()
+
+    @api.post("/api/expenses/{expense_id}/defer")
+    def defer_expense(expense_id: int, body: DeferralRequest):
+        """Difiere un gasto en N meses (Approach A: filas hijas).
+
+        El gasto original se modifica:
+          - monto_cop, monto_usd → divididos entre N
+          - deferred_total = N
+          - deferred_index = 1
+          - deferred_group_id = id del original
+          - deferred_mode = body.mode
+
+        Y se crean N-1 hijos (cuotas 2..N), uno por cada mes futuro.
+        Hereda toda la metadata del original (categoría, user, método,
+        nota, clase_contable). La fecha se incrementa mes a mes
+        manteniendo el día (ajustando si el mes destino es más corto).
+
+        Retorna la lista de los N expenses (original + hijos).
+
+        Errores:
+          - 404: expense no encontrado
+          - 400: months fuera de [2,12], mode inválido, o gasto ya está diferido
+        """
+        if body.months < 2 or body.months > 12:
+            raise HTTPException(400, "months must be between 2 and 12")
+        if body.mode not in DEFERRAL_MODES_PERMITIDOS:
+            raise HTTPException(
+                400,
+                f"invalid mode {body.mode!r}, expected one of {sorted(DEFERRAL_MODES_PERMITIDOS)}",
+            )
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            row = conn.execute(
+                "SELECT id, user_id, user_name, fecha, monto_cop, monto_usd, categoria, "
+                "nota, metodo_pago, clase_contable, deferred_total, deferred_group_id "
+                "FROM expenses WHERE id = ?",
+                (expense_id,),
+            ).fetchone()
+            if not row:
+                raise HTTPException(404, f"expense {expense_id} not found")
+            (orig_id, user_id, user_name, fecha, monto_cop, monto_usd,
+             categoria, nota, metodo_pago, clase_contable,
+             current_total, current_group_id) = row
+
+            # Block if already deferred (would corrupt accounting)
+            if (current_total and current_total > 1) or current_group_id:
+                raise HTTPException(
+                    400,
+                    f"expense {expense_id} ya está en un grupo diferido. "
+                    "Borra el grupo entero (DELETE /api/expenses/group/{group_id}) "
+                    "antes de re-diferirlo.",
+                )
+
+            n = body.months
+            unit_cop = round(float(monto_cop or 0) / n, 2)
+            unit_usd = round(float(monto_usd or 0) / n, 2)
+            now = datetime.now().isoformat()
+
+            # Compute monthly fechas. Fecha base = original (YYYY-MM-DD or
+            # YYYY-MM-DD HH:MM). Mantenemos el día y solo movemos el mes.
+            # Si el día origen es 31 y el mes destino tiene 30, ajustamos
+            # al último día del mes destino.
+            base = fecha or datetime.now().strftime("%Y-%m-%d")
+            base_date = base[:10]
+            try:
+                y0, m0, d0 = (int(x) for x in base_date.split("-"))
+            except (ValueError, TypeError):
+                raise HTTPException(400, f"original expense has invalid fecha {base!r}")
+
+            def month_offset(y, m, d, k):
+                """Return YYYY-MM-DD shifted k months forward, clamping day."""
+                tot = m - 1 + k
+                ny, nm = y + tot // 12, tot % 12 + 1
+                # Clamp day to last day of target month
+                import calendar
+                last = calendar.monthrange(ny, nm)[1]
+                nd = min(d, last)
+                return f"{ny:04d}-{nm:02d}-{nd:02d}"
+
+            try:
+                conn.execute("BEGIN")
+                # Update original (cuota 1/N)
+                conn.execute(
+                    "UPDATE expenses SET monto_cop = ?, monto_usd = ?, "
+                    "deferred_total = ?, deferred_index = 1, "
+                    "deferred_group_id = ?, deferred_mode = ? "
+                    "WHERE id = ?",
+                    (unit_cop, unit_usd, n, orig_id, body.mode, orig_id),
+                )
+                # Insert N-1 hijos (cuotas 2..N)
+                children_ids = []
+                for k in range(2, n + 1):
+                    new_fecha = month_offset(y0, m0, d0, k - 1)
+                    cur = conn.execute(
+                        "INSERT INTO expenses "
+                        "(user_id, user_name, fecha, monto_cop, monto_usd, "
+                        " categoria, nota, created_at, metodo_pago, clase_contable, "
+                        " deferred_total, deferred_index, deferred_group_id, deferred_mode) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (user_id, user_name, new_fecha, unit_cop, unit_usd,
+                         categoria, nota, now, metodo_pago, clase_contable,
+                         n, k, orig_id, body.mode),
+                    )
+                    children_ids.append(cur.lastrowid)
+                conn.execute("COMMIT")
+            except Exception:
+                try:
+                    conn.execute("ROLLBACK")
+                except Exception:
+                    pass
+                raise
+
+            # Return all N rows of the deferred group
+            all_rows = conn.execute(
+                "SELECT id, fecha, monto_usd, monto_cop, deferred_index, deferred_total "
+                "FROM expenses WHERE deferred_group_id = ? ORDER BY deferred_index",
+                (orig_id,),
+            ).fetchall()
+            return {
+                "ok": True,
+                "group_id": orig_id,
+                "months": n,
+                "mode": body.mode,
+                "unit_usd": unit_usd,
+                "unit_cop": unit_cop,
+                "expenses": [
+                    {"id": r[0], "fecha": r[1], "monto_usd": r[2],
+                     "monto_cop": r[3], "index": r[4], "total": r[5]}
+                    for r in all_rows
+                ],
+            }
+        finally:
+            conn.close()
+
+    @api.delete("/api/expenses/group/{group_id}")
+    def delete_deferred_group(group_id: int):
+        """Borra TODOS los expenses asociados a un deferred_group_id.
+
+        Útil cuando Daniel se arrepiente del diferimiento o quiere
+        re-diferir con otro N. Después puede re-registrar el gasto
+        original a mano y volver a diferir.
+        """
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM expenses WHERE deferred_group_id = ?",
+                (group_id,),
+            ).fetchone()[0]
+            if count == 0:
+                raise HTTPException(404, f"no expenses found for group {group_id}")
+            conn.execute("DELETE FROM expenses WHERE deferred_group_id = ?", (group_id,))
+            conn.commit()
+            return {"ok": True, "group_id": group_id, "deleted_count": count}
         finally:
             conn.close()
 

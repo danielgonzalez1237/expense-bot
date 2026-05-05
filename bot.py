@@ -843,6 +843,74 @@ def init_db():
 
     _run_migration("008_add_clase_contable", _migration_008_add_clase_contable)
 
+    def _migration_009_add_deferred_columns(conn):
+        """Agrega columnas para diferimiento de gastos en N meses.
+
+        Caso de uso: Daniel pagó el seguro del Tesla en 1 sola transacción
+        ($1200 cash flow real), pero contablemente quiere distribuir el
+        impacto en 12 meses ($100/mes en su P&L familiar).
+
+        Modelo elegido (Approach A): se generan N expenses ligados por
+        deferred_group_id. Cada uno aparece como una fila normal en
+        Movimientos en su mes correspondiente. Las queries de summary,
+        gauges, vista contable, pie chart, etc., NO necesitan saber que
+        son diferidos — los suman como cualquier otro gasto.
+
+        Columnas agregadas:
+          - deferred_group_id INTEGER: id del primer gasto del grupo
+            (= id del gasto original que Daniel marcó como diferido).
+            NULL si el gasto no es parte de un diferimiento.
+          - deferred_index INTEGER DEFAULT 1: 1, 2, 3, ..., N. La cuota K de N.
+          - deferred_total INTEGER DEFAULT 1: N (total de cuotas). 1 = no diferido.
+          - deferred_mode TEXT: 'upfront' (pago hecho completo este mes,
+            distribución solo contable) o 'credito' (la tarjeta cobra
+            mensual). NULL si no es diferido. Solo INFORMATIVO — no afecta
+            cálculos del dashboard, es metadata para que Daniel se acuerde.
+
+        Defensas:
+          - Idempotente: si las columnas ya existen, sale sin tocar nada.
+          - Transacción explícita con rollback en error.
+          - Count-check antes/después: si la cuenta cambia, aborta.
+        """
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(expenses)").fetchall()]
+        new_cols = []
+        if "deferred_group_id" not in cols:
+            new_cols.append(("deferred_group_id", "INTEGER"))
+        if "deferred_index" not in cols:
+            new_cols.append(("deferred_index", "INTEGER DEFAULT 1"))
+        if "deferred_total" not in cols:
+            new_cols.append(("deferred_total", "INTEGER DEFAULT 1"))
+        if "deferred_mode" not in cols:
+            new_cols.append(("deferred_mode", "TEXT"))
+        if not new_cols:
+            return  # all columns already present
+        count_before = conn.execute("SELECT COUNT(*) FROM expenses").fetchone()[0]
+        try:
+            conn.execute("BEGIN")
+            for col_name, col_def in new_cols:
+                conn.execute(f"ALTER TABLE expenses ADD COLUMN {col_name} {col_def}")
+            # Backfill defaults for existing rows (SQLite quirk again):
+            conn.execute("UPDATE expenses SET deferred_index = 1 WHERE deferred_index IS NULL")
+            conn.execute("UPDATE expenses SET deferred_total = 1 WHERE deferred_total IS NULL")
+            count_after = conn.execute("SELECT COUNT(*) FROM expenses").fetchone()[0]
+            if count_after != count_before:
+                conn.execute("ROLLBACK")
+                raise RuntimeError(
+                    f"[migration 009] count drift detected: {count_before} -> {count_after}. "
+                    "Aborting to protect data."
+                )
+            conn.execute("COMMIT")
+            added = ", ".join(c[0] for c in new_cols)
+            print(f"[migration 009] expenses count: {count_before} -> {count_after} OK (added: {added})")
+        except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            raise
+
+    _run_migration("009_add_deferred_columns", _migration_009_add_deferred_columns)
+
     conn.close()
 
 

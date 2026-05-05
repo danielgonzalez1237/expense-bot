@@ -928,6 +928,12 @@
                       :title="claseLabel(e.clase_contable)"
                       class="ml-1 text-[11px]"
                       x-text="claseIcon(e.clase_contable)"></span>
+                <!-- Deferred badge: si es parte de un diferimiento, mostrar K/N -->
+                <span x-show="e.deferred_total > 1"
+                      :title="'Cuota ' + e.deferred_index + ' de ' + e.deferred_total + ' · modo ' + (e.deferred_mode === 'credito' ? 'crédito' : 'completo')"
+                      class="ml-1 inline-flex items-center gap-0.5 text-[10px] bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded px-1 py-0.5 font-semibold align-middle">
+                  📅 <span x-text="e.deferred_index"></span>/<span x-text="e.deferred_total"></span>
+                </span>
               </span>
               <span class="font-bold whitespace-nowrap text-sm" x-text="fmtUsd(e.monto_usd)"></span>
             </div>
@@ -1067,6 +1073,83 @@
           class="mt-1 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 focus:ring-1 focus:ring-slate-400"
         />
       </label>
+
+      <!-- ─── Diferir gasto en N meses ─── -->
+      <!-- Si el gasto YA está en un grupo diferido, mostramos un banner
+           informativo + botón para borrar el grupo entero. Si NO está
+           diferido, mostramos el panel de configuración. -->
+      <div
+        x-show="$store.edit.form.deferred_total > 1"
+        class="rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30 p-3 text-xs"
+      >
+        <div class="flex items-center justify-between">
+          <div>
+            <div class="font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1">
+              📅 Cuota <span x-text="$store.edit.form.deferred_index"></span> de <span x-text="$store.edit.form.deferred_total"></span>
+            </div>
+            <div class="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">
+              Modo:
+              <span x-show="$store.edit.form.deferred_mode === 'upfront'">💳 Pagado completo este mes (distribución solo contable)</span>
+              <span x-show="$store.edit.form.deferred_mode === 'credito'">📅 Difiriendo con tarjeta</span>
+            </div>
+          </div>
+          <button
+            @click="$store.edit.deleteGroup()"
+            :disabled="$store.edit.busy"
+            class="text-[11px] text-red-600 dark:text-red-400 hover:underline disabled:opacity-40"
+          >Borrar las <span x-text="$store.edit.form.deferred_total"></span> cuotas</button>
+        </div>
+      </div>
+      <details
+        x-show="!$store.edit.form.deferred_total || $store.edit.form.deferred_total <= 1"
+        class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 p-3"
+      >
+        <summary class="text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer flex items-center gap-2">
+          📅 Diferir este gasto en N meses
+        </summary>
+        <div class="mt-3 space-y-2">
+          <div>
+            <label class="text-[11px] uppercase tracking-wide text-slate-500 font-medium">Diferir en</label>
+            <div class="flex items-center gap-2 mt-1">
+              <input
+                type="range" min="2" max="12" step="1"
+                x-model.number="$store.edit.deferralMonths"
+                class="flex-1"
+              />
+              <span class="text-sm font-bold w-16 text-right">
+                <span x-text="$store.edit.deferralMonths"></span> meses
+              </span>
+            </div>
+            <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              Cada cuota: ≈ $<span x-text="$store.edit.form.monto_cop ? Math.round(($store.edit.form.monto_cop / $store.edit.deferralMonths) / $store.edit.trm) : 0"></span> USD
+              · $<span x-text="$store.edit.form.monto_cop ? Math.round($store.edit.form.monto_cop / $store.edit.deferralMonths).toLocaleString('de-DE') : 0"></span> COP
+            </div>
+          </div>
+          <div>
+            <label class="text-[11px] uppercase tracking-wide text-slate-500 font-medium">Modo de pago</label>
+            <select
+              x-model="$store.edit.deferralMode"
+              class="mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm"
+            >
+              <option value="upfront">💳 Pagado completo este mes (distribución solo contable)</option>
+              <option value="credito">📅 Difiriendo con tarjeta de crédito</option>
+            </select>
+          </div>
+          <button
+            @click="$store.edit.defer()"
+            :disabled="$store.edit.busy"
+            class="w-full text-sm rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-medium px-3 py-2 disabled:opacity-40"
+          >
+            <span x-show="!$store.edit.busy">Confirmar diferimiento</span>
+            <span x-show="$store.edit.busy">Generando cuotas…</span>
+          </button>
+          <p class="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">
+            Se generan <span x-text="$store.edit.deferralMonths"></span> filas de gasto, una en cada mes empezando este mes.
+            Cada cuota es editable o borrable individualmente. El grupo completo
+            se borra desde la primera cuota.
+          </p>
+        </div>
+      </details>
     </div>
 
     <div
@@ -2181,6 +2264,11 @@ document.addEventListener('alpine:init', () => {
     paymentOptions: [],
     onSaved: null,
     onDeleted: null,
+    // Deferral panel state — controlado por el bloque <details> en el modal.
+    // Default 12 meses + modo 'upfront' porque cubre el caso de uso típico
+    // (Daniel paga el seguro completo con tarjeta, lo distribuye contablemente).
+    deferralMonths: 12,
+    deferralMode: 'upfront',
 
     init() {},
 
@@ -2202,6 +2290,11 @@ document.addEventListener('alpine:init', () => {
         // Default 'gasto' if the field is missing — handles legacy
         // expenses loaded before migration 008 was applied (defensive).
         clase_contable: expense.clase_contable || 'gasto',
+        // Deferral state — read from row, defaults to "no diferido"
+        deferred_total: expense.deferred_total || 1,
+        deferred_index: expense.deferred_index || 1,
+        deferred_group_id: expense.deferred_group_id || null,
+        deferred_mode: expense.deferred_mode || null,
       };
       this.trm = opts.trm || 3700;
       this.categoryOptions = opts.categoryOptions || [];
@@ -2209,6 +2302,9 @@ document.addEventListener('alpine:init', () => {
       this.onSaved = opts.onSaved || null;
       this.onDeleted = opts.onDeleted || null;
       this.error = null;
+      // Reset deferral panel inputs to sane defaults each open
+      this.deferralMonths = 12;
+      this.deferralMode = 'upfront';
       this.open = true;
       // Belt-and-suspenders: after Alpine renders the x-for options, force
       // the selects to display the store values. x-model occasionally
@@ -2269,6 +2365,80 @@ document.addEventListener('alpine:init', () => {
         if (!resp.ok) {
           const body = await resp.text();
           throw new Error('No se pudo eliminar (' + resp.status + '): ' + body.slice(0, 120));
+        }
+        this.open = false;
+        if (this.onDeleted) await this.onDeleted();
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    // Diferir el gasto en N meses. Usa el endpoint POST /api/expenses/{id}/defer.
+    // El backend genera N-1 hijos y modifica el original (esta fila) para que
+    // su monto pase a 1/N. Después de confirmar, recarga el dashboard para
+    // que los nuevos hijos aparezcan en sus meses futuros.
+    async defer() {
+      const n = Number(this.deferralMonths);
+      if (n < 2 || n > 12) {
+        this.error = 'Selecciona entre 2 y 12 meses';
+        return;
+      }
+      const monto = Math.round(Number(this.form.monto_cop) || 0);
+      if (monto <= 0) {
+        this.error = 'El gasto debe tener un monto > 0 para diferirse';
+        return;
+      }
+      const cuotaCop = Math.round(monto / n).toLocaleString('de-DE');
+      if (!confirm(
+        `¿Diferir este gasto en ${n} meses?\n\n` +
+        `Cada cuota será de ~$${cuotaCop} COP empezando este mes.\n` +
+        `Se generan ${n - 1} cuotas adicionales en los meses futuros.\n\n` +
+        `Modo: ${this.deferralMode === 'upfront' ? 'Pagado completo este mes' : 'Difiriendo con tarjeta'}`
+      )) return;
+      this.busy = true;
+      this.error = null;
+      try {
+        const resp = await fetch('/api/expenses/' + this.form.id + '/defer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ months: n, mode: this.deferralMode }),
+        });
+        if (!resp.ok) {
+          const body = await resp.text();
+          throw new Error('No se pudo diferir (' + resp.status + '): ' + body.slice(0, 200));
+        }
+        this.open = false;
+        if (this.onSaved) await this.onSaved();
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    // Borrar TODAS las cuotas del grupo diferido. Usa DELETE /api/expenses/group/{id}.
+    // Útil para revertir un diferimiento equivocado.
+    async deleteGroup() {
+      const groupId = this.form.deferred_group_id;
+      const total = this.form.deferred_total;
+      if (!groupId) {
+        this.error = 'Este gasto no es parte de un diferimiento';
+        return;
+      }
+      if (!confirm(
+        `¿Borrar las ${total} cuotas del diferimiento (grupo #${groupId})?\n\n` +
+        `Esto elimina todas las cuotas de los meses futuros también. ` +
+        `No se puede deshacer.`
+      )) return;
+      this.busy = true;
+      this.error = null;
+      try {
+        const resp = await fetch('/api/expenses/group/' + groupId, { method: 'DELETE' });
+        if (!resp.ok) {
+          const body = await resp.text();
+          throw new Error('No se pudo borrar el grupo (' + resp.status + '): ' + body.slice(0, 200));
         }
         this.open = false;
         if (this.onDeleted) await this.onDeleted();
