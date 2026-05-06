@@ -1126,27 +1126,71 @@ def month_summary_text():
 # INLINE KEYBOARDS
 # ════════════════════════════════════════
 def make_category_keyboard(monto_cop, nota=""):
-    """Build grouped category selection keyboard."""
-    keyboard = []
-    for group_name, cats in CAT_GROUPS.items():
-        keyboard.append([InlineKeyboardButton(f"── {group_name} ──", callback_data="noop")])
-        row = []
-        for cat in cats:
-            info = BUDGET[cat]
-            btn_text = f"{info['icon']} {info['label']}"
-            # Truncate nota to fit 64-byte callback_data limit
-            short_nota = nota[:20] if nota else ""
-            cb_data = f"cat:{cat}:{monto_cop:.0f}:{short_nota}"
-            if len(cb_data.encode('utf-8')) > 64:
-                cb_data = f"cat:{cat}:{monto_cop:.0f}:"
-            row.append(InlineKeyboardButton(btn_text, callback_data=cb_data))
-            if len(row) == 2:
-                keyboard.append(row)
-                row = []
-        if row:
-            keyboard.append(row)
-    keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancel")])
-    return InlineKeyboardMarkup(keyboard)
+    """LEGACY (no longer used by the new conversational flow). Kept here
+    just so anywhere that still calls it doesn't crash. The new flow uses
+    make_category_picker() which paginates ALL categories + subs."""
+    return make_category_picker(page=0)
+
+
+def _category_picker_items():
+    """Build the flat ordered list of (key, display_label) for the picker.
+
+    Top-level categories come first alphabetically; each parent is
+    immediately followed by its children indented with '  ↳ ' so Daniel
+    can pick subs directly without navigating. This stays in sync with
+    BUDGET (live config) — no caching, every call rebuilds.
+    """
+    items = []
+    parents = sorted(
+        [k for k, v in BUDGET.items() if not v.get("parent")],
+        key=lambda k: BUDGET[k].get("label", k).lower(),
+    )
+    for p in parents:
+        v = BUDGET[p]
+        items.append((p, f"{v.get('icon', '📦')} {v.get('label', p)}"))
+        children = sorted(
+            [(k, vv) for k, vv in BUDGET.items() if vv.get("parent") == p],
+            key=lambda x: x[1].get("label", x[0]).lower(),
+        )
+        for ck, cv in children:
+            items.append((ck, f"  ↳ {cv.get('icon', '📦')} {cv.get('label', ck)}"))
+    # Orphan children (parent missing) → flat at the bottom (defensive)
+    seen = {k for k, _ in items}
+    for k, v in BUDGET.items():
+        if k not in seen and v.get("parent"):
+            items.append((k, f"{v.get('icon', '📦')} {v.get('label', k)} (huérfano)"))
+    return items
+
+
+def make_category_picker(page=0, per_page=10):
+    """Paginated keyboard that shows ALL categories + subs.
+
+    Daniel pidió que el bot, cuando reciba un monto, le muestre el menú
+    completo (cat + subs) con paginación, sin auto-inferir nada de las
+    palabras del mensaje. Cada botón usa callback_data 'catpick:<key>'.
+    """
+    items = _category_picker_items()
+    if not items:
+        return InlineKeyboardMarkup([[InlineKeyboardButton("(sin categorías)", callback_data="noop")]])
+    total_pages = max(1, (len(items) + per_page - 1) // per_page)
+    page = max(0, min(page, total_pages - 1))
+    start = page * per_page
+    end = min(start + per_page, len(items))
+    rows = []
+    for key, label in items[start:end]:
+        # Cap label length to keep the inline button readable on mobile
+        if len(label) > 38:
+            label = label[:35] + "…"
+        rows.append([InlineKeyboardButton(label, callback_data=f"catpick:{key}")])
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton("« Anterior", callback_data=f"catpage:{page - 1}"))
+    nav.append(InlineKeyboardButton(f"{page + 1}/{total_pages}", callback_data="noop"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton("Siguiente »", callback_data=f"catpage:{page + 1}"))
+    rows.append(nav)
+    rows.append([InlineKeyboardButton("✕ Cancelar", callback_data="cancel_flow")])
+    return InlineKeyboardMarkup(rows)
 
 def make_main_menu():
     """Main action keyboard."""
@@ -1324,6 +1368,10 @@ async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
 
     # Payment method selection: pago|EXPENSE_ID|METHOD
+    # En el flujo nuevo (post-2026-05-06) este es el último paso del
+    # registro. Después de setear el método, mostramos un resumen
+    # completo con monto / categoría / nota / método y limpiamos el
+    # estado conversacional.
     if data.startswith("pago|"):
         parts = data.split("|", 2)
         exp_id = int(parts[1])
@@ -1332,13 +1380,82 @@ async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             conn = sqlite3.connect(DB_PATH)
             conn.execute("UPDATE expenses SET metodo_pago = ? WHERE id = ?", (metodo, exp_id))
             conn.commit()
+            row = conn.execute(
+                "SELECT monto_cop, monto_usd, categoria, nota FROM expenses WHERE id = ?",
+                (exp_id,),
+            ).fetchone()
             conn.close()
-            await query.edit_message_text(f"✅ Pago #{exp_id}: {metodo}", reply_markup=make_confirm_keyboard(exp_id))
+            _clear_pending(ctx)
+            if row:
+                monto_cop, monto_usd, cat, nota = row
+                meta = BUDGET.get(cat, {})
+                cat_label = meta.get("label", cat)
+                cat_icon = meta.get("icon", "📦")
+                msg = (
+                    f"✅ *Gasto #{exp_id} registrado*\n\n"
+                    f"  {cat_icon} {cat_label}\n"
+                    f"  💰 ${monto_usd:.2f} USD ({monto_cop:,.0f} COP)\n"
+                )
+                if nota:
+                    msg += f"  📝 {nota}\n"
+                msg += f"  💳 {metodo}"
+                await query.edit_message_text(msg, parse_mode="Markdown")
+            else:
+                await query.edit_message_text(f"✅ Pago #{exp_id}: {metodo}")
         except Exception as e:
             await query.edit_message_text(f"❌ Error guardando pago: {e}")
         return
 
-    # Category selection: cat:CATEGORY:MONTO_COP:NOTA
+    # NEW FLOW (2026-05-06): paginated category picker.
+    # catpage:N → re-render the picker on a different page.
+    # catpick:KEY → user selected a category/sub; ask for nota next.
+    # cancel_flow → abort the in-progress registration.
+    if data.startswith("catpage:"):
+        try:
+            page = int(data.split(":", 1)[1])
+        except ValueError:
+            page = 0
+        try:
+            await query.edit_message_reply_markup(reply_markup=make_category_picker(page=page))
+        except Exception:
+            pass
+        return
+
+    if data.startswith("catpick:"):
+        cat = data.split(":", 1)[1]
+        pending = ctx.user_data.get("pending", {})
+        if not pending or "monto_cop" not in pending:
+            await query.edit_message_text(
+                "⚠️ Sesión expirada. Empieza de nuevo enviando el monto."
+            )
+            _clear_pending(ctx)
+            return
+        if cat not in BUDGET:
+            await query.edit_message_text(
+                f"⚠️ Categoría desconocida: {cat}. Empieza de nuevo enviando el monto."
+            )
+            _clear_pending(ctx)
+            return
+        pending["categoria"] = cat
+        ctx.user_data["pending"] = pending
+        ctx.user_data["state"] = "awaiting_note"
+        meta = BUDGET[cat]
+        cat_label = meta.get("label", cat)
+        cat_icon = meta.get("icon", "📦")
+        await query.edit_message_text(
+            f"✏️ Categoría: {cat_icon} *{cat_label}*\n\n"
+            f"Ahora escribe una *nota* describiendo el gasto "
+            f"(mínimo 3 caracteres, o /cancel para abortar):",
+            parse_mode="Markdown",
+        )
+        return
+
+    if data == "cancel_flow":
+        _clear_pending(ctx)
+        await query.edit_message_text("❌ Registro cancelado")
+        return
+
+    # Category selection: cat:CATEGORY:MONTO_COP:NOTA  (LEGACY — old flow)
     if data.startswith("cat:"):
         parts = data.split(":", 3)
         cat = parts[1]
@@ -1543,60 +1660,117 @@ async def cmd_menu(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text("── Menú GG ──", reply_markup=make_main_menu())
 
-# Quick expense: "50000 restaurante almuerzo" or "100usd hotel miami" or "bob 45 restaurante"
+
+async def cmd_cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Abort the in-progress expense registration flow."""
+    if not is_allowed(update.effective_user.id):
+        return
+    had_state = bool(ctx.user_data.get("state"))
+    _clear_pending(ctx)
+    if had_state:
+        await update.message.reply_text("❌ Registro cancelado.")
+    else:
+        await update.message.reply_text("Nada que cancelar — no hay registro en curso.")
+
+# Conversational expense flow (state machine vía ctx.user_data):
+#   1) Daniel envía "1000 cop" o "50 usd" → bot abre el menú COMPLETO de
+#      categorías + subs (paginado).
+#   2) Daniel selecciona categoría/sub → bot pide nota (forzosa, ≥ 3 chars).
+#   3) Daniel escribe nota → bot inserta el gasto y muestra el selector
+#      de método de pago.
+#   4) Daniel selecciona método → bot termina y muestra confirmación.
+#
+# Estados gestionados en ctx.user_data:
+#   - state: 'awaiting_category' | 'awaiting_note' | 'awaiting_payment'
+#   - pending: dict con monto_cop, display, categoria, nota, expense_id
+#
+# El comando /cancel (y el botón ✕ Cancelar) limpian el estado.
+#
+# Los aliases (~463 palabras) ya NO se usan para auto-inferir categoría.
+# Quedan en el código por si en el futuro queremos reactivar esa
+# heurística o usarla para filtrar el menú por palabra.
+
+def _clear_pending(ctx):
+    ctx.user_data.pop("pending", None)
+    ctx.user_data.pop("state", None)
+
+
 async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update.effective_user.id):
         return
     text = update.message.text.strip()
-    parts = text.split()
-
-    if not parts:
+    if not text:
         return
 
-    monto_cop, display, currency, rest = smart_parse(parts)
-
-    if monto_cop is not None:
-        # If category provided
-        if rest:
-            cat, nota_smart = smart_resolve_from_words(rest)
-            if cat:
-                await register_and_confirm(update.message, update.effective_user, monto_cop, cat, nota_smart, display)
-                return
-            else:
-                # Unknown category - offer to create or reassign
-                unknown = rest[0]
-                nota = " ".join(rest[1:]) if len(rest) > 1 else ""
-                monto_usd = monto_cop / TRM
-                keyboard = [
-                    [InlineKeyboardButton(
-                        f"\u2795 Crear \"{unknown}\" como categor\u00eda",
-                        callback_data=f"newcat|{unknown}|{monto_cop}|{nota}|{display}"
-                    )],
-                    [InlineKeyboardButton(
-                        "\U0001f504 Elegir categor\u00eda existente",
-                        callback_data=f"recat|{monto_cop}|{nota}|{display}"
-                    )]
-                ]
-                await update.message.reply_text(
-                    f"\u2753 No conozco la categor\u00eda *\"{unknown}\"*\n\n"
-                    f"Monto: {display} (${monto_usd:.0f} USD)\n\n"
-                    f"\u00bfQu\u00e9 deseas hacer?",
-                    reply_markup=InlineKeyboardMarkup(keyboard),
-                    parse_mode="Markdown"
-                )
-                return
-
-        # Only amount → show category keyboard (if reasonable amount)
-        if monto_cop > 100:
-            nota = " ".join(rest) if rest else ""
-            monto_usd = monto_cop / TRM
+    # ── Step 2 of the flow: capturing the nota ──
+    state = ctx.user_data.get("state")
+    if state == "awaiting_note":
+        nota = text.strip()
+        if len(nota) < 3:
             await update.message.reply_text(
-                f"💸 **{display}** (${monto_usd:.0f} USD)\n\n"
-                f"Selecciona categoría:",
-                reply_markup=make_category_keyboard(monto_cop, nota),
-                parse_mode="Markdown"
+                "⚠️ La nota debe tener al menos 3 caracteres.\n"
+                "Vuelve a escribirla (o /cancel para abortar):"
             )
             return
+        pending = ctx.user_data.get("pending", {})
+        if not pending or "monto_cop" not in pending or "categoria" not in pending:
+            _clear_pending(ctx)
+            await update.message.reply_text(
+                "⚠️ Sesión expirada. Empieza de nuevo enviando el monto."
+            )
+            return
+        monto_cop = float(pending["monto_cop"])
+        cat = pending["categoria"]
+        user = update.effective_user
+        user_name = user.first_name or "Unknown"
+        try:
+            exp_id, monto_usd = add_expense(user.id, user_name, monto_cop, cat, nota)
+        except Exception as e:
+            _clear_pending(ctx)
+            await update.message.reply_text(f"❌ Error al guardar el gasto: {e}")
+            return
+        pending["nota"] = nota
+        pending["expense_id"] = exp_id
+        pending["monto_usd"] = monto_usd
+        ctx.user_data["pending"] = pending
+        ctx.user_data["state"] = "awaiting_payment"
+
+        cat_meta = BUDGET.get(cat, {})
+        cat_label = cat_meta.get("label", cat)
+        cat_icon = cat_meta.get("icon", "📦")
+        display = pending.get("display", "")
+        await update.message.reply_text(
+            f"✅ Gasto #{exp_id} guardado:\n"
+            f"  {cat_icon} *{cat_label}*\n"
+            f"  💰 {display} (${monto_usd:.0f} USD)\n"
+            f"  📝 {nota}\n\n"
+            f"💳 Ahora selecciona el *método de pago*:",
+            reply_markup=make_payment_keyboard(exp_id),
+            parse_mode="Markdown",
+        )
+        return
+
+    # ── Step 1 of the flow: parse amount, open category picker ──
+    parts = text.split()
+    monto_cop, display, currency, rest = smart_parse(parts)
+
+    if monto_cop is None:
+        return
+
+    monto_usd = monto_cop / TRM if TRM else 0
+    ctx.user_data["pending"] = {
+        "monto_cop": monto_cop,
+        "display": display or fmt(monto_cop) + " COP",
+    }
+    ctx.user_data["state"] = "awaiting_category"
+    await update.message.reply_text(
+        f"💸 *{display or fmt(monto_cop) + ' COP'}* (${monto_usd:.0f} USD)\n\n"
+        f"Selecciona la categoría o subcategoría:",
+        reply_markup=make_category_picker(page=0),
+        parse_mode="Markdown",
+    )
+    return
+
 
 # ════════════════════════════════════════
 # MONTHLY RESET JOB (1ro de cada mes 00:01 COL)
@@ -1851,6 +2025,7 @@ def main():
     app.add_handler(CommandHandler("exportar", cmd_menu))
     app.add_handler(CommandHandler("borrar", cmd_borrar))
     app.add_handler(CommandHandler("menu", cmd_menu))
+    app.add_handler(CommandHandler("cancel", cmd_cancel))
     app.add_handler(CommandHandler("ayuda", cmd_start))
     app.add_handler(CommandHandler("help", cmd_start))
     app.add_handler(CommandHandler("nuevacat", cmd_nuevacat))
