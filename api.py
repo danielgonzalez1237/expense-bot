@@ -358,6 +358,19 @@ class ReconcileFindCandidatesBody(BaseModel):
     tol_pct: Optional[float] = 0.10
 
 
+class ReconcileRuleBody(BaseModel):
+    pattern: Optional[str] = None
+    suggested_categoria: Optional[str] = None
+    priority: Optional[int] = None
+    enabled: Optional[bool] = None
+    notes: Optional[str] = None
+
+
+class ReconcileRuleTestBody(BaseModel):
+    pattern: str
+    sample_descriptions: list[str]
+
+
 class RatesUpdate(BaseModel):
     TRM: float
     BOB_RATE: float
@@ -2735,6 +2748,120 @@ def make_api_app() -> FastAPI:
                        {"expense_id": expense_id}, expense_id=expense_id)
             conn.commit()
             return {"ok": True, "item_id": item_id, "expense_id": expense_id}
+        finally:
+            conn.close()
+
+    # ─── Heurísticas keyword (Commit E) ───
+
+    @api.get("/api/reconcile/rules")
+    def reconcile_list_rules():
+        rows = _query_all(
+            "SELECT id, pattern, suggested_categoria, priority, enabled, notes, "
+            "created_at, updated_at FROM reconcile_keyword_rules "
+            "ORDER BY priority ASC, id ASC"
+        )
+        return {"rules": rows}
+
+    @api.post("/api/reconcile/rules")
+    def reconcile_create_rule(body: ReconcileRuleBody):
+        if not body.pattern or not body.suggested_categoria:
+            raise HTTPException(400, "pattern y suggested_categoria son requeridos")
+        # Validar regex
+        try:
+            re.compile(body.pattern)
+        except re.error as e:
+            raise HTTPException(400, f"regex inválido: {e}")
+        if body.suggested_categoria not in (bot.BUDGET or {}):
+            raise HTTPException(400, f"categoria {body.suggested_categoria!r} no existe")
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            now = datetime.now().isoformat()
+            cur = conn.execute(
+                "INSERT INTO reconcile_keyword_rules "
+                "(pattern, suggested_categoria, priority, enabled, notes, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (body.pattern, body.suggested_categoria,
+                 body.priority if body.priority is not None else 100,
+                 1 if (body.enabled is None or body.enabled) else 0,
+                 body.notes or "", now),
+            )
+            conn.commit()
+            return {"ok": True, "id": cur.lastrowid}
+        finally:
+            conn.close()
+
+    @api.patch("/api/reconcile/rules/{rule_id}")
+    def reconcile_update_rule(rule_id: int, body: ReconcileRuleBody):
+        if body.pattern:
+            try: re.compile(body.pattern)
+            except re.error as e:
+                raise HTTPException(400, f"regex inválido: {e}")
+        if body.suggested_categoria and body.suggested_categoria not in (bot.BUDGET or {}):
+            raise HTTPException(400, f"categoria {body.suggested_categoria!r} no existe")
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            existing = conn.execute(
+                "SELECT id FROM reconcile_keyword_rules WHERE id = ?", (rule_id,)
+            ).fetchone()
+            if not existing:
+                raise HTTPException(404, f"rule {rule_id} not found")
+            data = body.dict(exclude_unset=True)
+            data["updated_at"] = datetime.now().isoformat()
+            sets = ", ".join(f"{k} = ?" for k in data)
+            params = list(data.values()) + [rule_id]
+            conn.execute(f"UPDATE reconcile_keyword_rules SET {sets} WHERE id = ?", params)
+            conn.commit()
+            return {"ok": True, "id": rule_id, **data}
+        finally:
+            conn.close()
+
+    @api.delete("/api/reconcile/rules/{rule_id}")
+    def reconcile_delete_rule(rule_id: int):
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            r = conn.execute("DELETE FROM reconcile_keyword_rules WHERE id = ?", (rule_id,))
+            conn.commit()
+            if r.rowcount == 0:
+                raise HTTPException(404, f"rule {rule_id} not found")
+            return {"ok": True, "deleted": rule_id}
+        finally:
+            conn.close()
+
+    @api.post("/api/reconcile/rules/test")
+    def reconcile_test_rule(body: ReconcileRuleTestBody):
+        """Testea un pattern contra una lista de descripciones SIN guardar.
+        Útil antes de crear una regla nueva."""
+        try:
+            rx = re.compile(body.pattern, re.IGNORECASE)
+        except re.error as e:
+            raise HTTPException(400, f"regex inválido: {e}")
+        results = []
+        for desc in body.sample_descriptions:
+            results.append({"desc": desc, "match": bool(rx.search(desc))})
+        return {"pattern": body.pattern, "results": results,
+                "match_count": sum(1 for r in results if r["match"])}
+
+    @api.get("/api/reconcile/last_summary")
+    def reconcile_last_summary():
+        """Resumen del último import cerrado (para widget en dashboard)."""
+        conn = sqlite3.connect(bot.DB_PATH)
+        conn.row_factory = sqlite3.Row
+        try:
+            imp = conn.execute(
+                "SELECT id, label, cycle_label, period_from, period_to, "
+                "total_items, total_cop, status, imported_at, closed_at "
+                "FROM reconciliation_imports "
+                "WHERE status = 'closed' ORDER BY closed_at DESC LIMIT 1"
+            ).fetchone()
+            if not imp:
+                return {"last_import": None}
+            stats = {}
+            for r in conn.execute(
+                "SELECT status, COUNT(*), SUM(monto_cop) FROM reconciliation_items "
+                "WHERE import_id = ? GROUP BY status", (imp["id"],)
+            ).fetchall():
+                stats[r[0]] = {"count": r[1], "total_cop": round(r[2] or 0, 2)}
+            return {"last_import": dict(imp), "stats": stats}
         finally:
             conn.close()
 
