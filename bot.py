@@ -982,6 +982,237 @@ def init_db():
 
     _run_migration("010_create_reconciliation_tables", _migration_010_create_reconciliation_tables)
 
+    def _migration_011_reconciliation_v2_schema(conn):
+        """Schema v2 del módulo de Conciliación.
+
+        Daniel revirtió la v1 el 2026-05-07 después de descubrir 14 riesgos en
+        producción (data loss silencioso por fallback 'otro', falta de
+        cross-check bot→extracto, tolerancia rígida, bulk irreversible, etc.).
+        Esta migración rehace el schema desde cero con:
+
+          - reconciliation_imports (extendida): cycle_label, covered_methods_json,
+            tol_days_back/forward/pct, status='preview'|'confirmed'|'closed'.
+          - reconciliation_items (extendida): nuevos status (added_to_bot,
+            reviewed, ignored), columnas user_chosen_* para audit del input
+            real del usuario.
+          - reconciliation_audit_log (NUEVA): registro persistente de cada
+            acción del usuario (preview/confirm/adjudicate/revert/etc.) para
+            recuperación si vuelve a haber un bug como el de 'otro'.
+          - reconcile_keyword_rules (NUEVA): heurísticas keyword→categoría
+            editables desde el dashboard, pre-seedeadas con las reglas que
+            Daniel pidió explícitamente (4×1000, Uber, Pricesmart, Bilbao2,
+            CAR DOMI TRA, BRE-B, etc.).
+
+        Plan formal: ~/.claude/plans/wiggly-swinging-rose.md
+        Memoria: memory/expense_bot_conciliacion_planning.md
+
+        Idempotente: chequea si las tablas v2 ya tienen las columnas nuevas.
+        Si las viejas v1 están ahí (vacías), las DROP y recrea.
+        """
+        # Verificar si ya migramos: las nuevas columnas exclusivas de v2
+        cols_imports = [r[1] for r in conn.execute(
+            "PRAGMA table_info(reconciliation_imports)"
+        ).fetchall()]
+        if "cycle_label" in cols_imports and "covered_methods_json" in cols_imports:
+            return  # ya está en v2
+
+        # Verificar que no hay items NI imports persistidos (defensa: si
+        # alguien tiene data, abortar antes de DROP).
+        try:
+            n_imports = conn.execute(
+                "SELECT COUNT(*) FROM reconciliation_imports"
+            ).fetchone()[0]
+            n_items = conn.execute(
+                "SELECT COUNT(*) FROM reconciliation_items"
+            ).fetchone()[0]
+        except Exception:
+            n_imports = n_items = 0
+        if n_imports > 0 or n_items > 0:
+            raise RuntimeError(
+                f"[migration 011] ABORT — reconciliation_imports tiene "
+                f"{n_imports} rows y reconciliation_items tiene {n_items}. "
+                f"Esta migración hace DROP. Confirma que querés perder esa "
+                f"data antes de re-correr."
+            )
+
+        # Verificar count de expenses ANTES de tocar nada
+        count_expenses_before = conn.execute(
+            "SELECT COUNT(*) FROM expenses"
+        ).fetchone()[0]
+
+        try:
+            conn.execute("BEGIN")
+
+            # Drop v1 tables (vacías, ya verificado arriba)
+            conn.execute("DROP TABLE IF EXISTS reconciliation_items")
+            conn.execute("DROP TABLE IF EXISTS reconciliation_imports")
+
+            # Create v2 tables
+            conn.execute("""
+                CREATE TABLE reconciliation_imports (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    label TEXT,
+                    period_from TEXT,
+                    period_to TEXT,
+                    cycle_label TEXT,
+                    covered_methods_json TEXT,
+                    tol_days_back INTEGER,
+                    tol_days_forward INTEGER,
+                    tol_pct REAL,
+                    total_items INTEGER DEFAULT 0,
+                    total_cop REAL DEFAULT 0,
+                    status TEXT DEFAULT 'preview',
+                    imported_at TEXT NOT NULL,
+                    confirmed_at TEXT,
+                    closed_at TEXT,
+                    notes TEXT
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE reconciliation_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    import_id INTEGER NOT NULL,
+                    fecha TEXT NOT NULL,
+                    monto_cop REAL NOT NULL,
+                    monto_original REAL,
+                    moneda_original TEXT,
+                    descripcion TEXT NOT NULL,
+                    bank_prefix TEXT,
+                    item_type TEXT,
+                    fingerprint TEXT NOT NULL,
+                    matched_expense_id INTEGER,
+                    status TEXT DEFAULT 'pending',
+                    suggested_method_pago TEXT,
+                    suggested_categoria TEXT,
+                    user_chosen_categoria TEXT,
+                    user_chosen_metodo TEXT,
+                    user_chosen_user_name TEXT,
+                    user_chosen_clase_contable TEXT,
+                    notes TEXT,
+                    FOREIGN KEY(import_id) REFERENCES reconciliation_imports(id) ON DELETE CASCADE
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE reconciliation_audit_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    import_id INTEGER,
+                    item_id INTEGER,
+                    action TEXT NOT NULL,
+                    payload_json TEXT,
+                    expense_id_affected INTEGER,
+                    timestamp TEXT NOT NULL,
+                    user_id INTEGER
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE reconcile_keyword_rules (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    pattern TEXT NOT NULL,
+                    suggested_categoria TEXT NOT NULL,
+                    priority INTEGER DEFAULT 100,
+                    enabled INTEGER DEFAULT 1,
+                    notes TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT
+                )
+            """)
+
+            # Indices
+            conn.execute("CREATE INDEX idx_recon_items_import ON reconciliation_items(import_id)")
+            conn.execute("CREATE INDEX idx_recon_items_status ON reconciliation_items(status)")
+            conn.execute("CREATE INDEX idx_recon_items_fp ON reconciliation_items(fingerprint)")
+            conn.execute("CREATE INDEX idx_recon_audit_import ON reconciliation_audit_log(import_id)")
+            conn.execute("CREATE INDEX idx_recon_audit_item ON reconciliation_audit_log(item_id)")
+            conn.execute("CREATE INDEX idx_recon_keyword_priority ON reconcile_keyword_rules(priority, enabled)")
+
+            # Seed inicial de reglas keyword. Orden: prioridad menor = se evalúa
+            # primero (subs específicas antes que catch-alls).
+            now = datetime.now().isoformat()
+            seed_rules = [
+                # (pattern, cat, priority, notes)
+                # GMF / impuestos bancarios
+                (r"gravamen|4\s*x\s*1[\.,]?\s*000|impuesto.*4x1", "comisiones", 10, "GMF (4x1000)"),
+                # Suscripciones específicas (subs)
+                (r"\buber\s*(one|pro|membership)\b|uberone", "uberpro", 20, "Uber One/Pro/Membership"),
+                (r"\bnetflix\b", "netflix", 20, ""),
+                (r"\byoutube\b", "youtube", 20, ""),
+                (r"\brappi\s*pro\b", "rappipro", 20, ""),
+                (r"amazon\s*prime|prime\s*video", "amazonprime", 20, ""),
+                (r"claude\.?ai|anthropic", "claude", 20, ""),
+                # Uber regular (catch-all sin one/pro)
+                (r"\buber\b(?!\s*(one|pro|membership))", "uber", 30, "Uber regular"),
+                # Domicilios
+                (r"\brappi\b", "rappi", 30, "Rappi domicilios"),
+                # Supermercado subs (carulla express ANTES que carulla solo)
+                (r"pricesmart|price\s*smart", "pricemart", 40, ""),
+                (r"\btienda\s*d1\b|^d1\s|dollarcity|dollar\s*city", "d1", 40, ""),
+                (r"carulla\s+express|\bcorpaul\b|\bjumbo\b|\bminiso\b", "super_otro", 41, ""),
+                (r"\bcarulla\b", "verduras", 50, "Carulla genérico"),
+                # Cafés
+                (r"\bstarbucks?\b|caf[eé]\s+pergamino|\bpergamino\b|altotostado", "cafe", 40, ""),
+                # Restaurantes
+                (r"\b(rocoto|naan|shibuya|el\s+arriero|la\s+lucha|tori|monterrey|story\s+teller|margherita|mondongos|la\s+campestre|sonia\s+vivian|farm\s+pasteur|percimon|boldcaf|bold\s*caf)\b", "restaurante", 40, ""),
+                # Transporte
+                (r"\beds\b|combuscol|texaco|terpel|gasolinera", "gasolina", 40, ""),
+                (r"\bgopass\b", "peajes", 40, ""),
+                (r"\bparking\b|parqueadero|the\s+parking", "parqueadero", 40, ""),
+                # Salud
+                (r"\bfarm\b|farmacia|farmaceut|cruz\s*verde|locatel|drugstore", "medicinas", 40, ""),
+                (r"hospital|cl[ií]nica|i\.?p\.?s|dermatolog|cardiolog|ortodiagnostico|compensar", "salud", 40, ""),
+                # PSE / impuestos
+                (r"municipio\s+de\s+medellin|impuesto\s+predial|predial", "prediales", 40, ""),
+                (r"empresas\s+publicas|epm", "servicios", 40, ""),
+                # Viaje
+                (r"latam\s+airlines?|\bairport\b|duty\s+free|airpartners|aerol[ií]nea", "viaje", 40, ""),
+                (r"hotel|booking\.?com|airbnb", "viaje", 41, ""),
+                # Educativo (Bilbao2 es un caso conocido)
+                (r"bilbao2", "educativo", 30, "Bilbao2.com → educativo"),
+                # Suscripciones genéricas
+                (r"apple\.com|apple\s*bill|app\s*store", "suscripciones", 50, ""),
+                (r"google\s+workspace|google\s+one|google\.com", "suscripciones", 50, ""),
+                (r"speechify|godaddy|miro\.com|gamma\.app|notion|figma|slack|read.*meeting|perplexity|chatgpt|openai|github|copilot|railway", "suscripciones", 60, ""),
+                # Seguros
+                (r"\btesla\b", "seguro_tesla", 40, ""),
+                (r"land\s*rover", "seguro_carro_land", 40, ""),
+                (r"seguro|p[oó]liza", "seguros", 60, ""),
+                # Mercado pago genérico
+                (r"mercado\s*pago", "super_otro", 70, ""),
+            ]
+            for pat, cat, prio, notes in seed_rules:
+                conn.execute(
+                    "INSERT INTO reconcile_keyword_rules (pattern, suggested_categoria, priority, enabled, notes, created_at) "
+                    "VALUES (?, ?, ?, 1, ?, ?)",
+                    (pat, cat, prio, notes, now),
+                )
+
+            count_expenses_after = conn.execute(
+                "SELECT COUNT(*) FROM expenses"
+            ).fetchone()[0]
+            if count_expenses_after != count_expenses_before:
+                conn.execute("ROLLBACK")
+                raise RuntimeError(
+                    f"[migration 011] ABORT — expenses count cambió: "
+                    f"{count_expenses_before} → {count_expenses_after}"
+                )
+
+            conn.execute("COMMIT")
+            n_rules = conn.execute(
+                "SELECT COUNT(*) FROM reconcile_keyword_rules"
+            ).fetchone()[0]
+            print(
+                f"[migration 011] reconciliation v2 schema created · "
+                f"expenses count: {count_expenses_before} -> {count_expenses_after} OK · "
+                f"{n_rules} keyword rules seeded"
+            )
+        except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            raise
+
+    _run_migration("011_reconciliation_v2_schema", _migration_011_reconciliation_v2_schema)
+
     conn.close()
 
 
