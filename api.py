@@ -1865,8 +1865,8 @@ def make_api_app() -> FastAPI:
 
     def _try_match_expense(conn, item_fecha: str, item_monto: float,
                            method_pago: str, used_expense_ids: set,
-                           tol_days: int = 3, tol_cop: int = 2000,
-                           tol_pct: float = 0.01) -> Optional[int]:
+                           tol_days: int = 7, tol_cop: int = 5000,
+                           tol_pct: float = 0.05) -> Optional[int]:
         """Encuentra el mejor expense del bot que matchea el item.
 
         Criterios:
@@ -2105,9 +2105,27 @@ def make_api_app() -> FastAPI:
         finally:
             conn.close()
 
+    class ReconcileAdjudicateRequest(BaseModel):
+        """Override opcional para 'adjudicar' un item del extracto.
+
+        Si el usuario provee categoria, metodo_pago, user_name, nota o
+        clase_contable, el endpoint los usa en lugar de los sugeridos
+        automáticamente. Cualquier campo None mantiene el sugerido.
+        """
+        categoria: Optional[str] = None
+        metodo_pago: Optional[str] = None
+        user_name: Optional[str] = None
+        nota: Optional[str] = None
+        clase_contable: Optional[str] = None
+
     @api.post("/api/reconcile/items/{item_id}/create_expense")
-    def reconcile_item_create_expense(item_id: int):
-        """Crea un expense desde un item del extracto y lo deja matched."""
+    def reconcile_item_create_expense(item_id: int, body: Optional[ReconcileAdjudicateRequest] = None):
+        """Crea un expense desde un item del extracto y lo deja matched.
+
+        Acepta un body opcional con overrides — útil para 'adjudicar' a
+        una categoría o método específico que el sistema no sugirió bien.
+        Sin body: usa los sugeridos automáticos.
+        """
         conn = sqlite3.connect(bot.DB_PATH)
         try:
             row = conn.execute(
@@ -2121,22 +2139,27 @@ def make_api_app() -> FastAPI:
              sug_method, sug_cat, status) = row
             if status == "matched":
                 raise HTTPException(409, "item ya está matched a un expense")
-            metodo = sug_method or "Sin especificar"
-            categoria = sug_cat or ("comisiones" if item_type in
+            ov = body or ReconcileAdjudicateRequest()
+            metodo = ov.metodo_pago or sug_method or "Sin especificar"
+            sug_default_cat = ("comisiones" if item_type in
                                     ("gmf", "comision", "cuota_manejo",
                                      "interes_tc", "seguro_deudor",
                                      "conversion_int", "foreign_exchange_fee",
                                      "avance_cajero")
                                     else "otro")
+            categoria = ov.categoria or sug_cat or sug_default_cat
+            user_name = ov.user_name or "Daniel"
+            nota_final = ov.nota or descripcion[:120]
+            clase = ov.clase_contable or "gasto"
             monto_usd = round(float(monto_cop) / bot.TRM, 2) if bot.TRM else 0
             cur = conn.execute(
                 "INSERT INTO expenses "
                 "(user_id, user_name, fecha, monto_cop, monto_usd, categoria, "
                 " nota, created_at, metodo_pago, clase_contable, "
                 " deferred_total, deferred_index) "
-                "VALUES (NULL, 'Daniel', ?, ?, ?, ?, ?, ?, ?, 'gasto', 1, 1)",
-                (fecha, float(monto_cop), monto_usd, categoria,
-                 descripcion[:120], datetime.now().isoformat(), metodo),
+                "VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1)",
+                (user_name, fecha, float(monto_cop), monto_usd, categoria,
+                 nota_final, datetime.now().isoformat(), metodo, clase),
             )
             new_expense_id = cur.lastrowid
             conn.execute(
@@ -2145,7 +2168,7 @@ def make_api_app() -> FastAPI:
             )
             conn.commit()
             return {"ok": True, "expense_id": new_expense_id, "categoria": categoria,
-                    "metodo_pago": metodo}
+                    "metodo_pago": metodo, "user_name": user_name, "clase_contable": clase}
         finally:
             conn.close()
 
@@ -2186,6 +2209,55 @@ def make_api_app() -> FastAPI:
                 created.append({"item_id": rid, "expense_id": new_id})
             conn.commit()
             return {"ok": True, "created_count": len(created), "items": created}
+        finally:
+            conn.close()
+
+    @api.post("/api/reconcile/imports/{import_id}/rematch")
+    def reconcile_rematch(import_id: int):
+        """Re-corre el matcher sobre los items que quedaron en
+        'unmatched_extract' del import. Útil después de aflojar la
+        tolerancia o agregar expenses al bot que cubren items pendientes.
+
+        No toca items que ya están en otros estados (matched, added_to_bot,
+        bank_charge, transfer_internal, duplicate, reviewed).
+        """
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            imp = conn.execute(
+                "SELECT id FROM reconciliation_imports WHERE id = ?", (import_id,)
+            ).fetchone()
+            if not imp:
+                raise HTTPException(404, f"import {import_id} not found")
+            pending = conn.execute(
+                "SELECT id, fecha, monto_cop, suggested_method_pago "
+                "FROM reconciliation_items "
+                "WHERE import_id = ? AND status IN ('unmatched_extract', 'pending')",
+                (import_id,),
+            ).fetchall()
+            already = {row[0] for row in conn.execute(
+                "SELECT matched_expense_id FROM reconciliation_items "
+                "WHERE import_id = ? AND matched_expense_id IS NOT NULL",
+                (import_id,),
+            ).fetchall() if row[0]}
+            converted = 0
+            for r in pending:
+                rid, fecha, monto, sug_method = r
+                if not sug_method:
+                    continue
+                eid = _try_match_expense(
+                    conn, fecha, float(monto), sug_method, already,
+                )
+                if eid:
+                    already.add(eid)
+                    conn.execute(
+                        "UPDATE reconciliation_items "
+                        "SET matched_expense_id = ?, status = 'matched' WHERE id = ?",
+                        (eid, rid),
+                    )
+                    converted += 1
+            conn.commit()
+            return {"ok": True, "import_id": import_id,
+                    "converted_to_matched": converted}
         finally:
             conn.close()
 

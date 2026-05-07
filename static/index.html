@@ -75,7 +75,7 @@
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
       </button>
       <button
-        @click="$store.reconcile.open = true"
+        @click="openReconcile()"
         class="text-slate-500 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300 transition p-2"
         title="Conciliación de extractos"
         aria-label="Conciliación"
@@ -1693,6 +1693,12 @@
             class="text-xs bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-md font-medium disabled:opacity-40"
           >🏦 Crear todos los cargos del banco como gastos</button>
           <button
+            @click="$store.reconcile.rematch()"
+            :disabled="$store.reconcile.busy"
+            class="text-xs bg-sky-600 hover:bg-sky-700 text-white px-3 py-1.5 rounded-md font-medium disabled:opacity-40"
+            title="Re-corre el matcher con tolerancia ±7 días / ±5% sobre los items 'Falta en bot'. Útil después de aflojar la regla o registrar más expenses al bot."
+          >🔁 Re-matchear con tolerancia amplia</button>
+          <button
             @click="$store.reconcile.deleteImport()"
             :disabled="$store.reconcile.busy"
             class="text-xs text-red-600 dark:text-red-400 hover:underline ml-auto"
@@ -1724,13 +1730,21 @@
                 <div class="text-right shrink-0">
                   <div class="font-semibold text-sm" x-text="$store.reconcile.fmtCop(item.monto_cop) + ' COP'"></div>
                   <div class="text-[10px] text-slate-400" x-show="item.moneda_original" x-text="item.moneda_original + ' ' + item.monto_original"></div>
-                  <div class="mt-1 flex gap-1 justify-end">
+                  <div class="mt-1 flex gap-1 justify-end flex-wrap">
                     <button
                       x-show="['unmatched_extract', 'bank_charge', 'pago_pse'].includes(item.status) || (item.status === 'transfer_internal' && !item.matched_expense_id)"
                       @click="$store.reconcile.addToBot(item.id)"
                       :disabled="$store.reconcile.busy"
                       class="text-[10px] bg-sky-600 hover:bg-sky-700 text-white px-2 py-1 rounded disabled:opacity-40"
+                      title="Crear expense con la categoría sugerida automática"
                     >+ Agregar al bot</button>
+                    <button
+                      x-show="['unmatched_extract', 'bank_charge', 'pago_pse', 'transfer_internal', 'other'].includes(item.status)"
+                      @click="$store.reconcile.openAdjudicate(item)"
+                      :disabled="$store.reconcile.busy"
+                      class="text-[10px] bg-violet-600 hover:bg-violet-700 text-white px-2 py-1 rounded disabled:opacity-40"
+                      title="Elegir categoría/método manualmente"
+                    >🎯 Adjudicar</button>
                     <button
                       x-show="!['matched', 'added_to_bot', 'reviewed', 'duplicate'].includes(item.status)"
                       @click="$store.reconcile.markReviewed(item.id)"
@@ -1738,6 +1752,72 @@
                       class="text-[10px] bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 px-2 py-1 rounded disabled:opacity-40"
                     >👁️ Revisado</button>
                   </div>
+                </div>
+              </div>
+              <!-- Sub-form de Adjudicar (expandible inline) -->
+              <div
+                x-show="$store.reconcile.adjudicating === item.id"
+                x-cloak
+                class="mt-2 p-3 bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-900 rounded-lg space-y-2"
+              >
+                <div class="text-[10px] uppercase tracking-wide text-violet-700 dark:text-violet-400 font-semibold">🎯 Adjudicar a</div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <label class="block">
+                    <span class="text-[10px] text-slate-600 dark:text-slate-400">Categoría / sub</span>
+                    <select
+                      x-model="$store.reconcile.adjudicateData.categoria"
+                      class="mt-0.5 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs"
+                    >
+                      <option value="">— elige —</option>
+                      <template x-for="opt in $store.reconcile.categoryOptions" :key="opt.key">
+                        <option :value="opt.key" x-text="opt.label"></option>
+                      </template>
+                    </select>
+                  </label>
+                  <label class="block">
+                    <span class="text-[10px] text-slate-600 dark:text-slate-400">Método de pago</span>
+                    <select
+                      x-model="$store.reconcile.adjudicateData.metodo_pago"
+                      class="mt-0.5 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs"
+                    >
+                      <template x-for="opt in $store.reconcile.paymentOptions" :key="opt">
+                        <option :value="opt" x-text="opt"></option>
+                      </template>
+                    </select>
+                  </label>
+                  <label class="block">
+                    <span class="text-[10px] text-slate-600 dark:text-slate-400">Usuario</span>
+                    <select
+                      x-model="$store.reconcile.adjudicateData.user_name"
+                      class="mt-0.5 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs"
+                    >
+                      <option value="Daniel">Daniel</option>
+                      <option value="Madeline">Madeline</option>
+                    </select>
+                  </label>
+                  <label class="block">
+                    <span class="text-[10px] text-slate-600 dark:text-slate-400">Clase contable</span>
+                    <select
+                      x-model="$store.reconcile.adjudicateData.clase_contable"
+                      class="mt-0.5 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs"
+                    >
+                      <option value="gasto">💸 Gasto corriente</option>
+                      <option value="mobiliario">🛋️ Mobiliario</option>
+                      <option value="equipos">💻 Equipos</option>
+                      <option value="vehiculo">🚗 Vehículo</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="flex justify-end gap-2 pt-1">
+                  <button
+                    @click="$store.reconcile.closeAdjudicate()"
+                    class="text-[10px] px-2 py-1 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600"
+                  >Cancelar</button>
+                  <button
+                    @click="$store.reconcile.adjudicate(item.id)"
+                    :disabled="$store.reconcile.busy || !$store.reconcile.adjudicateData.categoria"
+                    class="text-[10px] px-3 py-1 rounded bg-violet-600 hover:bg-violet-700 text-white font-medium disabled:opacity-40"
+                  >Crear con esta clasificación</button>
                 </div>
               </div>
             </div>
@@ -2971,6 +3051,11 @@ document.addEventListener('alpine:init', () => {
     statusFilter: 'all',
     // Lista de imports históricos (para "ver imports anteriores")
     history: [],
+    // Options hydrated from dashboard root cuando se abre el modal —
+    // necesario para el sub-form 'Adjudicar' que usa los mismos
+    // selectores de categoría jerárquica + método de pago.
+    categoryOptions: [],
+    paymentOptions: [],
 
     reset() {
       this.label = '';
@@ -3142,6 +3227,82 @@ document.addEventListener('alpine:init', () => {
         });
         await this.loadItems();
       } finally { this.busy = false; }
+    },
+
+    // Estado del adjudicar: id del item con form abierto + valores
+    adjudicating: null,    // id del item con form abierto (null = ninguno)
+    adjudicateData: { categoria: '', metodo_pago: '', user_name: 'Daniel', clase_contable: 'gasto' },
+
+    openAdjudicate(item) {
+      this.adjudicating = item.id;
+      this.adjudicateData = {
+        categoria: item.suggested_categoria || '',
+        metodo_pago: item.suggested_method_pago || 'Sin especificar',
+        user_name: 'Daniel',
+        clase_contable: 'gasto',
+      };
+    },
+    closeAdjudicate() {
+      this.adjudicating = null;
+    },
+
+    async adjudicate(itemId) {
+      if (!this.adjudicateData.categoria) {
+        this.error = 'Elige una categoría primero';
+        return;
+      }
+      this.busy = true;
+      this.error = null;
+      try {
+        const r = await fetch('/api/reconcile/items/' + itemId + '/create_expense', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            categoria: this.adjudicateData.categoria,
+            metodo_pago: this.adjudicateData.metodo_pago,
+            user_name: this.adjudicateData.user_name,
+            clase_contable: this.adjudicateData.clase_contable,
+          }),
+        });
+        if (!r.ok) {
+          const body = await r.text();
+          throw new Error(`Adjudicar falló (${r.status}): ${body.slice(0, 200)}`);
+        }
+        this.adjudicating = null;
+        await this.loadItems();
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    async rematch() {
+      if (!this.importId) return;
+      this.busy = true;
+      this.error = null;
+      try {
+        const r = await fetch('/api/reconcile/imports/' + this.importId + '/rematch', {
+          method: 'POST',
+        });
+        if (!r.ok) {
+          const body = await r.text();
+          throw new Error(`Rematch falló (${r.status}): ${body.slice(0, 200)}`);
+        }
+        const data = await r.json();
+        await this.loadItems();
+        // Re-fetch stats summary too
+        const r2 = await fetch('/api/reconcile/imports/' + this.importId);
+        if (r2.ok) {
+          const d2 = await r2.json();
+          this.stats = d2.stats || this.stats;
+        }
+        alert(`✓ Re-matching completado: ${data.converted_to_matched} items pasaron a "Cuadrados".`);
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.busy = false;
+      }
     },
 
     async bulkCreateBankCharges() {
@@ -3782,6 +3943,16 @@ function dashboard() {
         onSaved: async () => { await this.reload(); },
         onDeleted: async () => { await this.reload(); },
       });
+    },
+
+    openReconcile() {
+      // Hidratar las options en el store antes de abrir el modal
+      // (el modal vive fuera del scope del dashboard root, así que no
+      // puede leer las options directamente).
+      const store = Alpine.store('reconcile');
+      store.categoryOptions = this.categoryOptions;
+      store.paymentOptions = this.paymentOptions;
+      store.open = true;
     },
 
     openSettings() {
