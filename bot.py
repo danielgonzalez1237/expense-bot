@@ -230,8 +230,9 @@ ALIASES = {
     "admin": "admin", "administracion": "admin", "cuota": "admin",
     "cuotaadmin": "admin", "conjunto": "admin", "nuvo": "admin", "nuvó": "admin",
     "copropiedad": "admin", "edificio": "admin",
-    # Mado (sub de hogar — transferencias a Mado)
-    "mado": "mado", "madeline": "mado", "mesada": "mado", "usdt": "mado", "wio": "mado",
+    # Mado (sub de hogar — transferencias a Maria Dolores, alias "Mado")
+    "mado": "mado", "maria": "mado", "mariadolores": "mado", "maria_dolores": "mado",
+    "dolores": "mado", "mesada": "mado", "usdt": "mado", "wio": "mado",
     "transferencia_mado": "mado",
     # Servicios (sub de hogar — utilities)
     "servicios": "servicios", "agua": "servicios", "luz": "servicios",

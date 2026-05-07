@@ -28,7 +28,7 @@
 **Gastos GG** is the González-Guevara family's personal P&L tracker. Two
 surfaces that share one SQLite volume on Railway:
 
-- **Telegram bot** (`@gastos_gg_bot`) — Daniel and Madeline register expenses
+- **Telegram bot** (`@gastos_gg_bot`) — Daniel and Maria Dolores ("Mado") register expenses
   in seconds from their phones. Multi-currency, alias vocabulary, inline
   payment method selector.
 - **Dashboard web** (`https://expense-bot-production-04c4.up.railway.app`) —
