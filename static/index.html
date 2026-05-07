@@ -1535,7 +1535,7 @@
   </div>
 </div>
 
-<!-- ──────────────── Conciliación de extractos modal ──────────────── -->
+<!-- ──────────────── Conciliación de extractos modal v2 ──────────────── -->
 <div
   x-data
   x-show="$store.reconcile.open"
@@ -1545,25 +1545,38 @@
   @keydown.escape.window="$store.reconcile.close()"
 >
   <div
-    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full sm:max-w-5xl sm:rounded-2xl sm:my-8 shadow-xl fade flex flex-col max-h-screen sm:max-h-[92vh]"
+    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full sm:max-w-6xl sm:rounded-2xl sm:my-8 shadow-xl fade flex flex-col max-h-screen sm:max-h-[92vh]"
     x-show="$store.reconcile.open"
     x-transition
   >
-    <!-- Header -->
+    <!-- Header con stepper -->
     <div class="flex items-center justify-between p-5 border-b border-slate-200 dark:border-slate-800">
-      <div>
-        <div class="text-xs text-slate-500 uppercase tracking-wide">🔍 Conciliación</div>
-        <div class="text-lg font-bold">Extractos bancarios</div>
+      <div class="flex items-center gap-4">
+        <div>
+          <div class="text-xs text-slate-500 uppercase tracking-wide">🔍 Conciliación · v2</div>
+          <div class="text-lg font-bold" x-text="$store.reconcile.stepLabel()"></div>
+        </div>
+        <div class="hidden sm:flex items-center gap-1 ml-2">
+          <template x-for="s in [1,2,3,4]" :key="s">
+            <div
+              :class="$store.reconcile.step === s ? 'bg-sky-600 text-white' :
+                ($store.reconcile.step > s ? 'bg-emerald-500 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-500')"
+              class="w-7 h-7 rounded-full text-xs font-semibold flex items-center justify-center"
+              x-text="s"
+            ></div>
+          </template>
+        </div>
       </div>
-      <div class="flex items-center gap-3">
+      <div class="flex items-center gap-2">
         <button
-          x-show="$store.reconcile.view === 'results'"
-          @click="$store.reconcile.reset()"
-          class="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-        >+ Nuevo import</button>
+          x-show="$store.reconcile.step > 1 && $store.reconcile.step < 4"
+          @click="$store.reconcile.openHistory()"
+          class="text-xs text-slate-500 hover:underline"
+        >📜 Historial</button>
         <button
           @click="$store.reconcile.close()"
           class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
+          aria-label="Cerrar"
         >
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
@@ -1573,65 +1586,11 @@
     <!-- Body -->
     <div class="flex-1 overflow-y-auto p-5">
 
-      <!-- ── Vista PASTE ── -->
-      <div x-show="$store.reconcile.view === 'paste'" class="space-y-4">
-        <div class="text-sm text-slate-600 dark:text-slate-400">
-          Pega el JSON de tu extracto bancario extraído con Claude chat. Formato:
-          un array <code class="text-xs bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">[{fecha, monto_cop, descripcion}, ...]</code>
-          o un objeto <code class="text-xs bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">{transactions: [...]}</code>.
-        </div>
-
-        <label class="block">
-          <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">Etiqueta del import (opcional)</span>
-          <input
-            type="text"
-            x-model="$store.reconcile.label"
-            placeholder="ej. Cierre BdB 26 abr 2026"
-            class="mt-1 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm"
-          />
-        </label>
-
-        <label class="block">
-          <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">JSON del extracto</span>
-          <textarea
-            x-model="$store.reconcile.jsonText"
-            rows="14"
-            placeholder='[{"fecha":"2026-04-15","monto_cop":50000,"descripcion":"BdB Mastercard - STARBUCKS"}, ...]'
-            class="mt-1 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 font-mono text-xs"
-          ></textarea>
-        </label>
-
-        <label class="block">
-          <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">Notas (opcional)</span>
-          <input
-            type="text"
-            x-model="$store.reconcile.notes"
-            placeholder="ej. cubre enero a abril"
-            class="mt-1 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm"
-          />
-        </label>
-
-        <div x-show="$store.reconcile.error" class="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-lg p-3 text-sm text-red-700 dark:text-red-400" x-text="$store.reconcile.error"></div>
-
-        <div class="flex items-center justify-between gap-2 pt-2">
-          <button
-            @click="$store.reconcile.loadHistory().then(() => $store.reconcile.view = 'history')"
-            class="text-xs text-sky-600 dark:text-sky-400 hover:underline"
-          >Ver imports anteriores</button>
-          <button
-            @click="$store.reconcile.submitImport()"
-            :disabled="$store.reconcile.busy || !$store.reconcile.jsonText"
-            class="bg-sky-600 hover:bg-sky-700 text-white px-5 py-2 rounded-lg font-medium text-sm disabled:opacity-40"
-            x-text="$store.reconcile.busy ? 'Procesando…' : 'Importar y comparar'"
-          ></button>
-        </div>
-      </div>
-
-      <!-- ── Vista HISTORY ── -->
+      <!-- ═══════════ Vista HISTORY ═══════════ -->
       <div x-show="$store.reconcile.view === 'history'" class="space-y-3">
         <div class="flex items-center justify-between">
           <h3 class="text-sm font-semibold">Imports anteriores</h3>
-          <button @click="$store.reconcile.view = 'paste'" class="text-xs text-sky-600 hover:underline">← Nuevo import</button>
+          <button @click="$store.reconcile.startNew()" class="text-xs bg-sky-600 hover:bg-sky-700 text-white px-3 py-1.5 rounded-md font-medium">+ Nuevo import</button>
         </div>
         <div class="space-y-2">
           <template x-for="imp in $store.reconcile.history" :key="imp.id">
@@ -1640,8 +1599,11 @@
               class="w-full text-left bg-slate-50 dark:bg-slate-800/40 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 transition"
             >
               <div class="flex items-baseline justify-between">
-                <span class="font-medium text-sm" x-text="imp.label || ('Import #' + imp.id)"></span>
-                <span class="text-[11px] text-slate-500" x-text="imp.imported_at && imp.imported_at.slice(0, 10)"></span>
+                <span class="font-medium text-sm">
+                  <span x-text="imp.label || ('Import #' + imp.id)"></span>
+                  <span class="text-[11px] text-slate-500 ml-1" x-text="imp.cycle_label || ''"></span>
+                </span>
+                <span :class="imp.status === 'closed' ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300' : 'bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300'" class="text-[10px] px-2 py-0.5 rounded font-semibold uppercase" x-text="imp.status"></span>
               </div>
               <div class="text-[11px] text-slate-500 mt-0.5">
                 <span x-text="imp.period_from"></span> → <span x-text="imp.period_to"></span>
@@ -1656,77 +1618,178 @@
         </div>
       </div>
 
-      <!-- ── Vista RESULTS ── -->
-      <div x-show="$store.reconcile.view === 'results'" class="space-y-4">
+      <!-- ═══════════ PASO 1: Importar/Preview ═══════════ -->
+      <div x-show="$store.reconcile.step === 1 && $store.reconcile.view !== 'history'" class="space-y-4">
+        <p class="text-sm text-slate-600 dark:text-slate-400">
+          Pega el JSON del extracto extraído con Claude chat.
+          <button @click="$store.reconcile.showPromptHelp = !$store.reconcile.showPromptHelp" class="text-sky-600 hover:underline ml-1">¿Cómo extraerlo?</button>
+        </p>
 
-        <!-- Filtro por mes (chips) -->
-        <div x-show="$store.reconcile.availableMonths.length > 1" class="flex items-center gap-2 flex-wrap">
-          <span class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Mes:</span>
-          <button
-            @click="$store.reconcile.monthFilter = 'all'; $store.reconcile.statusFilter = 'all'"
-            :class="$store.reconcile.monthFilter === 'all' ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-800 text-slate-600'"
-            class="text-xs px-2.5 py-1 rounded-md font-medium"
-          >Todos</button>
-          <template x-for="m in $store.reconcile.availableMonths" :key="m">
-            <button
-              @click="$store.reconcile.monthFilter = m; $store.reconcile.statusFilter = 'all'"
-              :class="$store.reconcile.monthFilter === m ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-slate-200 dark:hover:bg-slate-700'"
-              class="text-xs px-2.5 py-1 rounded-md"
-              x-text="m"
-            ></button>
-          </template>
-          <span x-show="$store.reconcile.monthFilter !== 'all'" class="text-[10px] text-slate-500 italic ml-2">
-            (acciones bulk y rematch operan solo sobre los items del mes seleccionado)
-          </span>
+        <div x-show="$store.reconcile.showPromptHelp" class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg p-3 text-xs">
+          <p class="text-slate-600 dark:text-slate-400 mb-2">Abre claude.ai, sube tus PDFs y pega este prompt. Claude te entregará un JSON copiable que pegas aquí abajo.</p>
+          <pre class="bg-white dark:bg-slate-900 p-2 rounded border border-slate-200 dark:border-slate-700 overflow-x-auto text-[10px] whitespace-pre-wrap" x-text="$store.reconcile.promptText"></pre>
         </div>
 
-        <!-- Stats summary cards (recalculadas sobre filtro de mes) -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label class="block">
+            <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">Etiqueta</span>
+            <input type="text" x-model="$store.reconcile.label" placeholder="ej. BdB cierre 26 abr"
+              class="mt-1 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm" />
+          </label>
+          <label class="block">
+            <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">Ciclo del extracto</span>
+            <input type="text" x-model="$store.reconcile.cycleLabel" placeholder="ej. 27-mar → 26-abr"
+              class="mt-1 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm" />
+          </label>
+        </div>
+
+        <div>
+          <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">Tarjetas/cuentas que cubre este extracto</span>
+          <p class="text-[11px] text-slate-500 dark:text-slate-400 italic mb-2">Selecciona los métodos que aparecen en este JSON. Sirve para detectar huérfanos del bot.</p>
+          <div class="flex flex-wrap gap-2">
+            <template x-for="m in $store.reconcile.allPaymentMethods" :key="m">
+              <label class="text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 cursor-pointer flex items-center gap-1">
+                <input type="checkbox" :value="m" x-model="$store.reconcile.coveredMethods" class="rounded">
+                <span x-text="m"></span>
+              </label>
+            </template>
+          </div>
+        </div>
+
+        <details class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 p-3">
+          <summary class="text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer">⚙️ Tolerancia del matching (avanzado)</summary>
+          <div class="grid grid-cols-3 gap-2 mt-3">
+            <label class="block text-xs">
+              <span class="text-slate-500">Días atrás</span>
+              <input type="number" min="0" max="60" x-model.number="$store.reconcile.tolDaysBack" class="mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1" />
+            </label>
+            <label class="block text-xs">
+              <span class="text-slate-500">Días adelante</span>
+              <input type="number" min="0" max="60" x-model.number="$store.reconcile.tolDaysForward" class="mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1" />
+            </label>
+            <label class="block text-xs">
+              <span class="text-slate-500">% monto</span>
+              <input type="number" min="0" max="0.50" step="0.01" x-model.number="$store.reconcile.tolPct" class="mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1" />
+            </label>
+          </div>
+          <p class="text-[10px] text-slate-500 mt-2">Default: ±5d/±5%. Para casos como abril 2026 (back-and-forth), subir días-adelante a 25.</p>
+        </details>
+
+        <label class="block">
+          <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">JSON del extracto</span>
+          <textarea x-model="$store.reconcile.jsonText" rows="14"
+            placeholder='[{"fecha":"2026-04-15","monto_cop":50000,"descripcion":"BdB Mastercard - STARBUCKS"}, ...]'
+            class="mt-1 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 font-mono text-xs"></textarea>
+        </label>
+
+        <label class="block">
+          <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">Notas (opcional)</span>
+          <input type="text" x-model="$store.reconcile.notes" class="mt-1 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm" />
+        </label>
+
+        <div x-show="$store.reconcile.error" class="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-lg p-3 text-sm text-red-700 dark:text-red-400" x-text="$store.reconcile.error"></div>
+
+        <div class="flex justify-end gap-2 pt-2">
+          <button @click="$store.reconcile.openHistory()" class="text-xs text-sky-600 hover:underline self-center">📜 Ver imports anteriores</button>
+          <button @click="$store.reconcile.runPreview()"
+            :disabled="$store.reconcile.busy || !$store.reconcile.jsonText"
+            class="bg-sky-600 hover:bg-sky-700 text-white px-5 py-2 rounded-lg font-medium text-sm disabled:opacity-40"
+            x-text="$store.reconcile.busy ? 'Procesando…' : '📊 Generar preview'"></button>
+        </div>
+      </div>
+
+      <!-- ═══════════ PASO 1.5: Vista PREVIEW ═══════════ -->
+      <div x-show="$store.reconcile.view === 'preview'" class="space-y-4">
+        <div class="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg p-3">
+          <div class="flex items-start gap-2">
+            <span class="text-lg">⚠️</span>
+            <div class="text-xs text-amber-800 dark:text-amber-300">
+              Este es un <strong>preview</strong>. Nada se guarda hasta que confirmes.
+              Revisa el diff y los huérfanos. Tienes 2 horas para confirmar.
+            </div>
+          </div>
+        </div>
+
+        <!-- Stats grid -->
         <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
-          <template x-for="(label, k) in {
-            'matched': '✓ Cuadrados',
-            'unmatched_extract': '🚨 Falta en bot',
-            'added_to_bot': '✚ Adjudicados',
-            'bank_charge': '🏦 Cargos banco',
-            'transfer_internal': '🔄 Transferencias',
-            'reviewed': '👁️ Revisados',
-            'duplicate': '♻️ Duplicados',
-          }" :key="k">
-            <button
-              @click="$store.reconcile.statusFilter = ($store.reconcile.statusFilter === k ? 'all' : k)"
-              :class="$store.reconcile.statusFilter === k ? 'ring-2 ring-sky-400' : ''"
-              class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-            >
+          <template x-for="(label, k) in {'matched':'✓ Cuadrados','unmatched_extract':'🚨 Falta en bot','bank_charge':'🏦 Cargos banco','transfer_internal':'🔄 Transferencias','duplicate':'♻️ Duplicados','other':'❓ Otros','pending':'⏳ Pendiente'}" :key="k">
+            <div class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg p-2">
               <div class="text-[10px] uppercase tracking-wide text-slate-500" x-text="label"></div>
-              <div class="text-sm font-bold mt-0.5" x-text="($store.reconcile.filteredStats[k] && $store.reconcile.filteredStats[k].count) || 0"></div>
-              <div class="text-[10px] text-slate-500" x-text="$store.reconcile.fmtCop(($store.reconcile.filteredStats[k] && $store.reconcile.filteredStats[k].total_cop) || 0) + ' COP'"></div>
+              <div class="text-sm font-bold mt-0.5" x-text="($store.reconcile.previewData?.stats?.[k]) || 0"></div>
+            </div>
+          </template>
+        </div>
+
+        <!-- Orphans en bot (cross-check) -->
+        <div x-show="($store.reconcile.previewData?.orphans_in_bot?.length || 0) > 0" class="bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-900 rounded-lg p-3">
+          <h4 class="text-sm font-semibold text-orange-700 dark:text-orange-400">🟠 Huérfanos del bot (<span x-text="$store.reconcile.previewData?.orphans_in_bot?.length"></span>)</h4>
+          <p class="text-[11px] text-slate-600 dark:text-slate-400 mt-1">Expenses del bot del rango con método incluido pero sin match en este extracto. Revisa después de confirmar.</p>
+        </div>
+
+        <!-- Lista resumida (primeros 30 items) -->
+        <details class="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 p-3">
+          <summary class="text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer">Ver primeros 30 items del preview</summary>
+          <div class="mt-3 space-y-1 max-h-64 overflow-y-auto">
+            <template x-for="(it, i) in ($store.reconcile.previewData?.items || []).slice(0, 30)" :key="i">
+              <div class="text-[11px] flex justify-between gap-2 py-1 border-b border-slate-100 dark:border-slate-800/60">
+                <span class="truncate flex-1" x-text="it.fecha + ' · ' + it.descripcion"></span>
+                <span class="whitespace-nowrap" :class="$store.reconcile.statusColor(it.status)" x-text="it.status"></span>
+                <span class="whitespace-nowrap text-slate-500" x-text="$store.reconcile.fmtCop(it.monto_cop)"></span>
+              </div>
+            </template>
+          </div>
+        </details>
+
+        <div x-show="$store.reconcile.error" class="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-lg p-3 text-sm text-red-700 dark:text-red-400" x-text="$store.reconcile.error"></div>
+
+        <div class="flex justify-between gap-2 pt-2">
+          <button @click="$store.reconcile.discardPreview()" class="text-xs bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 px-3 py-1.5 rounded-md">✕ Descartar preview</button>
+          <button @click="$store.reconcile.confirmImport()"
+            :disabled="$store.reconcile.busy"
+            class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg font-medium text-sm disabled:opacity-40"
+            x-text="$store.reconcile.busy ? 'Confirmando…' : '✅ Confirmar y persistir'"></button>
+        </div>
+      </div>
+
+      <!-- ═══════════ PASO 2: Procesar items ═══════════ -->
+      <div x-show="$store.reconcile.step === 2" class="space-y-4">
+
+        <!-- Filtro por mes -->
+        <div x-show="$store.reconcile.availableMonths.length > 1" class="flex items-center gap-2 flex-wrap">
+          <span class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Mes:</span>
+          <button @click="$store.reconcile.monthFilter = 'all'; $store.reconcile.statusFilter = 'all'"
+            :class="$store.reconcile.monthFilter === 'all' ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-800 text-slate-600'"
+            class="text-xs px-2.5 py-1 rounded-md font-medium">Todos</button>
+          <template x-for="m in $store.reconcile.availableMonths" :key="m">
+            <button @click="$store.reconcile.monthFilter = m; $store.reconcile.statusFilter = 'all'"
+              :class="$store.reconcile.monthFilter === m ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-slate-200 dark:hover:bg-slate-700'"
+              class="text-xs px-2.5 py-1 rounded-md" x-text="m"></button>
+          </template>
+        </div>
+
+        <!-- Stats cards 8 -->
+        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-2">
+          <template x-for="(label, k) in {'matched':'✓ Cuadrados','added_to_bot':'✚ Adjudicados','unmatched_extract':'🚨 Falta en bot','bank_charge':'🏦 Cargos banco','transfer_internal':'🔄 Transferencias','reviewed':'👁️ Revisados','duplicate':'♻️ Duplicados','ignored':'🚫 Ignorados'}" :key="k">
+            <button @click="$store.reconcile.statusFilter = ($store.reconcile.statusFilter === k ? 'all' : k)"
+              :class="$store.reconcile.statusFilter === k ? 'ring-2 ring-sky-400' : ''"
+              class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 transition">
+              <div class="text-[10px] uppercase tracking-wide text-slate-500" x-text="label"></div>
+              <div class="text-sm font-bold mt-0.5" x-text="($store.reconcile.filteredStats[k]?.count) || 0"></div>
+              <div class="text-[10px] text-slate-500" x-text="$store.reconcile.fmtCop(($store.reconcile.filteredStats[k]?.total_cop) || 0)"></div>
             </button>
           </template>
         </div>
 
         <!-- Acciones globales -->
         <div class="flex items-center gap-2 flex-wrap">
-          <button
-            @click="$store.reconcile.statusFilter = 'all'"
-            :class="$store.reconcile.statusFilter === 'all' ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-800 text-slate-600'"
-            class="text-xs px-3 py-1.5 rounded-md"
-          >Mostrar todos</button>
-          <button
-            @click="$store.reconcile.bulkCreateBankCharges()"
-            :disabled="$store.reconcile.busy || !($store.reconcile.filteredStats.bank_charge && $store.reconcile.filteredStats.bank_charge.count)"
-            class="text-xs bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-md font-medium disabled:opacity-40"
-            title="Crea N expenses con categoría 'comisiones' para todos los cargos del banco visibles (filtrados por mes si aplica)"
-          >🏦 Bulk: cargos banco → cat=comisiones</button>
-          <button
-            @click="$store.reconcile.rematch()"
-            :disabled="$store.reconcile.busy"
-            class="text-xs bg-sky-600 hover:bg-sky-700 text-white px-3 py-1.5 rounded-md font-medium disabled:opacity-40"
-            title="Re-corre el matcher con tolerancia ±7 días / ±5% sobre los items 'Falta en bot'. Útil después de aflojar la regla o registrar más expenses al bot."
-          >🔁 Re-matchear con tolerancia amplia</button>
-          <button
-            @click="$store.reconcile.deleteImport()"
-            :disabled="$store.reconcile.busy"
-            class="text-xs text-red-600 dark:text-red-400 hover:underline ml-auto"
-          >🗑️ Borrar este import</button>
+          <button @click="$store.reconcile.statusFilter = 'all'" class="text-xs bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-md">Mostrar todos</button>
+          <button @click="$store.reconcile.bulkBankCharges()"
+            :disabled="$store.reconcile.busy || !($store.reconcile.filteredStats.bank_charge?.count)"
+            class="text-xs bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-md font-medium disabled:opacity-40">🏦 Bulk: cargos banco → comisiones</button>
+          <button @click="$store.reconcile.runRematch()" :disabled="$store.reconcile.busy"
+            class="text-xs bg-sky-600 hover:bg-sky-700 text-white px-3 py-1.5 rounded-md font-medium disabled:opacity-40">🔁 Re-matchear</button>
+          <button @click="$store.reconcile.goToOrphans()" class="text-xs bg-orange-600 hover:bg-orange-700 text-white px-3 py-1.5 rounded-md font-medium">🟠 Ver huérfanos del bot →</button>
+          <button @click="$store.reconcile.deleteImport()" class="text-xs text-red-600 dark:text-red-400 hover:underline ml-auto">🗑️ Borrar import</button>
         </div>
 
         <div x-show="$store.reconcile.error" class="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-lg p-3 text-sm text-red-700 dark:text-red-400" x-text="$store.reconcile.error"></div>
@@ -1739,105 +1802,65 @@
                 <div class="flex-1 min-w-0">
                   <div class="flex items-baseline gap-2 flex-wrap">
                     <span class="text-[10px] tracking-wide font-medium px-1.5 py-0.5 rounded" :class="$store.reconcile.statusColor(item.status)" x-text="$store.reconcile.statusLabel(item.status)"></span>
-                    <span class="text-[10px] text-slate-500" x-text="$store.reconcile.typeLabel(item.item_type)"></span>
-                    <span class="text-[11px] text-slate-500 dark:text-slate-400" x-text="item.fecha"></span>
-                    <span class="text-[11px] text-slate-500 dark:text-slate-400 italic" x-text="item.bank_prefix"></span>
+                    <span class="text-[10px] text-slate-500" x-text="item.item_type"></span>
+                    <span class="text-[11px] text-slate-500" x-text="item.fecha"></span>
+                    <span class="text-[11px] text-slate-500 italic" x-text="item.bank_prefix"></span>
                   </div>
                   <div class="text-sm mt-0.5 truncate" x-text="item.descripcion"></div>
-                  <div class="text-[10px] text-slate-400 mt-0.5" x-show="item.suggested_method_pago">
-                    Sugerido: <span x-text="item.suggested_method_pago"></span><span x-show="item.suggested_categoria" x-text="' / cat: ' + item.suggested_categoria"></span>
+                  <div class="text-[10px] text-slate-400 mt-0.5" x-show="item.suggested_method_pago || item.suggested_categoria">
+                    Sugerido: <span x-text="item.suggested_method_pago || '—'"></span> · cat: <span x-text="item.suggested_categoria || '—'"></span>
                   </div>
-                  <div class="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5" x-show="item.matched_expense_id">
+                  <div class="text-[10px] text-emerald-600 mt-0.5" x-show="item.matched_expense_id">
                     ↔ Vinculado a expense #<span x-text="item.matched_expense_id"></span>
                   </div>
                 </div>
                 <div class="text-right shrink-0">
-                  <div class="font-semibold text-sm" x-text="$store.reconcile.fmtCop(item.monto_cop) + ' COP'"></div>
+                  <div class="font-semibold text-sm" x-text="$store.reconcile.fmtCop(item.monto_cop)"></div>
                   <div class="text-[10px] text-slate-400" x-show="item.moneda_original" x-text="item.moneda_original + ' ' + item.monto_original"></div>
                   <div class="mt-1 flex gap-1 justify-end flex-wrap">
-                    <!-- '+ Agregar al bot' SOLO para bank_charge: la categoría
-                         sugerida (comisiones) es la correcta. Para todos los
-                         demás (compras TC, transferencias, otros), forzamos
-                         'Adjudicar' para que el usuario elija categoría
-                         explícita y no termine como 'otro' por accidente. -->
-                    <button
-                      x-show="item.status === 'bank_charge'"
-                      @click="$store.reconcile.addToBot(item.id)"
-                      :disabled="$store.reconcile.busy"
-                      class="text-[10px] bg-sky-600 hover:bg-sky-700 text-white px-2 py-1 rounded disabled:opacity-40"
-                      title="Crea expense con cat=comisiones (sugerida correcta para cargos del banco)"
-                    >+ Agregar como comisión</button>
-                    <button
-                      x-show="['unmatched_extract', 'bank_charge', 'pago_pse', 'transfer_internal', 'other'].includes(item.status)"
-                      @click="$store.reconcile.openAdjudicate(item)"
-                      :disabled="$store.reconcile.busy"
-                      class="text-[10px] bg-violet-600 hover:bg-violet-700 text-white px-2 py-1 rounded disabled:opacity-40"
-                      title="Elegir categoría/método manualmente"
-                    >🎯 Adjudicar</button>
-                    <button
-                      x-show="item.status === 'added_to_bot'"
-                      @click="$store.reconcile.revertItem(item.id)"
-                      :disabled="$store.reconcile.busy"
-                      class="text-[10px] bg-orange-600 hover:bg-orange-700 text-white px-2 py-1 rounded disabled:opacity-40"
-                      title="Borra el expense del bot creado desde este item y vuelve a 'Falta en bot'"
-                    >↩️ Revertir</button>
-                    <button
-                      x-show="!['matched', 'added_to_bot', 'reviewed', 'duplicate'].includes(item.status)"
-                      @click="$store.reconcile.markReviewed(item.id)"
-                      :disabled="$store.reconcile.busy"
-                      class="text-[10px] bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 px-2 py-1 rounded disabled:opacity-40"
-                    >👁️ Revisado</button>
+                    <button x-show="item.status === 'bank_charge'" @click="$store.reconcile.bulkBankChargesSingle(item.id)" :disabled="$store.reconcile.busy"
+                      class="text-[10px] bg-sky-600 hover:bg-sky-700 text-white px-2 py-1 rounded disabled:opacity-40" title="Crea expense con cat=comisiones">+ Como comisión</button>
+                    <button x-show="['unmatched_extract','bank_charge','transfer_internal','other','pending'].includes(item.status)"
+                      @click="$store.reconcile.openAdjudicate(item)" :disabled="$store.reconcile.busy"
+                      class="text-[10px] bg-violet-600 hover:bg-violet-700 text-white px-2 py-1 rounded disabled:opacity-40">🎯 Adjudicar</button>
+                    <button x-show="item.status === 'added_to_bot' || item.status === 'matched'"
+                      @click="$store.reconcile.revertItem(item.id)" :disabled="$store.reconcile.busy"
+                      class="text-[10px] bg-orange-600 hover:bg-orange-700 text-white px-2 py-1 rounded disabled:opacity-40">↩️ Revertir</button>
+                    <button x-show="!['matched','added_to_bot','reviewed','duplicate','ignored'].includes(item.status)"
+                      @click="$store.reconcile.markItem(item.id, 'reviewed')" :disabled="$store.reconcile.busy"
+                      class="text-[10px] bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 px-2 py-1 rounded disabled:opacity-40">👁️ Revisado</button>
                   </div>
                 </div>
               </div>
-              <!-- Sub-form de Adjudicar (expandible inline) -->
-              <div
-                x-show="$store.reconcile.adjudicating === item.id"
-                x-cloak
-                class="mt-2 p-3 bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-900 rounded-lg space-y-2"
-              >
-                <div class="text-[10px] uppercase tracking-wide text-violet-700 dark:text-violet-400 font-semibold">🎯 Adjudicar a</div>
+              <!-- Sub-form Adjudicar -->
+              <div x-show="$store.reconcile.adjudicating === item.id" x-cloak
+                class="mt-2 p-3 bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-900 rounded-lg space-y-2">
+                <div class="text-[10px] uppercase tracking-wide text-violet-700 font-semibold">🎯 Adjudicar a (todos los campos requeridos)</div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
                   <label class="block">
-                    <span class="text-[10px] text-slate-600 dark:text-slate-400">Categoría / sub</span>
-                    <select
-                      x-model="$store.reconcile.adjudicateData.categoria"
-                      class="mt-0.5 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs"
-                    >
+                    <span class="text-[10px] text-slate-600">Categoría / sub <span class="text-red-600">*</span></span>
+                    <select x-model="$store.reconcile.adjData.categoria" class="mt-0.5 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs">
                       <option value="">— elige —</option>
-                      <template x-for="opt in $store.reconcile.categoryOptions" :key="opt.key">
-                        <option :value="opt.key" x-text="opt.label"></option>
-                      </template>
+                      <template x-for="opt in $store.reconcile.categoryOptions" :key="opt.key"><option :value="opt.key" x-text="opt.label"></option></template>
                     </select>
                   </label>
                   <label class="block">
-                    <span class="text-[10px] text-slate-600 dark:text-slate-400">Método de pago</span>
-                    <select
-                      x-model="$store.reconcile.adjudicateData.metodo_pago"
-                      class="mt-0.5 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs"
-                    >
-                      <template x-for="opt in $store.reconcile.paymentOptions" :key="opt">
-                        <option :value="opt" x-text="opt"></option>
-                      </template>
+                    <span class="text-[10px] text-slate-600">Método de pago</span>
+                    <select x-model="$store.reconcile.adjData.metodo_pago" class="mt-0.5 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs">
+                      <template x-for="opt in $store.reconcile.paymentOptions" :key="opt"><option :value="opt" x-text="opt"></option></template>
                     </select>
                   </label>
                   <label class="block">
-                    <span class="text-[10px] text-slate-600 dark:text-slate-400">Usuario</span>
-                    <select
-                      x-model="$store.reconcile.adjudicateData.user_name"
-                      class="mt-0.5 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs"
-                    >
+                    <span class="text-[10px] text-slate-600">Usuario</span>
+                    <select x-model="$store.reconcile.adjData.user_name" class="mt-0.5 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs">
                       <option value="Daniel">Daniel</option>
                       <option value="Madeline">Madeline</option>
                     </select>
                   </label>
                   <label class="block">
-                    <span class="text-[10px] text-slate-600 dark:text-slate-400">Clase contable</span>
-                    <select
-                      x-model="$store.reconcile.adjudicateData.clase_contable"
-                      class="mt-0.5 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs"
-                    >
-                      <option value="gasto">💸 Gasto corriente</option>
+                    <span class="text-[10px] text-slate-600">Clase contable</span>
+                    <select x-model="$store.reconcile.adjData.clase_contable" class="mt-0.5 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs">
+                      <option value="gasto">💸 Gasto</option>
                       <option value="mobiliario">🛋️ Mobiliario</option>
                       <option value="equipos">💻 Equipos</option>
                       <option value="vehiculo">🚗 Vehículo</option>
@@ -1845,37 +1868,112 @@
                   </label>
                 </div>
                 <div class="flex justify-end gap-2 pt-1">
-                  <button
-                    @click="$store.reconcile.closeAdjudicate()"
-                    class="text-[10px] px-2 py-1 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600"
-                  >Cancelar</button>
-                  <button
-                    @click="$store.reconcile.adjudicate(item.id)"
-                    :disabled="$store.reconcile.busy || !$store.reconcile.adjudicateData.categoria"
-                    class="text-[10px] px-3 py-1 rounded bg-violet-600 hover:bg-violet-700 text-white font-medium disabled:opacity-40"
-                  >Crear con esta clasificación</button>
+                  <button @click="$store.reconcile.cancelAdjudicate()" class="text-[10px] px-2 py-1 rounded bg-slate-200 dark:bg-slate-700">Cancelar</button>
+                  <button @click="$store.reconcile.confirmAdjudicate(item.id)" :disabled="$store.reconcile.busy || !$store.reconcile.adjData.categoria"
+                    class="text-[10px] px-3 py-1 rounded bg-violet-600 hover:bg-violet-700 text-white font-medium disabled:opacity-40">Crear con esta clasificación</button>
                 </div>
               </div>
             </div>
           </template>
-          <div x-show="!$store.reconcile.filteredItems.length" class="p-6 text-center text-sm text-slate-500 italic">
-            Sin items en este filtro.
-          </div>
+          <div x-show="!$store.reconcile.filteredItems.length" class="p-6 text-center text-sm text-slate-500 italic">Sin items en este filtro.</div>
+        </div>
+
+        <div class="flex justify-between gap-2 pt-2">
+          <button @click="$store.reconcile.openHistory()" class="text-xs text-sky-600 hover:underline">← Historial</button>
+          <button @click="$store.reconcile.goToOrphans()" class="text-xs bg-orange-600 hover:bg-orange-700 text-white px-3 py-1.5 rounded-md font-medium">Siguiente: huérfanos →</button>
         </div>
       </div>
 
-    </div>
+      <!-- ═══════════ PASO 3: Huérfanos del bot ═══════════ -->
+      <div x-show="$store.reconcile.step === 3" class="space-y-4">
+        <p class="text-sm text-slate-600 dark:text-slate-400">
+          Expenses del bot del rango que <strong>no encontraron contraparte</strong> en el extracto.
+          Para cada uno: ver candidatos cercanos (posible doble registro o monto/fecha errado), borrar, o marcar revisado.
+        </p>
 
-    <!-- Footer -->
-    <div class="border-t border-slate-200 dark:border-slate-800 p-3 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-      <span x-show="$store.reconcile.view === 'results' && $store.reconcile.importMeta">
-        Import #<span x-text="$store.reconcile.importId"></span>
-        · <span x-text="$store.reconcile.importMeta && $store.reconcile.importMeta.period_from"></span>
-        → <span x-text="$store.reconcile.importMeta && $store.reconcile.importMeta.period_to"></span>
-        · <span x-text="$store.reconcile.importMeta && $store.reconcile.importMeta.total_items"></span> items
-        · <span x-text="$store.reconcile.fmtCop($store.reconcile.importMeta && $store.reconcile.importMeta.total_cop) + ' COP'"></span>
-      </span>
-      <span x-show="$store.reconcile.view === 'paste'">Pega el JSON arriba y dale a "Importar y comparar".</span>
+        <div x-show="$store.reconcile.error" class="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-lg p-3 text-sm text-red-700 dark:text-red-400" x-text="$store.reconcile.error"></div>
+
+        <div x-show="!$store.reconcile.orphans.length" class="text-center text-sm text-slate-500 italic py-6">
+          🎉 Sin huérfanos. Todo el bot encontró match en el extracto.
+        </div>
+
+        <div class="space-y-2">
+          <template x-for="orph in $store.reconcile.orphans" :key="orph.id">
+            <div class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg p-3">
+              <div class="flex items-baseline justify-between gap-3">
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm font-medium" x-text="orph.nota || orph.categoria"></div>
+                  <div class="text-[11px] text-slate-500 mt-0.5">
+                    <span x-text="orph.fecha"></span> · <span x-text="orph.metodo_pago"></span> · <span x-text="orph.categoria"></span>
+                  </div>
+                </div>
+                <div class="text-right shrink-0">
+                  <div class="font-semibold text-sm" x-text="$store.reconcile.fmtCop(orph.monto_cop)"></div>
+                  <div class="text-[10px] text-slate-400" x-text="'$' + Math.round(orph.monto_usd) + ' USD'"></div>
+                </div>
+              </div>
+              <div class="mt-2 flex gap-1 flex-wrap">
+                <button @click="$store.reconcile.findOrphanCandidates(orph.id)" :disabled="$store.reconcile.busy"
+                  class="text-[10px] bg-sky-600 hover:bg-sky-700 text-white px-2 py-1 rounded">🔍 Ver candidatos cercanos</button>
+                <button @click="$store.reconcile.deleteOrphan(orph.id)" :disabled="$store.reconcile.busy"
+                  class="text-[10px] bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded">🗑️ Borrar del bot</button>
+                <button @click="$store.reconcile.dismissOrphan(orph.id)" :disabled="$store.reconcile.busy"
+                  class="text-[10px] bg-slate-200 dark:bg-slate-700 px-2 py-1 rounded">👁️ Dismiss</button>
+              </div>
+              <!-- Candidatos -->
+              <div x-show="$store.reconcile.orphanCandidates[orph.id]" class="mt-2 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded">
+                <div class="text-[10px] uppercase tracking-wide text-slate-500 mb-1">Candidatos del extracto</div>
+                <template x-for="c in ($store.reconcile.orphanCandidates[orph.id] || [])" :key="c.id">
+                  <div class="text-[11px] flex items-center justify-between py-1 border-b border-slate-100 dark:border-slate-800/60 last:border-0">
+                    <span class="truncate flex-1 mr-2"><span x-text="c.fecha"></span> · <span x-text="c.descripcion"></span></span>
+                    <span class="whitespace-nowrap text-slate-500 mr-2" x-text="$store.reconcile.fmtCop(c.monto_cop)"></span>
+                    <button @click="$store.reconcile.relinkOrphan(orph.id, c.id)"
+                      class="text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-0.5 rounded">Vincular</button>
+                  </div>
+                </template>
+                <div x-show="!($store.reconcile.orphanCandidates[orph.id] || []).length" class="text-[11px] text-slate-500 italic py-1">Sin candidatos cercanos.</div>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <div class="flex justify-between gap-2 pt-2">
+          <button @click="$store.reconcile.step = 2" class="text-xs text-sky-600 hover:underline">← Procesar items</button>
+          <button @click="$store.reconcile.goToClose()" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-md font-medium">Siguiente: cierre →</button>
+        </div>
+      </div>
+
+      <!-- ═══════════ PASO 4: Cierre ═══════════ -->
+      <div x-show="$store.reconcile.step === 4" class="space-y-4">
+        <p class="text-sm text-slate-600 dark:text-slate-400">Resumen final del import. Cuando confirmes, queda cerrado.</p>
+
+        <div class="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-lg p-4">
+          <h3 class="text-sm font-semibold mb-2">📦 <span x-text="$store.reconcile.importMeta?.label || 'Import'"></span></h3>
+          <div class="text-xs space-y-1 text-slate-700 dark:text-slate-300">
+            <div>Período: <span x-text="$store.reconcile.importMeta?.period_from"></span> → <span x-text="$store.reconcile.importMeta?.period_to"></span></div>
+            <div>Total items: <span x-text="$store.reconcile.importMeta?.total_items"></span></div>
+            <div>Total COP: <span x-text="$store.reconcile.fmtCop($store.reconcile.importMeta?.total_cop)"></span></div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <template x-for="(s, k) in ($store.reconcile.stats || {})" :key="k">
+            <div class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded p-2">
+              <div class="text-[10px] uppercase tracking-wide text-slate-500" x-text="k"></div>
+              <div class="text-sm font-bold" x-text="s.count"></div>
+              <div class="text-[10px] text-slate-500" x-text="$store.reconcile.fmtCop(s.total_cop)"></div>
+            </div>
+          </template>
+        </div>
+
+        <div class="flex justify-between gap-2 pt-2">
+          <button @click="$store.reconcile.step = 3" class="text-xs text-sky-600 hover:underline">← Huérfanos</button>
+          <button @click="$store.reconcile.closeImport()" :disabled="$store.reconcile.busy"
+            class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg font-medium text-sm disabled:opacity-40"
+            x-text="$store.reconcile.busy ? 'Cerrando…' : '📦 Cerrar import'"></button>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -3062,407 +3160,348 @@ document.addEventListener('alpine:init', () => {
     },
   });
 
-  // ──────────────── Conciliación de extractos ────────────────
-  // Daniel pega un JSON extraído con Claude chat de uno o varios
-  // extractos bancarios. El backend clasifica + matchea contra los
-  // expenses del bot. Acá manejamos la UI: paste-area, vista del
-  // diff con tabs por status, y acciones inline (agregar al bot,
-  // marcar revisado, crear cargos del banco en bulk).
+  // ──────────────── Conciliación de extractos v2 store ────────────────
   Alpine.store('reconcile', {
-    open: false,
-    busy: false,
-    error: null,
-    // 'paste' = pegar JSON · 'results' = ver el diff de un import
-    view: 'paste',
-    // Form
-    label: '',
-    notes: '',
-    jsonText: '',
-    // Resultados del último import
-    importId: null,
-    importMeta: null,
-    items: [],
-    stats: {},
-    byType: [],
-    statusFilter: 'all',
-    monthFilter: 'all',  // 'all' | 'YYYY-MM'
-    // Lista de imports históricos (para "ver imports anteriores")
+    open: false, busy: false, error: null,
+    step: 1,           // 1=import, 2=process, 3=orphans, 4=close
+    view: 'form',      // 'form' | 'preview' | 'history'
+    showPromptHelp: false,
+    // Form input (paso 1)
+    label: '', cycleLabel: '', notes: '', jsonText: '',
+    coveredMethods: [],
+    tolDaysBack: 5, tolDaysForward: 5, tolPct: 0.05,
+    // Preview state
+    previewData: null,
+    // Confirmed import state (paso 2+)
+    importId: null, importMeta: null, items: [], stats: {},
+    statusFilter: 'all', monthFilter: 'all',
+    // Orphans (paso 3)
+    orphans: [], orphanCandidates: {},
+    // Adjudicate sub-form
+    adjudicating: null,
+    adjData: { categoria: '', metodo_pago: '', user_name: 'Daniel', clase_contable: 'gasto' },
+    // Hidratado del dashboard root al abrir
+    categoryOptions: [], paymentOptions: [], allPaymentMethods: [],
+    // Histórico
     history: [],
-    // Options hydrated from dashboard root cuando se abre el modal —
-    // necesario para el sub-form 'Adjudicar' que usa los mismos
-    // selectores de categoría jerárquica + método de pago.
-    categoryOptions: [],
-    paymentOptions: [],
+    promptText: `Adjunto PDFs de mis extractos bancarios. Necesito que extraigas cada movimiento en formato JSON listo para copiar.
 
-    reset() {
-      this.label = '';
-      this.notes = '';
-      this.jsonText = '';
-      this.importId = null;
-      this.importMeta = null;
-      this.items = [];
-      this.stats = {};
-      this.byType = [];
-      this.statusFilter = 'all';
-      this.error = null;
-      this.view = 'paste';
+REGLAS:
+
+1. Devuelve SOLO el array JSON dentro de UN bloque de código copiable (\\`\\`\\`json ... \\`\\`\\`). Sin explicación adicional.
+
+2. Cada objeto debe tener: { fecha: "YYYY-MM-DD", monto_cop: <entero>, descripcion: "<Banco> - <Detalle>", moneda_original?, monto_original? }
+
+3. La descripcion empieza con uno de: "BdB Mastercard", "BdB LATAM Visa Daniel", "BdB LATAM Visa Maria", "BBVA TCBLACK", "BBVA Ahorros", "BdB Ahorros", "Wio", "Falabella", "Bancolombia"
+
+4. Incluir: cargos TC, débitos automáticos, cuotas de manejo, intereses, seguro deudor, GMF (4×1000), conversiones, transferencias salientes (BRE-B, ACH, CAR DOMI TRA), pagos PSE.
+
+5. Excluir: pagos al saldo / abonos a deuda, saldos apertura/cierre, totales agregados.
+
+6. Si hay USD/AED/EUR, incluí monto_original y moneda_original. Para AED ≈ 1,150 COP si no hay tasa explícita.
+
+7. Ordená por fecha ascendente.`,
+
+    stepLabel() {
+      return ({1:'Importar y previsualizar', 2:'Procesar items del extracto', 3:'Huérfanos del bot', 4:'Cierre'})[this.step] || '';
     },
 
-    close() {
-      this.open = false;
-      this.error = null;
+    fmtCop(v) {
+      if (v == null) return '$0';
+      return '$' + Math.round(Number(v)).toLocaleString('de-DE') + ' COP';
     },
 
-    async loadHistory() {
+    statusLabel(s) {
+      return ({matched:'✓ Cuadrado', unmatched_extract:'🚨 Falta en bot', bank_charge:'🏦 Cargo banco', transfer_internal:'🔄 Transferencia', duplicate:'♻️ Duplicado', other:'❓ Otro', added_to_bot:'✚ Adjudicado', reviewed:'👁️ Revisado', pending:'⏳ Pendiente', ignored:'🚫 Ignorado'})[s] || s;
+    },
+
+    statusColor(s) {
+      return ({matched:'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300', unmatched_extract:'bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-300', bank_charge:'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300', transfer_internal:'bg-sky-100 dark:bg-sky-900/40 text-sky-800 dark:text-sky-300', duplicate:'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400', added_to_bot:'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300', reviewed:'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300', ignored:'bg-slate-200 text-slate-500'})[s] || 'bg-slate-100 text-slate-700';
+    },
+
+    close() { this.open = false; this.error = null; },
+
+    startNew() {
+      this.label = ''; this.cycleLabel = ''; this.notes = ''; this.jsonText = '';
+      this.coveredMethods = [];
+      this.tolDaysBack = 5; this.tolDaysForward = 5; this.tolPct = 0.05;
+      this.previewData = null; this.importId = null; this.importMeta = null;
+      this.items = []; this.stats = {}; this.orphans = [];
+      this.orphanCandidates = {}; this.error = null;
+      this.step = 1; this.view = 'form';
+    },
+
+    async openHistory() {
+      this.view = 'history';
       try {
         const r = await fetch('/api/reconcile/imports');
         if (r.ok) {
-          const d = await r.json();
-          this.history = d.imports || [];
-        }
-      } catch (e) { /* silent */ }
-    },
-
-    async submitImport() {
-      this.busy = true;
-      this.error = null;
-      let parsed;
-      try {
-        parsed = JSON.parse(this.jsonText);
-      } catch (e) {
-        this.error = 'JSON inválido: ' + (e.message || e);
-        this.busy = false;
-        return;
-      }
-      // Allow either an array directly OR an object with 'transactions'
-      let txns = Array.isArray(parsed) ? parsed : parsed.transactions;
-      if (!Array.isArray(txns) || txns.length === 0) {
-        this.error = 'JSON debe ser un array de transacciones, o un objeto con campo "transactions"';
-        this.busy = false;
-        return;
-      }
-      try {
-        const resp = await fetch('/api/reconcile/import', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            label: this.label || null,
-            notes: this.notes || null,
-            transactions: txns,
-          }),
-        });
-        if (!resp.ok) {
-          const body = await resp.text();
-          throw new Error(`Import falló (${resp.status}): ${body.slice(0, 200)}`);
-        }
-        const data = await resp.json();
-        this.importId = data.import_id;
-        this.importMeta = data;
-        this.stats = data.stats;
-        this.byType = data.by_type;
-        await this.loadItems();
-        this.view = 'results';
-      } catch (e) {
-        this.error = e.message || String(e);
-      } finally {
-        this.busy = false;
-      }
-    },
-
-    async loadItems() {
-      if (!this.importId) return;
-      try {
-        const url = '/api/reconcile/imports/' + this.importId;
-        const r = await fetch(url);
-        if (r.ok) {
-          const d = await r.json();
-          this.items = d.items || [];
-          this.stats = d.stats || this.stats;
+          this.history = (await r.json()).imports || [];
         }
       } catch (e) { /* silent */ }
     },
 
     async openImport(importId) {
-      this.importId = importId;
-      this.view = 'results';
-      await this.loadItems();
+      this.busy = true; this.error = null;
+      try {
+        const r = await fetch('/api/reconcile/imports/' + importId);
+        if (!r.ok) throw new Error('No se pudo cargar import: ' + r.status);
+        const d = await r.json();
+        this.importId = importId;
+        this.importMeta = d.import;
+        this.items = d.items || [];
+        this.stats = d.stats || {};
+        this.step = 2; this.view = 'process';
+      } catch (e) {
+        this.error = e.message;
+      } finally { this.busy = false; }
+    },
+
+    async runPreview() {
+      this.busy = true; this.error = null;
+      let parsed;
+      try { parsed = JSON.parse(this.jsonText); }
+      catch (e) { this.error = 'JSON inválido: ' + e.message; this.busy = false; return; }
+      const txns = Array.isArray(parsed) ? parsed : parsed.transactions;
+      if (!Array.isArray(txns) || !txns.length) {
+        this.error = 'JSON debe ser array o objeto con transactions[]';
+        this.busy = false; return;
+      }
+      try {
+        const r = await fetch('/api/reconcile/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            label: this.label || null,
+            cycle_label: this.cycleLabel || null,
+            notes: this.notes || null,
+            covered_methods: this.coveredMethods,
+            tol_days_back: this.tolDaysBack,
+            tol_days_forward: this.tolDaysForward,
+            tol_pct: this.tolPct,
+            transactions: txns,
+          }),
+        });
+        if (!r.ok) {
+          const t = await r.text();
+          throw new Error(`Preview falló (${r.status}): ${t.slice(0,200)}`);
+        }
+        this.previewData = await r.json();
+        this.view = 'preview';
+      } catch (e) { this.error = e.message; }
+      finally { this.busy = false; }
+    },
+
+    discardPreview() {
+      this.previewData = null;
+      this.view = 'form';
+    },
+
+    async confirmImport() {
+      if (!this.previewData?.preview_id) return;
+      this.busy = true; this.error = null;
+      try {
+        const r = await fetch('/api/reconcile/confirm/' + this.previewData.preview_id, { method: 'POST' });
+        if (!r.ok) {
+          const t = await r.text();
+          throw new Error(`Confirm falló (${r.status}): ${t.slice(0,200)}`);
+        }
+        const d = await r.json();
+        await this.openImport(d.import_id);
+      } catch (e) { this.error = e.message; }
+      finally { this.busy = false; }
+    },
+
+    get availableMonths() {
+      const s = new Set();
+      for (const i of this.items) { const m = (i.fecha||'').slice(0,7); if (m) s.add(m); }
+      return [...s].sort();
     },
 
     get filteredItems() {
       let out = this.items;
-      if (this.statusFilter !== 'all') {
-        out = out.filter(i => i.status === this.statusFilter);
-      }
-      if (this.monthFilter !== 'all') {
-        out = out.filter(i => (i.fecha || '').slice(0, 7) === this.monthFilter);
-      }
+      if (this.statusFilter !== 'all') out = out.filter(i => i.status === this.statusFilter);
+      if (this.monthFilter !== 'all') out = out.filter(i => (i.fecha||'').slice(0,7) === this.monthFilter);
       return out;
     },
 
-    // Lista única de meses presentes en los items, ordenados.
-    get availableMonths() {
-      const s = new Set();
-      for (const i of this.items) {
-        const m = (i.fecha || '').slice(0, 7);
-        if (m) s.add(m);
-      }
-      return [...s].sort();
-    },
-
-    // Stats recalculadas sobre el subset filtrado por mes (ignora statusFilter
-    // porque las cards mismas SON los toggles de status).
     get filteredStats() {
+      const items = this.monthFilter === 'all' ? this.items : this.items.filter(i => (i.fecha||'').slice(0,7) === this.monthFilter);
       const out = {};
-      const items = this.monthFilter === 'all'
-        ? this.items
-        : this.items.filter(i => (i.fecha || '').slice(0, 7) === this.monthFilter);
       for (const i of items) {
-        const s = i.status;
-        if (!out[s]) out[s] = { count: 0, total_cop: 0 };
-        out[s].count += 1;
-        out[s].total_cop += Number(i.monto_cop || 0);
+        const s = i.status; if (!out[s]) out[s] = { count: 0, total_cop: 0 };
+        out[s].count++; out[s].total_cop += Number(i.monto_cop || 0);
       }
       return out;
     },
 
-    statusLabel(s) {
-      return ({
-        'matched': '✓ Cuadrado',
-        'unmatched_extract': '🚨 Falta en bot',
-        'bank_charge': '🏦 Cargo banco',
-        'transfer_internal': '🔄 Transferencia',
-        'duplicate': '♻️ Duplicado',
-        'other': '❓ Otro',
-        'added_to_bot': '✚ Agregado al bot',
-        'reviewed': '👁️ Revisado',
-        'pending': '⏳ Pendiente',
-      })[s] || s;
-    },
-
-    statusColor(s) {
-      return ({
-        'matched':           'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
-        'unmatched_extract': 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
-        'bank_charge':       'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
-        'transfer_internal': 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300',
-        'duplicate':         'bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
-        'added_to_bot':      'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
-        'reviewed':          'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
-      })[s] || 'bg-slate-100 text-slate-700';
-    },
-
-    typeLabel(t) {
-      return ({
-        'compra_tc':              '💳 Compra TC',
-        'pago_pse':               '🏛️ PSE comercio',
-        'gmf':                    '🇨🇴 GMF (4x1000)',
-        'comision':               '💰 Comisión bancaria',
-        'cuota_manejo':           '📅 Cuota manejo',
-        'interes_tc':             '📈 Intereses TC',
-        'seguro_deudor':          '🛡️ Seguro deudor',
-        'conversion_int':         '🌐 Conversión int',
-        'avance_cajero':          '🏧 Avance cajero',
-        'foreign_exchange_fee':   '💱 Fee FX',
-        'transferencia_saliente': '🔄 Transferencia',
-        'otro':                   '❓ Otro',
-      })[t] || t;
-    },
-
-    async addToBot(itemId) {
-      this.busy = true;
-      try {
-        const r = await fetch('/api/reconcile/items/' + itemId + '/create_expense', {
-          method: 'POST',
-        });
-        if (!r.ok) {
-          const body = await r.text();
-          throw new Error(`No pude agregar al bot (${r.status}): ${body.slice(0, 200)}`);
-        }
-        await this.loadItems();
-      } catch (e) {
-        this.error = e.message || String(e);
-      } finally {
-        this.busy = false;
+    async refreshItems() {
+      if (!this.importId) return;
+      const r = await fetch('/api/reconcile/imports/' + this.importId);
+      if (r.ok) {
+        const d = await r.json();
+        this.items = d.items || [];
+        this.stats = d.stats || {};
+        this.importMeta = d.import;
       }
     },
 
-    async markReviewed(itemId) {
+    async bulkBankCharges() {
+      const ids = this.items.filter(i => i.status === 'bank_charge')
+        .filter(i => this.monthFilter === 'all' || (i.fecha||'').slice(0,7) === this.monthFilter)
+        .map(i => i.id);
+      if (!ids.length) return;
+      if (!confirm(`Crear ${ids.length} expenses como comisiones?`)) return;
       this.busy = true;
       try {
-        await fetch('/api/reconcile/items/' + itemId, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: 'reviewed' }),
+        await fetch('/api/reconcile/imports/' + this.importId + '/bulk_create_bank_charges', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item_ids: ids, user_name: 'Daniel' }),
         });
-        await this.loadItems();
+        await this.refreshItems();
+      } catch (e) { this.error = e.message; }
+      finally { this.busy = false; }
+    },
+
+    async bulkBankChargesSingle(itemId) {
+      this.busy = true;
+      try {
+        await fetch('/api/reconcile/imports/' + this.importId + '/bulk_create_bank_charges', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item_ids: [itemId], user_name: 'Daniel' }),
+        });
+        await this.refreshItems();
       } finally { this.busy = false; }
     },
 
-    // Revertir una adjudicación: borra el expense del bot que se
-    // creó desde este item, y devuelve el item a 'unmatched_extract'
-    // (o al tipo de origen). Útil cuando Daniel se da cuenta que
-    // adjudicó a una categoría incorrecta.
-    async revertItem(itemId) {
-      if (!confirm('Revertir esta adjudicación?\n\n' +
-                   'Esto borra el expense del bot creado desde este item. ' +
-                   'El item del extracto vuelve a "Falta en bot" para que ' +
-                   'lo re-adjudiques.\n\nNo se puede deshacer.')) return;
-      this.busy = true;
-      this.error = null;
+    async runRematch() {
+      if (!this.importId) return;
+      this.busy = true; this.error = null;
+      const params = new URLSearchParams();
+      if (this.monthFilter !== 'all') params.set('month', this.monthFilter);
       try {
-        const r = await fetch('/api/reconcile/items/' + itemId + '/revert', {
-          method: 'POST',
-        });
-        if (!r.ok) {
-          const body = await r.text();
-          throw new Error(`Revertir falló (${r.status}): ${body.slice(0, 200)}`);
-        }
-        await this.loadItems();
-      } catch (e) {
-        this.error = e.message || String(e);
-      } finally {
-        this.busy = false;
-      }
+        const r = await fetch('/api/reconcile/imports/' + this.importId + '/rematch' + (params.toString() ? '?' + params : ''), { method: 'POST' });
+        if (r.ok) { const d = await r.json(); alert(`✓ ${d.converted_to_matched} items pasaron a matched.`); await this.refreshItems(); }
+      } catch (e) { this.error = e.message; }
+      finally { this.busy = false; }
     },
-
-    // Estado del adjudicar: id del item con form abierto + valores
-    adjudicating: null,    // id del item con form abierto (null = ninguno)
-    adjudicateData: { categoria: '', metodo_pago: '', user_name: 'Daniel', clase_contable: 'gasto' },
 
     openAdjudicate(item) {
       this.adjudicating = item.id;
-      this.adjudicateData = {
+      this.adjData = {
         categoria: item.suggested_categoria || '',
         metodo_pago: item.suggested_method_pago || 'Sin especificar',
         user_name: 'Daniel',
         clase_contable: 'gasto',
       };
     },
-    closeAdjudicate() {
-      this.adjudicating = null;
-    },
+    cancelAdjudicate() { this.adjudicating = null; },
 
-    async adjudicate(itemId) {
-      if (!this.adjudicateData.categoria) {
-        this.error = 'Elige una categoría primero';
-        return;
-      }
-      this.busy = true;
-      this.error = null;
+    async confirmAdjudicate(itemId) {
+      if (!this.adjData.categoria) { this.error = 'Elige una categoría'; return; }
+      this.busy = true; this.error = null;
       try {
-        const r = await fetch('/api/reconcile/items/' + itemId + '/create_expense', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            categoria: this.adjudicateData.categoria,
-            metodo_pago: this.adjudicateData.metodo_pago,
-            user_name: this.adjudicateData.user_name,
-            clase_contable: this.adjudicateData.clase_contable,
-          }),
+        const r = await fetch('/api/reconcile/items/' + itemId + '/adjudicate', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.adjData),
         });
-        if (!r.ok) {
-          const body = await r.text();
-          throw new Error(`Adjudicar falló (${r.status}): ${body.slice(0, 200)}`);
-        }
+        if (!r.ok) { const t = await r.text(); throw new Error(`Adjudicar falló (${r.status}): ${t.slice(0,200)}`); }
         this.adjudicating = null;
-        await this.loadItems();
-      } catch (e) {
-        this.error = e.message || String(e);
-      } finally {
-        this.busy = false;
-      }
+        await this.refreshItems();
+      } catch (e) { this.error = e.message; }
+      finally { this.busy = false; }
     },
 
-    async rematch(opts) {
-      // opts: opcional. {tol_days_back, tol_days_forward, tol_pct, month}
-      // Si no se pasa, usa default ±5d/±5% sobre todos los items pending.
-      // Si monthFilter está activo, lo respeta automáticamente.
-      if (!this.importId) return;
-      this.busy = true;
-      this.error = null;
-      const params = new URLSearchParams();
-      if (opts) {
-        if (opts.tol_days != null) params.set('tol_days', opts.tol_days);
-        if (opts.tol_days_back != null) params.set('tol_days_back', opts.tol_days_back);
-        if (opts.tol_days_forward != null) params.set('tol_days_forward', opts.tol_days_forward);
-        if (opts.tol_pct != null) params.set('tol_pct', opts.tol_pct);
-        if (opts.month) params.set('month', opts.month);
-      }
-      // Si NO viene opts.month explícito y la UI tiene un monthFilter activo,
-      // respetar el filtro: sólo rematchear items de ese mes.
-      if (!opts?.month && this.monthFilter && this.monthFilter !== 'all') {
-        params.set('month', this.monthFilter);
-      }
-      const url = '/api/reconcile/imports/' + this.importId + '/rematch'
-                  + (params.toString() ? '?' + params.toString() : '');
-      try {
-        const r = await fetch(url, { method: 'POST' });
-        if (!r.ok) {
-          const body = await r.text();
-          throw new Error(`Rematch falló (${r.status}): ${body.slice(0, 200)}`);
-        }
-        const data = await r.json();
-        await this.loadItems();
-        const r2 = await fetch('/api/reconcile/imports/' + this.importId);
-        if (r2.ok) {
-          const d2 = await r2.json();
-          this.stats = d2.stats || this.stats;
-        }
-        const tolDesc = data.tolerance_used.tol_days_back != null || data.tolerance_used.tol_days_forward != null
-          ? `(-${data.tolerance_used.tol_days_back ?? data.tolerance_used.tol_days}d / +${data.tolerance_used.tol_days_forward ?? data.tolerance_used.tol_days}d / ${(data.tolerance_used.tol_pct * 100).toFixed(1)}%)`
-          : `(±${data.tolerance_used.tol_days}d / ${(data.tolerance_used.tol_pct * 100).toFixed(1)}%)`;
-        const monthDesc = data.filter_month ? ` en ${data.filter_month}` : '';
-        alert(`✓ Re-matching${monthDesc} completado:\n${data.converted_to_matched} items pasaron a "Cuadrados"\nTolerancia ${tolDesc}\nEscaneados: ${data.scanned}`);
-      } catch (e) {
-        this.error = e.message || String(e);
-      } finally {
-        this.busy = false;
-      }
-    },
-
-    async bulkCreateBankCharges() {
-      // Respeta el filtro de mes: solo crea cargos de los items visibles.
-      const ids = this.items
-        .filter(i => i.status === 'bank_charge')
-        .filter(i => this.monthFilter === 'all' ||
-                     (i.fecha || '').slice(0, 7) === this.monthFilter)
-        .map(i => i.id);
-      if (!ids.length) return;
-      const monthDesc = this.monthFilter !== 'all' ? ` de ${this.monthFilter}` : '';
-      if (!confirm(`Crear ${ids.length} expenses de cargos del banco${monthDesc} con categoría "comisiones"?`)) return;
+    async revertItem(itemId) {
+      if (!confirm('Revertir? Borra el expense y vuelve a unmatched.')) return;
       this.busy = true;
       try {
-        const r = await fetch('/api/reconcile/import/' + this.importId + '/bulk_create_bank_charges', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ item_ids: ids, categoria: 'comisiones', user_name: 'Daniel' }),
-        });
-        if (!r.ok) {
-          const body = await r.text();
-          throw new Error(`Bulk falló (${r.status}): ${body.slice(0, 200)}`);
-        }
-        await this.loadItems();
-      } catch (e) {
-        this.error = e.message || String(e);
-      } finally {
-        this.busy = false;
-      }
-    },
-
-    async deleteImport() {
-      if (!this.importId) return;
-      if (!confirm(`Borrar el import #${this.importId}? Los expenses creados desde "Agregar al bot" se mantienen.`)) return;
-      this.busy = true;
-      try {
-        await fetch('/api/reconcile/imports/' + this.importId, { method: 'DELETE' });
-        this.reset();
-        await this.loadHistory();
+        await fetch('/api/reconcile/items/' + itemId + '/revert', { method: 'POST' });
+        await this.refreshItems();
       } finally { this.busy = false; }
     },
 
-    fmtCop(v) {
-      const n = Math.round(Number(v) || 0);
-      return '$' + n.toLocaleString('de-DE');
+    async markItem(itemId, action) {
+      this.busy = true;
+      try {
+        await fetch('/api/reconcile/items/' + itemId + '/mark', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action }),
+        });
+        await this.refreshItems();
+      } finally { this.busy = false; }
+    },
+
+    async deleteImport() {
+      if (!confirm('Borrar este import? Los expenses creados quedan en el bot.')) return;
+      this.busy = true;
+      try {
+        await fetch('/api/reconcile/imports/' + this.importId, { method: 'DELETE' });
+        this.startNew();
+        await this.openHistory();
+      } finally { this.busy = false; }
+    },
+
+    async goToOrphans() {
+      this.step = 3;
+      if (!this.importId) return;
+      this.busy = true;
+      try {
+        const r = await fetch('/api/reconcile/imports/' + this.importId + '/orphans_in_bot');
+        if (r.ok) { this.orphans = (await r.json()).orphans || []; }
+      } finally { this.busy = false; }
+    },
+
+    async findOrphanCandidates(expenseId) {
+      this.busy = true;
+      try {
+        const r = await fetch('/api/reconcile/orphans/' + expenseId + '/find_candidates', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tol_days: 10, tol_pct: 0.10 }),
+        });
+        if (r.ok) { this.orphanCandidates[expenseId] = (await r.json()).candidates || []; }
+      } finally { this.busy = false; }
+    },
+
+    async relinkOrphan(expenseId, itemId) {
+      this.busy = true;
+      try {
+        await fetch('/api/reconcile/orphans/' + expenseId + '/relink_to/' + itemId, { method: 'POST' });
+        // Refresh both items + orphans
+        await this.refreshItems();
+        await this.goToOrphans();
+      } finally { this.busy = false; }
+    },
+
+    async deleteOrphan(expenseId) {
+      if (!confirm(`Borrar expense #${expenseId} del bot? Probablemente fue doble registro.`)) return;
+      this.busy = true;
+      try {
+        await fetch('/api/expenses/' + expenseId, { method: 'DELETE' });
+        await this.goToOrphans();
+      } finally { this.busy = false; }
+    },
+
+    async dismissOrphan(expenseId) {
+      // Marcar mentalmente como revisado — quitamos de la lista local
+      this.orphans = this.orphans.filter(o => o.id !== expenseId);
+    },
+
+    async goToClose() {
+      this.step = 4;
+      await this.refreshItems();
+    },
+
+    async closeImport() {
+      if (!this.importId) return;
+      this.busy = true; this.error = null;
+      try {
+        await fetch('/api/reconcile/imports/' + this.importId + '/close', { method: 'POST' });
+        alert('📦 Import cerrado. Stats finales registradas en audit log.');
+        this.startNew();
+        await this.openHistory();
+      } catch (e) { this.error = e.message; }
+      finally { this.busy = false; }
     },
   });
 
@@ -4066,11 +4105,17 @@ function dashboard() {
 
     openReconcile() {
       // Hidratar las options en el store antes de abrir el modal
-      // (el modal vive fuera del scope del dashboard root, así que no
-      // puede leer las options directamente).
+      // (el modal vive fuera del scope del dashboard root).
       const store = Alpine.store('reconcile');
       store.categoryOptions = this.categoryOptions;
       store.paymentOptions = this.paymentOptions;
+      // allPaymentMethods: lista plana de métodos para los checkboxes
+      // de "covered_methods" en el form de import.
+      store.allPaymentMethods = this.paymentOptions || [];
+      // Si no hay import abierto, arrancar limpio
+      if (!store.importId) {
+        store.startNew();
+      }
       store.open = true;
     },
 
