@@ -180,6 +180,83 @@ RECONCILE_BANK_CHARGE_TYPES = {
 }
 
 
+# Catálogo de heurísticas para sugerir categoría a partir de la descripción
+# del extracto. Orden importa (primer match gana).
+# Cada tupla: (regex case-insensitive, suggested_categoria_key, comentario).
+# El orden va de MÁS específico a MÁS general.
+RECONCILE_CATEGORY_HEURISTICS = [
+    # ── Suscripciones específicas (subs de 'suscripciones') ──
+    (r"\buber\s*one\b|uber\s+pro|uberone|\buber\s+membership\b", "uberpro"),
+    (r"\bnetflix\b",                                              "netflix"),
+    (r"\byoutube\b|youtube\s*premium",                            "youtube"),
+    (r"\brappi\s*pro\b|rappi.*premium",                           "rappipro"),
+    (r"amazon\s*prime|prime\s*video",                             "amazonprime"),
+    (r"claude\.?ai|anthropic",                                    "claude"),
+
+    # ── Uber / transporte ──
+    (r"\buber\s+(rides|trip)\b|uber\s+help|^uber\s|\suber\s",     "uber"),
+    (r"^uber$|\buber\b(?!\s+(one|pro|membership|premium))",       "uber"),
+
+    # ── Domicilios ──
+    (r"\brappi(\s|$|colombiadl)",                                 "rappi"),
+
+    # ── Supermercados (subs de supermercado) ──
+    (r"pricesmart|price\s*smart",                                 "pricemart"),
+    (r"\btienda\s+d1\b|^d1\s|dollarcity|dollar\s*city",           "d1"),
+    (r"carulla\s+express|\bcorpaul\b|\bjumbo\b|\bminiso\b",       "super_otro"),
+    (r"\bcarulla\b|carulla\s+sao",                                "verduras"),
+
+    # ── Cafés / restaurantes ──
+    (r"\bstarbucks?\b",                                           "cafe"),
+    (r"caf[eé]\s+pergamino|\bpergamino\b|altotostado|\bcaf[eé]\b", "cafe"),
+
+    # ── Restaurante (cualquiera de los lugares conocidos) ──
+    (r"\b(rocoto|naan|shibuya|el\s+arriero|la\s+lucha|tori|monterrey|story\s+teller|margherita|mondongos|la\s+campestre|sonia\s+vivian|farm\s+pasteur|percimon|boldcaf|bold\s*caf)\b", "restaurante"),
+
+    # ── Transporte / vehículo ──
+    (r"\beds\b|combuscol|texaco|terpel|gasolinera|estaci[oó]n\s+de\s+servicio", "gasolina"),
+    (r"\bgopass\b",                                               "peajes"),
+    (r"\bparking\b|parqueadero|the\s+parking",                    "parqueadero"),
+
+    # ── Salud / medicinas ──
+    (r"\bfarm\b|farmacia|farmaceut|cruz\s*verde|locatel|drugstore", "medicinas"),
+    (r"hospital|cl[ií]nica|i\.?p\.?s|dermatolog|cardiolog|ortodiagnostico", "salud"),
+
+    # ── Servicios / impuestos ──
+    (r"compensar(-oi)?",                                          "salud"),
+    (r"municipio\s+de\s+medellin|impuesto\s+predial|predial",     "prediales"),
+    (r"empresas\s+publicas|epm",                                  "servicios"),
+
+    # ── Aerolíneas / viaje ──
+    (r"latam\s+airlines?|\bairport\b|duty\s+free|airpartners|\bgate\b|aerol[ií]nea", "viaje"),
+    (r"hotel|booking\.?com|airbnb",                               "viaje"),
+
+    # ── Suscripciones varias (sub catch-all) ──
+    (r"apple\.com|apple\s*bill|app\s*store",                      "suscripciones"),
+    (r"google\s+workspace|google\s+one|google\.com",              "suscripciones"),
+    (r"speechify|godaddy|miro\.com|gamma\.app|notion|figma|slack|read.*meeting|perplexity|chatgpt|openai|github|copilot|railway", "suscripciones"),
+
+    # ── Seguros ──
+    (r"\btesla\b",                                                "seguro_tesla"),
+    (r"land\s*rover",                                             "seguro_carro_land"),
+    (r"seguro|p[oó]liza",                                         "seguros"),
+
+    # ── Mercado Pago genérico ──
+    (r"mercado\s*pago",                                           "super_otro"),
+]
+
+
+def _suggest_category_from_description(descripcion: str) -> Optional[str]:
+    """Dado una descripción del extracto, devuelve la categoría sugerida
+    aplicando el catálogo de heurísticas. None si no matchea nada.
+    """
+    d = (descripcion or "").lower()
+    for pat, cat in RECONCILE_CATEGORY_HEURISTICS:
+        if re.search(pat, d):
+            return cat
+    return None
+
+
 class RatesUpdate(BaseModel):
     TRM: float
     BOB_RATE: float
@@ -1985,12 +2062,20 @@ def make_api_app() -> FastAPI:
                 else:
                     existing_fps.add(fp)
                     suggested_method = RECONCILE_PREFIX_TO_METHOD.get(bank_prefix)
-                    suggested_cat = None
+                    # Sugerencia base por keyword en descripción (Uber, Pricesmart,
+                    # Apple Bill, Carulla, etc.). Si la heurística matchea, queda
+                    # esa categoría. Si no, sigue siendo None y caemos a la lógica
+                    # por tipo (comisiones para cargos del banco, otro para resto).
+                    suggested_cat = _suggest_category_from_description(t.descripcion)
                     matched_id = None
 
                     if item_type in RECONCILE_BANK_CHARGE_TYPES:
                         status = "bank_charge"
-                        suggested_cat = "comisiones"
+                        # Para cargos del banco la heurística es secundaria —
+                        # forzamos comisiones a menos que la descripción
+                        # señalice algo más específico (raro pero posible).
+                        if suggested_cat is None:
+                            suggested_cat = "comisiones"
                         stats["bank_charge"] += 1
                     elif item_type == "transferencia_saliente":
                         # Intentar match contra expenses con método 'Transferencia <BANK>'
@@ -2299,6 +2384,60 @@ def make_api_app() -> FastAPI:
                     "tol_pct": kwargs.get('tol_pct', 0.05),
                     "tol_cop": kwargs.get('tol_cop', 5000),
                 },
+            }
+        finally:
+            conn.close()
+
+    @api.post("/api/reconcile/imports/{import_id}/reclassify")
+    def reconcile_reclassify(import_id: int, only_pending: bool = Query(True)):
+        """Re-aplica las heurísticas de keyword sobre la descripción de
+        cada item del import para actualizar suggested_categoria.
+
+        Útil cuando se agregan reglas nuevas al catálogo (ej. después
+        de agregar 'pricesmart→pricemart') y queremos que los items
+        existentes se beneficien sin re-importar.
+
+        Por default sólo afecta items en status pending/unmatched/
+        bank_charge/transfer_internal — los que ya están matched o
+        added_to_bot no se tocan (ya tienen su categoría real en el
+        expense del bot).
+        """
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            imp = conn.execute(
+                "SELECT id FROM reconciliation_imports WHERE id = ?", (import_id,)
+            ).fetchone()
+            if not imp:
+                raise HTTPException(404, f"import {import_id} not found")
+            q = ("SELECT id, descripcion, item_type, suggested_categoria "
+                 "FROM reconciliation_items WHERE import_id = ?")
+            params: list = [import_id]
+            if only_pending:
+                q += " AND status IN ('unmatched_extract', 'pending', 'bank_charge', 'transfer_internal', 'other')"
+            rows = conn.execute(q, params).fetchall()
+            updated = 0
+            unchanged = 0
+            for r in rows:
+                rid, desc, itype, current_sug = r
+                new_sug = _suggest_category_from_description(desc)
+                if new_sug is None and itype in RECONCILE_BANK_CHARGE_TYPES:
+                    new_sug = "comisiones"
+                if new_sug and new_sug != current_sug:
+                    conn.execute(
+                        "UPDATE reconciliation_items "
+                        "SET suggested_categoria = ? WHERE id = ?",
+                        (new_sug, rid),
+                    )
+                    updated += 1
+                else:
+                    unchanged += 1
+            conn.commit()
+            return {
+                "ok": True,
+                "import_id": import_id,
+                "scanned": len(rows),
+                "updated": updated,
+                "unchanged": unchanged,
             }
         finally:
             conn.close()
