@@ -304,6 +304,27 @@ def _try_match_expense(conn, item_fecha: str, item_monto: float,
     return best
 
 
+class ReconcileTxnIn(BaseModel):
+    fecha: str
+    monto_cop: float
+    descripcion: str
+    moneda_original: Optional[str] = None
+    monto_original: Optional[float] = None
+
+
+class ReconcilePreviewRequest(BaseModel):
+    label: Optional[str] = None
+    cycle_label: Optional[str] = None
+    period_from: Optional[str] = None
+    period_to: Optional[str] = None
+    covered_methods: Optional[list[str]] = None
+    tol_days_back: Optional[int] = 5
+    tol_days_forward: Optional[int] = 5
+    tol_pct: Optional[float] = 0.05
+    notes: Optional[str] = None
+    transactions: list[ReconcileTxnIn]
+
+
 class RatesUpdate(BaseModel):
     TRM: float
     BOB_RATE: float
@@ -1959,6 +1980,299 @@ def make_api_app() -> FastAPI:
     #          rematch, reclassify, /orphans_*
     # Commit D: UI completa flujo guiado 4 pasos (solo static/index.html)
     # Commit E: /rules CRUD + widget dashboard
+
+    # In-memory cache de previews (no se persiste hasta /confirm)
+    # Limpieza: previews >2h se descartan automáticamente.
+    if not hasattr(api, "_recon_preview_cache"):
+        api._recon_preview_cache = {}
+
+    def _audit_log(conn, import_id, item_id, action, payload, expense_id=None):
+        conn.execute(
+            "INSERT INTO reconciliation_audit_log "
+            "(import_id, item_id, action, payload_json, expense_id_affected, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (import_id, item_id, action,
+             json.dumps(payload, ensure_ascii=False) if payload else None,
+             expense_id, datetime.now().isoformat()),
+        )
+
+    @api.post("/api/reconcile/preview")
+    def reconcile_preview(body: ReconcilePreviewRequest):
+        """Genera preview del diff SIN persistir nada. Retorna preview_id en
+        memoria + clasificación + matching + huérfanos. El usuario revisa
+        y confirma con POST /confirm/{preview_id} para persistir, o ignora
+        para descartar."""
+        if not body.transactions:
+            raise HTTPException(400, "transactions vacío")
+        if len(body.transactions) > 1000:
+            raise HTTPException(400, "max 1000 transactions por import")
+
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            # Compute period bounds
+            fechas = [t.fecha[:10] for t in body.transactions if t.fecha]
+            period_from = body.period_from or (min(fechas) if fechas else None)
+            period_to = body.period_to or (max(fechas) if fechas else None)
+            total_cop = sum(float(t.monto_cop or 0) for t in body.transactions)
+
+            # Existing fingerprints across all imports → para idempotencia
+            existing_fps = {row[0] for row in conn.execute(
+                "SELECT fingerprint FROM reconciliation_items"
+            ).fetchall()}
+
+            used_ids: set[int] = set()
+            items_preview = []
+            stats = {"matched": 0, "unmatched_extract": 0, "bank_charge": 0,
+                     "transfer_internal": 0, "duplicate": 0, "other": 0,
+                     "pago_pse": 0}
+
+            for t in body.transactions:
+                bank_prefix = _derive_bank_prefix(t.descripcion)
+                item_type = _classify_item_type(t.descripcion, bank_prefix)
+                fp = _make_fingerprint(bank_prefix, t.fecha[:10],
+                                       float(t.monto_cop), t.descripcion)
+                suggested_method = RECONCILE_PREFIX_TO_METHOD.get(bank_prefix)
+                suggested_cat = _suggest_category_from_db(conn, t.descripcion)
+                matched_id = None
+                status = "pending"
+
+                if fp in existing_fps:
+                    status = "duplicate"
+                elif item_type in RECONCILE_BANK_CHARGE_TYPES:
+                    status = "bank_charge"
+                    if not suggested_cat:
+                        suggested_cat = "comisiones"
+                elif item_type in ("compra_tc", "pago_pse",
+                                   "transferencia_saliente"):
+                    if suggested_method:
+                        matched_id = _try_match_expense(
+                            conn, t.fecha[:10], float(t.monto_cop),
+                            suggested_method, used_ids,
+                            tol_days_back=body.tol_days_back,
+                            tol_days_forward=body.tol_days_forward,
+                            tol_pct=body.tol_pct,
+                        )
+                    if matched_id:
+                        used_ids.add(matched_id)
+                        status = "matched"
+                    elif item_type == "transferencia_saliente":
+                        status = "transfer_internal"
+                    else:
+                        status = "unmatched_extract"
+                else:
+                    status = "other"
+
+                stats[status] = stats.get(status, 0) + 1
+                items_preview.append({
+                    "fecha": t.fecha[:10],
+                    "monto_cop": float(t.monto_cop),
+                    "monto_original": t.monto_original,
+                    "moneda_original": t.moneda_original,
+                    "descripcion": t.descripcion,
+                    "bank_prefix": bank_prefix,
+                    "item_type": item_type,
+                    "fingerprint": fp,
+                    "matched_expense_id": matched_id,
+                    "status": status,
+                    "suggested_method_pago": suggested_method,
+                    "suggested_categoria": suggested_cat,
+                })
+
+            # Cross-check bot → extracto: huérfanos
+            covered = body.covered_methods or []
+            orphans = []
+            if covered and period_from and period_to:
+                rows = conn.execute(
+                    "SELECT id, fecha, monto_cop, monto_usd, categoria, nota, "
+                    "COALESCE(metodo_pago,'Sin especificar') AS metodo_pago "
+                    "FROM expenses "
+                    "WHERE substr(fecha,1,10) >= ? AND substr(fecha,1,10) <= ? "
+                    "AND COALESCE(metodo_pago,'Sin especificar') IN (" +
+                    ",".join("?" * len(covered)) + ")",
+                    [period_from, period_to] + covered,
+                ).fetchall()
+                matched_set = {i["matched_expense_id"] for i in items_preview
+                               if i.get("matched_expense_id")}
+                for r in rows:
+                    if r[0] not in matched_set:
+                        orphans.append({
+                            "id": r[0], "fecha": r[1],
+                            "monto_cop": r[2], "monto_usd": r[3],
+                            "categoria": r[4], "nota": r[5] or "",
+                            "metodo_pago": r[6],
+                        })
+
+            preview_id = "prev_" + datetime.now().strftime("%Y%m%d%H%M%S%f")
+            preview_data = {
+                "preview_id": preview_id,
+                "label": body.label or f"Import {datetime.now().strftime('%Y-%m-%d')}",
+                "cycle_label": body.cycle_label,
+                "period_from": period_from,
+                "period_to": period_to,
+                "covered_methods": covered,
+                "tol_days_back": body.tol_days_back,
+                "tol_days_forward": body.tol_days_forward,
+                "tol_pct": body.tol_pct,
+                "notes": body.notes,
+                "total_items": len(body.transactions),
+                "total_cop": total_cop,
+                "stats": stats,
+                "items": items_preview,
+                "orphans_in_bot": orphans,
+                "created_at": datetime.now().isoformat(),
+            }
+            api._recon_preview_cache[preview_id] = preview_data
+            # Limpiar previews antiguos
+            cutoff = datetime.now().timestamp() - 7200
+            for pid in list(api._recon_preview_cache.keys()):
+                ts = api._recon_preview_cache[pid].get("created_at", "")
+                try:
+                    if datetime.fromisoformat(ts).timestamp() < cutoff:
+                        api._recon_preview_cache.pop(pid, None)
+                except Exception:
+                    pass
+            return preview_data
+        finally:
+            conn.close()
+
+    @api.post("/api/reconcile/confirm/{preview_id}")
+    def reconcile_confirm(preview_id: str):
+        """Persiste el preview en DB. preview_id válido por 2h."""
+        preview = api._recon_preview_cache.get(preview_id)
+        if not preview:
+            raise HTTPException(404, f"preview {preview_id} no encontrado o expirado")
+
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            now = datetime.now().isoformat()
+            cur = conn.execute(
+                "INSERT INTO reconciliation_imports "
+                "(label, period_from, period_to, cycle_label, covered_methods_json, "
+                " tol_days_back, tol_days_forward, tol_pct, total_items, total_cop, "
+                " status, imported_at, confirmed_at, notes) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, ?, ?)",
+                (preview["label"], preview["period_from"], preview["period_to"],
+                 preview.get("cycle_label"),
+                 json.dumps(preview.get("covered_methods", []), ensure_ascii=False),
+                 preview.get("tol_days_back"), preview.get("tol_days_forward"),
+                 preview.get("tol_pct"),
+                 preview["total_items"], preview["total_cop"],
+                 now, now, preview.get("notes") or ""),
+            )
+            import_id = cur.lastrowid
+            for it in preview["items"]:
+                conn.execute(
+                    "INSERT INTO reconciliation_items "
+                    "(import_id, fecha, monto_cop, monto_original, moneda_original, "
+                    " descripcion, bank_prefix, item_type, fingerprint, "
+                    " matched_expense_id, status, suggested_method_pago, suggested_categoria) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (import_id, it["fecha"], it["monto_cop"],
+                     it.get("monto_original"), it.get("moneda_original"),
+                     it["descripcion"], it["bank_prefix"], it["item_type"],
+                     it["fingerprint"], it.get("matched_expense_id"),
+                     it["status"], it.get("suggested_method_pago"),
+                     it.get("suggested_categoria")),
+                )
+            _audit_log(conn, import_id, None, "import_confirmed",
+                       {"preview_id": preview_id, "stats": preview["stats"],
+                        "total_items": preview["total_items"]})
+            conn.commit()
+            api._recon_preview_cache.pop(preview_id, None)
+            return {"ok": True, "import_id": import_id,
+                    "total_items": preview["total_items"],
+                    "stats": preview["stats"]}
+        finally:
+            conn.close()
+
+    @api.get("/api/reconcile/imports")
+    def list_reconcile_imports(limit: int = Query(50, ge=1, le=200)):
+        rows = _query_all(
+            "SELECT id, label, cycle_label, period_from, period_to, "
+            "total_items, total_cop, status, imported_at, closed_at, notes "
+            "FROM reconciliation_imports ORDER BY id DESC LIMIT ?",
+            (limit,),
+        )
+        return {"imports": rows}
+
+    @api.get("/api/reconcile/imports/{import_id}")
+    def get_reconcile_import(import_id: int,
+                              status: Optional[str] = Query(None),
+                              month: Optional[str] = Query(None)):
+        conn = sqlite3.connect(bot.DB_PATH)
+        conn.row_factory = sqlite3.Row
+        try:
+            imp = conn.execute(
+                "SELECT * FROM reconciliation_imports WHERE id = ?", (import_id,),
+            ).fetchone()
+            if not imp:
+                raise HTTPException(404, f"import {import_id} not found")
+            q = "SELECT * FROM reconciliation_items WHERE import_id = ?"
+            params: list = [import_id]
+            if status:
+                q += " AND status = ?"
+                params.append(status)
+            if month:
+                q += " AND substr(fecha, 1, 7) = ?"
+                params.append(month)
+            q += " ORDER BY fecha, id"
+            items = [dict(r) for r in conn.execute(q, params).fetchall()]
+            stats: dict = {}
+            for r in conn.execute(
+                "SELECT status, COUNT(*), SUM(monto_cop) FROM reconciliation_items "
+                "WHERE import_id = ? GROUP BY status", (import_id,),
+            ).fetchall():
+                stats[r[0]] = {"count": r[1], "total_cop": round(r[2] or 0, 2)}
+            audit = [dict(r) for r in conn.execute(
+                "SELECT * FROM reconciliation_audit_log WHERE import_id = ? "
+                "ORDER BY id DESC LIMIT 100", (import_id,),
+            ).fetchall()]
+            return {"import": dict(imp), "items": items, "stats": stats,
+                    "audit_log": audit}
+        finally:
+            conn.close()
+
+    @api.post("/api/reconcile/imports/{import_id}/close")
+    def close_reconcile_import(import_id: int):
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            r = conn.execute(
+                "SELECT id FROM reconciliation_imports WHERE id = ?", (import_id,)
+            ).fetchone()
+            if not r:
+                raise HTTPException(404, f"import {import_id} not found")
+            now = datetime.now().isoformat()
+            stats = {row[0]: row[1] for row in conn.execute(
+                "SELECT status, COUNT(*) FROM reconciliation_items "
+                "WHERE import_id = ? GROUP BY status", (import_id,),
+            ).fetchall()}
+            conn.execute(
+                "UPDATE reconciliation_imports SET status='closed', closed_at=? "
+                "WHERE id = ?", (now, import_id),
+            )
+            _audit_log(conn, import_id, None, "import_closed", {"final_stats": stats})
+            conn.commit()
+            return {"ok": True, "import_id": import_id, "final_stats": stats}
+        finally:
+            conn.close()
+
+    @api.delete("/api/reconcile/imports/{import_id}")
+    def delete_reconcile_import(import_id: int):
+        """Borra import + items en cascada. NO toca expenses creados."""
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            r = conn.execute(
+                "SELECT COUNT(*) FROM reconciliation_imports WHERE id = ?", (import_id,)
+            ).fetchone()
+            if not r or r[0] == 0:
+                raise HTTPException(404, f"import {import_id} not found")
+            conn.execute("DELETE FROM reconciliation_audit_log WHERE import_id = ?", (import_id,))
+            conn.execute("DELETE FROM reconciliation_items WHERE import_id = ?", (import_id,))
+            conn.execute("DELETE FROM reconciliation_imports WHERE id = ?", (import_id,))
+            conn.commit()
+            return {"ok": True, "deleted_import_id": import_id}
+        finally:
+            conn.close()
 
     @api.get("/api/export/csv")
     def export_csv(month: Optional[str] = Query(None)):
