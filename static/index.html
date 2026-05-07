@@ -1569,6 +1569,11 @@
       </div>
       <div class="flex items-center gap-2">
         <button
+          @click="$store.reconcile.view = 'guide'"
+          class="text-xs text-emerald-600 dark:text-emerald-400 hover:underline"
+          title="Instructivo de cómo conciliar"
+        >📖 Cómo conciliar</button>
+        <button
           x-show="$store.reconcile.step > 1 && $store.reconcile.step < 4"
           @click="$store.reconcile.openHistory()"
           class="text-xs text-slate-500 hover:underline"
@@ -1618,8 +1623,212 @@
         </div>
       </div>
 
+      <!-- ═══════════ Vista GUIDE (instructivo de uso) ═══════════ -->
+      <div x-show="$store.reconcile.view === 'guide'" class="space-y-5 max-w-3xl mx-auto">
+        <div class="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-lg p-4">
+          <h3 class="text-base font-bold text-emerald-700 dark:text-emerald-400">📖 Cómo conciliar mes a mes</h3>
+          <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">
+            Cierre del mes en ~10-15 minutos. Daniel + Madeline pueden seguir esta guía cada mes.
+          </p>
+        </div>
+
+        <!-- Antes de empezar -->
+        <section>
+          <h4 class="text-sm font-bold mb-2">🛠️ Antes de empezar</h4>
+          <ul class="text-xs text-slate-700 dark:text-slate-300 space-y-1 list-disc pl-5">
+            <li>Tener los <strong>PDFs de los extractos</strong> del ciclo a conciliar (BdB, BBVA, Wio, etc.).</li>
+            <li>Una pestaña abierta en <code class="bg-slate-100 dark:bg-slate-800 px-1 rounded">claude.ai</code>.</li>
+            <li>Saber qué <strong>tarjetas/cuentas</strong> cubre cada extracto (vas a marcarlas con checkboxes).</li>
+            <li>Conocer el <strong>ciclo del extracto</strong> (ej: BdB cierra día 26, BBVA día 15).</li>
+          </ul>
+        </section>
+
+        <!-- Los 4 pasos -->
+        <section>
+          <h4 class="text-sm font-bold mb-2">🔢 Los 4 pasos del flujo</h4>
+
+          <div class="space-y-3">
+            <div class="bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-900 rounded-lg p-3">
+              <div class="text-sm font-semibold">Paso 1 · Importar y preview</div>
+              <ol class="text-xs text-slate-700 dark:text-slate-300 mt-1 list-decimal pl-5 space-y-0.5">
+                <li>Click <strong>"¿Cómo extraerlo?"</strong> → copia el prompt.</li>
+                <li>Pegalo en <code>claude.ai</code> junto con tu(s) PDF(s) → Claude te da un JSON.</li>
+                <li>Llena <strong>etiqueta</strong> (ej. "BdB cierre 26 abr") y <strong>ciclo</strong> (ej. "27-mar→26-abr").</li>
+                <li>Marca <strong>tarjetas que cubre</strong> ese extracto (importante para huérfanos).</li>
+                <li>Pega el JSON en la textarea.</li>
+                <li>Si fue un mes con back-and-forth (registros tarde), expande "⚙️ Tolerancia avanzada" y sube días-adelante a 25.</li>
+                <li>Click <strong>📊 Generar preview</strong>.</li>
+                <li>Revisa stats. Si algo se ve raro → <strong>✕ Descartar</strong>. Si OK → <strong>✅ Confirmar y persistir</strong>.</li>
+              </ol>
+            </div>
+
+            <div class="bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-900 rounded-lg p-3">
+              <div class="text-sm font-semibold">Paso 2 · Procesar items</div>
+              <p class="text-xs text-slate-700 dark:text-slate-300 mt-1">
+                Filtra por mes (chips arriba) y procesa por bucket en este orden:
+              </p>
+              <ol class="text-xs text-slate-700 dark:text-slate-300 mt-1 list-decimal pl-5 space-y-0.5">
+                <li><strong>🏦 Cargos banco</strong> → click <strong>"🏦 Bulk: cargos banco → comisiones"</strong>. Crea N expenses con cat=comisiones (GMF, intereses, cuota manejo, seg deudor, etc.).</li>
+                <li><strong>🚨 Falta en bot</strong> → uno por uno con <strong>🎯 Adjudicar</strong>. El dropdown ya viene pre-poblado. Confirmás o cambiás.</li>
+                <li><strong>🔄 Transferencias</strong> → revisa si matchearon (status ✓). Si no, decide: adjudicar (si fue gasto) o 👁️ Revisado (si fue movimiento entre tus cuentas).</li>
+                <li><strong>♻️ Duplicados</strong> → no toques. Son items ya procesados en imports anteriores.</li>
+              </ol>
+              <p class="text-xs text-slate-600 dark:text-slate-400 mt-2 italic">
+                Si te equivocas al adjudicar → "↩️ Revertir" borra el expense y vuelve el item a unmatched.
+              </p>
+            </div>
+
+            <div class="bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-900 rounded-lg p-3">
+              <div class="text-sm font-semibold">Paso 3 · Huérfanos del bot</div>
+              <p class="text-xs text-slate-700 dark:text-slate-300 mt-1">
+                Expenses que registraste en Telegram pero NO aparecen en este extracto. Por cada uno:
+              </p>
+              <ul class="text-xs text-slate-700 dark:text-slate-300 mt-1 list-disc pl-5 space-y-0.5">
+                <li><strong>🔍 Ver candidatos cercanos</strong> → busca items del extracto con monto/fecha similar (puede ser que matchee con tolerancia ampliada).</li>
+                <li>Si encontrás match → <strong>Vincular</strong>.</li>
+                <li>Si fue <strong>doble registro</strong> → <strong>🗑️ Borrar del bot</strong>.</li>
+                <li>Si fue legítimo (cash, otra tarjeta sin extracto) → <strong>👁️ Dismiss</strong>.</li>
+              </ul>
+            </div>
+
+            <div class="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-lg p-3">
+              <div class="text-sm font-semibold">Paso 4 · Cierre</div>
+              <p class="text-xs text-slate-700 dark:text-slate-300 mt-1">
+                Revisa el resumen final. Click <strong>📦 Cerrar import</strong> → queda guardado en histórico con stats finales. Listo, mes conciliado.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Escenarios típicos -->
+        <section>
+          <h4 class="text-sm font-bold mb-2">🧭 Escenarios típicos (qué hacer en cada caso)</h4>
+
+          <div class="space-y-2 text-xs">
+            <details class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded p-2">
+              <summary class="font-semibold cursor-pointer">1. Cargo del extracto que SÍ está en el bot — pero con monto/fecha distinta</summary>
+              <p class="text-slate-700 dark:text-slate-300 mt-1">
+                Ej: extracto dice $311,499 NAAN el 9-abr, pero registraste $311,000 el 13-abr.
+                <br>→ Si la tolerancia (±5d/±5%) lo capta, status='matched' automático.
+                <br>→ Si NO matcheó, en paso 2 click 🎯 Adjudicar y elige cat correcta. O click "🔁 Re-matchear" con tolerancia más amplia.
+              </p>
+            </details>
+
+            <details class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded p-2">
+              <summary class="font-semibold cursor-pointer">2. Cargo "MERCADO PAGO" o comercio genérico que no sabés qué fue</summary>
+              <p class="text-slate-700 dark:text-slate-300 mt-1">
+                → Tap 🎯 Adjudicar, en categoría elige "super_otro" o "otro" según tu mejor recuerdo. Pon el detalle del extracto en "nota". Si después te acuerdas, edita el expense desde Movimientos.
+              </p>
+            </details>
+
+            <details class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded p-2">
+              <summary class="font-semibold cursor-pointer">3. Pago PSE Municipio Medellín</summary>
+              <p class="text-slate-700 dark:text-slate-300 mt-1">
+                → Heurística sugiere "prediales". Si fue otro impuesto (declaración renta, etc.), en Adjudicar cambia la cat a "otro" o crea una nueva sub bajo prediales.
+              </p>
+            </details>
+
+            <details class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded p-2">
+              <summary class="font-semibold cursor-pointer">4. Transferencia BRE-B / CAR DOMI TRA — entre tus propias cuentas</summary>
+              <p class="text-slate-700 dark:text-slate-300 mt-1">
+                → Status='transfer_internal'. NO es gasto. Tap 👁️ Revisado.
+                <br>→ Si fue pago a tercero (alquiler, servicio), tap 🎯 Adjudicar con la cat correcta.
+              </p>
+            </details>
+
+            <details class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded p-2">
+              <summary class="font-semibold cursor-pointer">5. Cargo en USD/AED del Wio</summary>
+              <p class="text-slate-700 dark:text-slate-300 mt-1">
+                → El JSON ya trae monto_cop convertido. Adjudica normal. Si Mado tiene la extensión Wio, en "user_name" elige Madeline.
+              </p>
+            </details>
+
+            <details class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded p-2">
+              <summary class="font-semibold cursor-pointer">6. Cargos del 28-30 del mes que no aparecen en el extracto</summary>
+              <p class="text-slate-700 dark:text-slate-300 mt-1">
+                → Probablemente caen en el ciclo siguiente (BdB cierra día 26-27). Cuando subas el extracto del próximo mes, esos cargos aparecerán y matchearán por fingerprint contra los expenses del bot.
+              </p>
+            </details>
+
+            <details class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded p-2">
+              <summary class="font-semibold cursor-pointer">7. Olvidé subir el extracto de una tarjeta</summary>
+              <p class="text-slate-700 dark:text-slate-300 mt-1">
+                → Los expenses del bot con esa tarjeta aparecen como huérfanos en paso 3. Tap 👁️ Dismiss para todos. Cuando consigas el extracto, hacés un import aparte solo con esa tarjeta.
+              </p>
+            </details>
+
+            <details class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded p-2">
+              <summary class="font-semibold cursor-pointer">8. Doble registro (mismo gasto registrado 2 veces en Telegram)</summary>
+              <p class="text-slate-700 dark:text-slate-300 mt-1">
+                → En paso 3, el huérfano tendrá un "candidato cercano" en el extracto que YA matcheó con el otro expense. Tap 🗑️ Borrar del bot al huérfano.
+              </p>
+            </details>
+
+            <details class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded p-2">
+              <summary class="font-semibold cursor-pointer">9. Suscripción nueva que no estaba seedeada (ej. nuevo SaaS)</summary>
+              <p class="text-slate-700 dark:text-slate-300 mt-1">
+                → Tap 🎯 Adjudicar y elige "suscripciones". Si querés que se reconozca automático en futuros imports, podes agregarla a las reglas keyword (paso futuro: UI de reglas no implementada todavía, pero el endpoint existe).
+              </p>
+            </details>
+
+            <details class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded p-2">
+              <summary class="font-semibold cursor-pointer">10. Me equivoqué adjudicando — quiero rehacer</summary>
+              <p class="text-slate-700 dark:text-slate-300 mt-1">
+                → Click ↩️ Revertir en el item. Borra el expense del bot, devuelve el item a "unmatched_extract" para re-adjudicar.
+              </p>
+            </details>
+          </div>
+        </section>
+
+        <!-- FAQ corto -->
+        <section>
+          <h4 class="text-sm font-bold mb-2">❓ Preguntas frecuentes</h4>
+          <div class="space-y-2 text-xs">
+            <details class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded p-2">
+              <summary class="font-semibold cursor-pointer">¿Si descarto el preview pierdo mi JSON?</summary>
+              <p class="text-slate-700 dark:text-slate-300 mt-1">No. Se descarta del servidor (no se guarda nada en DB). Tu JSON queda en la textarea para que ajustes y vuelvas a generar preview.</p>
+            </details>
+            <details class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded p-2">
+              <summary class="font-semibold cursor-pointer">¿Puedo subir el mismo JSON dos veces?</summary>
+              <p class="text-slate-700 dark:text-slate-300 mt-1">Sí. Los items duplicados (mismo banco+fecha+monto+desc) se marcan como ♻️ "duplicate" automáticamente y no contaminan la conciliación nueva.</p>
+            </details>
+            <details class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded p-2">
+              <summary class="font-semibold cursor-pointer">¿Borrar un import borra los expenses creados?</summary>
+              <p class="text-slate-700 dark:text-slate-300 mt-1">No. Los expenses adjudicados quedan en el bot. Solo se borran los reconciliation_items y el audit_log de ese import.</p>
+            </details>
+            <details class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded p-2">
+              <summary class="font-semibold cursor-pointer">¿Puedo conciliar 2 extractos al mismo tiempo?</summary>
+              <p class="text-slate-700 dark:text-slate-300 mt-1">Sí, son imports separados. Hacé uno, ciérralo, hacé el otro. O incluso podés pegar varios JSONs concatenados en un solo import si comparten ciclo.</p>
+            </details>
+            <details class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded p-2">
+              <summary class="font-semibold cursor-pointer">¿Qué pasa si Madeline y yo conciliamos al mismo tiempo desde dispositivos distintos?</summary>
+              <p class="text-slate-700 dark:text-slate-300 mt-1">Comparten misma DB. Cada acción (adjudicar, marcar revisado, etc.) se persiste en cuanto la confirmás. Pueden trabajar en imports distintos en paralelo sin conflicto. Si trabajan en el MISMO import, el último gana sobre el item específico.</p>
+            </details>
+          </div>
+        </section>
+
+        <!-- Tips finales -->
+        <section class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg p-3">
+          <h4 class="text-sm font-bold mb-2">💡 Tips finales</h4>
+          <ul class="text-xs text-slate-700 dark:text-slate-300 space-y-1 list-disc pl-5">
+            <li><strong>Empieza siempre por bulk de cargos del banco</strong> (paso 2) — son los más rápidos.</li>
+            <li><strong>Marca las tarjetas cubiertas</strong> (paso 1) cada vez. Sin esto no detecta huérfanos.</li>
+            <li>Si la tolerancia default no encuentra match obvio, **subí días-adelante** (no días-atrás). Razón: tú/Mado tienden a registrar tarde, no temprano.</li>
+            <li>Cuando termines el mes, <strong>cierra el import</strong> (paso 4). Eso registra el final_summary en audit y queda histórico claro.</li>
+            <li>Si encuentras un patrón nuevo que se repite (ej. un comercio que aparece cada mes), me avisas y lo agrego a las reglas keyword para que se auto-categorice en futuros imports.</li>
+          </ul>
+        </section>
+
+        <div class="flex justify-end pt-2">
+          <button @click="$store.reconcile.view = $store.reconcile.importId ? 'process' : 'form'; $store.reconcile.step = $store.reconcile.importId ? 2 : 1"
+            class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-md font-medium text-sm">
+            ✓ Entendido, volver
+          </button>
+        </div>
+      </div>
+
       <!-- ═══════════ PASO 1: Importar/Preview ═══════════ -->
-      <div x-show="$store.reconcile.step === 1 && $store.reconcile.view !== 'history'" class="space-y-4">
+      <div x-show="$store.reconcile.step === 1 && $store.reconcile.view !== 'history' && $store.reconcile.view !== 'guide'" class="space-y-4">
         <p class="text-sm text-slate-600 dark:text-slate-400">
           Pega el JSON del extracto extraído con Claude chat.
           <button @click="$store.reconcile.showPromptHelp = !$store.reconcile.showPromptHelp" class="text-sky-600 hover:underline ml-1">¿Cómo extraerlo?</button>
@@ -1752,7 +1961,7 @@
       </div>
 
       <!-- ═══════════ PASO 2: Procesar items ═══════════ -->
-      <div x-show="$store.reconcile.step === 2" class="space-y-4">
+      <div x-show="$store.reconcile.step === 2 && $store.reconcile.view !== 'guide' && $store.reconcile.view !== 'history'" class="space-y-4">
 
         <!-- Filtro por mes -->
         <div x-show="$store.reconcile.availableMonths.length > 1" class="flex items-center gap-2 flex-wrap">
@@ -1885,7 +2094,7 @@
       </div>
 
       <!-- ═══════════ PASO 3: Huérfanos del bot ═══════════ -->
-      <div x-show="$store.reconcile.step === 3" class="space-y-4">
+      <div x-show="$store.reconcile.step === 3 && $store.reconcile.view !== 'guide' && $store.reconcile.view !== 'history'" class="space-y-4">
         <p class="text-sm text-slate-600 dark:text-slate-400">
           Expenses del bot del rango que <strong>no encontraron contraparte</strong> en el extracto.
           Para cada uno: ver candidatos cercanos (posible doble registro o monto/fecha errado), borrar, o marcar revisado.
@@ -1944,7 +2153,7 @@
       </div>
 
       <!-- ═══════════ PASO 4: Cierre ═══════════ -->
-      <div x-show="$store.reconcile.step === 4" class="space-y-4">
+      <div x-show="$store.reconcile.step === 4 && $store.reconcile.view !== 'guide' && $store.reconcile.view !== 'history'" class="space-y-4">
         <p class="text-sm text-slate-600 dark:text-slate-400">Resumen final del import. Cuando confirmes, queda cerrado.</p>
 
         <div class="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-lg p-4">
