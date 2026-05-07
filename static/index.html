@@ -1658,7 +1658,29 @@
 
       <!-- ── Vista RESULTS ── -->
       <div x-show="$store.reconcile.view === 'results'" class="space-y-4">
-        <!-- Stats summary cards -->
+
+        <!-- Filtro por mes (chips) -->
+        <div x-show="$store.reconcile.availableMonths.length > 1" class="flex items-center gap-2 flex-wrap">
+          <span class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Mes:</span>
+          <button
+            @click="$store.reconcile.monthFilter = 'all'; $store.reconcile.statusFilter = 'all'"
+            :class="$store.reconcile.monthFilter === 'all' ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-800 text-slate-600'"
+            class="text-xs px-2.5 py-1 rounded-md font-medium"
+          >Todos</button>
+          <template x-for="m in $store.reconcile.availableMonths" :key="m">
+            <button
+              @click="$store.reconcile.monthFilter = m; $store.reconcile.statusFilter = 'all'"
+              :class="$store.reconcile.monthFilter === m ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-slate-200 dark:hover:bg-slate-700'"
+              class="text-xs px-2.5 py-1 rounded-md"
+              x-text="m"
+            ></button>
+          </template>
+          <span x-show="$store.reconcile.monthFilter !== 'all'" class="text-[10px] text-slate-500 italic ml-2">
+            (acciones bulk y rematch operan solo sobre los items del mes seleccionado)
+          </span>
+        </div>
+
+        <!-- Stats summary cards (recalculadas sobre filtro de mes) -->
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
           <template x-for="(label, k) in {
             'matched': '✓ Cuadrados',
@@ -1669,13 +1691,13 @@
             'other': '❓ Otros',
           }" :key="k">
             <button
-              @click="$store.reconcile.statusFilter = (k === 'matched' && $store.reconcile.statusFilter === 'matched' ? 'all' : k)"
+              @click="$store.reconcile.statusFilter = ($store.reconcile.statusFilter === k ? 'all' : k)"
               :class="$store.reconcile.statusFilter === k ? 'ring-2 ring-sky-400' : ''"
               class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 transition"
             >
               <div class="text-[10px] uppercase tracking-wide text-slate-500" x-text="label"></div>
-              <div class="text-sm font-bold mt-0.5" x-text="($store.reconcile.stats[k] && $store.reconcile.stats[k].count) || 0"></div>
-              <div class="text-[10px] text-slate-500" x-text="$store.reconcile.fmtCop(($store.reconcile.stats[k] && $store.reconcile.stats[k].total_cop) || 0) + ' COP'"></div>
+              <div class="text-sm font-bold mt-0.5" x-text="($store.reconcile.filteredStats[k] && $store.reconcile.filteredStats[k].count) || 0"></div>
+              <div class="text-[10px] text-slate-500" x-text="$store.reconcile.fmtCop(($store.reconcile.filteredStats[k] && $store.reconcile.filteredStats[k].total_cop) || 0) + ' COP'"></div>
             </button>
           </template>
         </div>
@@ -3049,6 +3071,7 @@ document.addEventListener('alpine:init', () => {
     stats: {},
     byType: [],
     statusFilter: 'all',
+    monthFilter: 'all',  // 'all' | 'YYYY-MM'
     // Lista de imports históricos (para "ver imports anteriores")
     history: [],
     // Options hydrated from dashboard root cuando se abre el modal —
@@ -3152,8 +3175,40 @@ document.addEventListener('alpine:init', () => {
     },
 
     get filteredItems() {
-      if (this.statusFilter === 'all') return this.items;
-      return this.items.filter(i => i.status === this.statusFilter);
+      let out = this.items;
+      if (this.statusFilter !== 'all') {
+        out = out.filter(i => i.status === this.statusFilter);
+      }
+      if (this.monthFilter !== 'all') {
+        out = out.filter(i => (i.fecha || '').slice(0, 7) === this.monthFilter);
+      }
+      return out;
+    },
+
+    // Lista única de meses presentes en los items, ordenados.
+    get availableMonths() {
+      const s = new Set();
+      for (const i of this.items) {
+        const m = (i.fecha || '').slice(0, 7);
+        if (m) s.add(m);
+      }
+      return [...s].sort();
+    },
+
+    // Stats recalculadas sobre el subset filtrado por mes (ignora statusFilter
+    // porque las cards mismas SON los toggles de status).
+    get filteredStats() {
+      const out = {};
+      const items = this.monthFilter === 'all'
+        ? this.items
+        : this.items.filter(i => (i.fecha || '').slice(0, 7) === this.monthFilter);
+      for (const i of items) {
+        const s = i.status;
+        if (!out[s]) out[s] = { count: 0, total_cop: 0 };
+        out[s].count += 1;
+        out[s].total_cop += Number(i.monto_cop || 0);
+      }
+      return out;
     },
 
     statusLabel(s) {
@@ -3277,27 +3332,46 @@ document.addEventListener('alpine:init', () => {
       }
     },
 
-    async rematch() {
+    async rematch(opts) {
+      // opts: opcional. {tol_days_back, tol_days_forward, tol_pct, month}
+      // Si no se pasa, usa default ±5d/±5% sobre todos los items pending.
+      // Si monthFilter está activo, lo respeta automáticamente.
       if (!this.importId) return;
       this.busy = true;
       this.error = null;
+      const params = new URLSearchParams();
+      if (opts) {
+        if (opts.tol_days != null) params.set('tol_days', opts.tol_days);
+        if (opts.tol_days_back != null) params.set('tol_days_back', opts.tol_days_back);
+        if (opts.tol_days_forward != null) params.set('tol_days_forward', opts.tol_days_forward);
+        if (opts.tol_pct != null) params.set('tol_pct', opts.tol_pct);
+        if (opts.month) params.set('month', opts.month);
+      }
+      // Si NO viene opts.month explícito y la UI tiene un monthFilter activo,
+      // respetar el filtro: sólo rematchear items de ese mes.
+      if (!opts?.month && this.monthFilter && this.monthFilter !== 'all') {
+        params.set('month', this.monthFilter);
+      }
+      const url = '/api/reconcile/imports/' + this.importId + '/rematch'
+                  + (params.toString() ? '?' + params.toString() : '');
       try {
-        const r = await fetch('/api/reconcile/imports/' + this.importId + '/rematch', {
-          method: 'POST',
-        });
+        const r = await fetch(url, { method: 'POST' });
         if (!r.ok) {
           const body = await r.text();
           throw new Error(`Rematch falló (${r.status}): ${body.slice(0, 200)}`);
         }
         const data = await r.json();
         await this.loadItems();
-        // Re-fetch stats summary too
         const r2 = await fetch('/api/reconcile/imports/' + this.importId);
         if (r2.ok) {
           const d2 = await r2.json();
           this.stats = d2.stats || this.stats;
         }
-        alert(`✓ Re-matching completado: ${data.converted_to_matched} items pasaron a "Cuadrados".`);
+        const tolDesc = data.tolerance_used.tol_days_back != null || data.tolerance_used.tol_days_forward != null
+          ? `(-${data.tolerance_used.tol_days_back ?? data.tolerance_used.tol_days}d / +${data.tolerance_used.tol_days_forward ?? data.tolerance_used.tol_days}d / ${(data.tolerance_used.tol_pct * 100).toFixed(1)}%)`
+          : `(±${data.tolerance_used.tol_days}d / ${(data.tolerance_used.tol_pct * 100).toFixed(1)}%)`;
+        const monthDesc = data.filter_month ? ` en ${data.filter_month}` : '';
+        alert(`✓ Re-matching${monthDesc} completado:\n${data.converted_to_matched} items pasaron a "Cuadrados"\nTolerancia ${tolDesc}\nEscaneados: ${data.scanned}`);
       } catch (e) {
         this.error = e.message || String(e);
       } finally {
@@ -3306,11 +3380,15 @@ document.addEventListener('alpine:init', () => {
     },
 
     async bulkCreateBankCharges() {
+      // Respeta el filtro de mes: solo crea cargos de los items visibles.
       const ids = this.items
         .filter(i => i.status === 'bank_charge')
+        .filter(i => this.monthFilter === 'all' ||
+                     (i.fecha || '').slice(0, 7) === this.monthFilter)
         .map(i => i.id);
       if (!ids.length) return;
-      if (!confirm(`Crear ${ids.length} expenses de cargos del banco con categoría "comisiones"?`)) return;
+      const monthDesc = this.monthFilter !== 'all' ? ` de ${this.monthFilter}` : '';
+      if (!confirm(`Crear ${ids.length} expenses de cargos del banco${monthDesc} con categoría "comisiones"?`)) return;
       this.busy = true;
       try {
         const r = await fetch('/api/reconcile/import/' + this.importId + '/bulk_create_bank_charges', {

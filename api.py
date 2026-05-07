@@ -1865,13 +1865,18 @@ def make_api_app() -> FastAPI:
 
     def _try_match_expense(conn, item_fecha: str, item_monto: float,
                            method_pago: str, used_expense_ids: set,
-                           tol_days: int = 7, tol_cop: int = 5000,
-                           tol_pct: float = 0.05) -> Optional[int]:
+                           tol_days: int = 5, tol_cop: int = 5000,
+                           tol_pct: float = 0.05,
+                           tol_days_back: Optional[int] = None,
+                           tol_days_forward: Optional[int] = None) -> Optional[int]:
         """Encuentra el mejor expense del bot que matchea el item.
 
         Criterios:
           - método_pago == method_pago O 'Sin especificar' (recoge unbranded)
-          - fecha dentro de ±tol_days
+          - fecha en [item_fecha - tol_days_back, item_fecha + tol_days_forward]
+            (default: simétrico ±tol_days; pasa los dos para hacer asimétrico).
+            La asimetría sirve para casos como 'Daniel registró el 13 todo
+            lo del 1 al 13' → tol_days_forward >> tol_days_back.
           - monto_cop dentro de ±max(tol_cop, monto*tol_pct)
         Retorna expense_id del mejor match o None.
         """
@@ -1880,8 +1885,10 @@ def make_api_app() -> FastAPI:
             d_item = datetime.strptime(item_fecha[:10], "%Y-%m-%d")
         except Exception:
             return None
-        d_from = (d_item - timedelta(days=tol_days)).strftime("%Y-%m-%d")
-        d_to = (d_item + timedelta(days=tol_days)).strftime("%Y-%m-%d")
+        days_back = tol_days_back if tol_days_back is not None else tol_days
+        days_forward = tol_days_forward if tol_days_forward is not None else tol_days
+        d_from = (d_item - timedelta(days=days_back)).strftime("%Y-%m-%d")
+        d_to = (d_item + timedelta(days=days_forward)).strftime("%Y-%m-%d")
         tol_amount = max(tol_cop, abs(item_monto) * tol_pct)
         rows = conn.execute(
             "SELECT id, fecha, monto_cop, metodo_pago FROM expenses "
@@ -2213,13 +2220,23 @@ def make_api_app() -> FastAPI:
             conn.close()
 
     @api.post("/api/reconcile/imports/{import_id}/rematch")
-    def reconcile_rematch(import_id: int):
-        """Re-corre el matcher sobre los items que quedaron en
-        'unmatched_extract' del import. Útil después de aflojar la
-        tolerancia o agregar expenses al bot que cubren items pendientes.
+    def reconcile_rematch(
+        import_id: int,
+        tol_days: Optional[int] = Query(None, description="Tolerancia simétrica de días"),
+        tol_days_back: Optional[int] = Query(None, description="Días de tolerancia ANTES (extracto antes que bot)"),
+        tol_days_forward: Optional[int] = Query(None, description="Días de tolerancia DESPUÉS (extracto después que bot)"),
+        tol_pct: Optional[float] = Query(None, description="Tolerancia porcentual del monto (0.05 = 5%)"),
+        tol_cop: Optional[int] = Query(None, description="Tolerancia mínima en COP"),
+        month: Optional[str] = Query(None, description="Filtra items por mes YYYY-MM (ej. '2026-04')"),
+    ):
+        """Re-corre el matcher sobre items en 'unmatched_extract'/'pending'.
 
-        No toca items que ya están en otros estados (matched, added_to_bot,
-        bank_charge, transfer_internal, duplicate, reviewed).
+        Query params opcionales para tweakear tolerancia y/o filtrar a un mes.
+        Si se omiten, usa los defaults del matcher (±5d/±5%, simétrico).
+
+        Ejemplo:
+          POST /api/reconcile/imports/2/rematch?tol_days_back=5&tol_days_forward=20&tol_pct=0.05&month=2026-04
+            → re-matchea SOLO items de abril con tolerancia asimétrica.
         """
         conn = sqlite3.connect(bot.DB_PATH)
         try:
@@ -2228,24 +2245,38 @@ def make_api_app() -> FastAPI:
             ).fetchone()
             if not imp:
                 raise HTTPException(404, f"import {import_id} not found")
-            pending = conn.execute(
-                "SELECT id, fecha, monto_cop, suggested_method_pago "
-                "FROM reconciliation_items "
-                "WHERE import_id = ? AND status IN ('unmatched_extract', 'pending')",
-                (import_id,),
-            ).fetchall()
+            q = ("SELECT id, fecha, monto_cop, suggested_method_pago "
+                 "FROM reconciliation_items "
+                 "WHERE import_id = ? AND status IN ('unmatched_extract', 'pending')")
+            params: list = [import_id]
+            if month:
+                # validar formato YYYY-MM
+                try:
+                    datetime.strptime(month, "%Y-%m")
+                except ValueError:
+                    raise HTTPException(400, f"month debe ser YYYY-MM, recibí {month!r}")
+                q += " AND substr(fecha, 1, 7) = ?"
+                params.append(month)
+            pending = conn.execute(q, params).fetchall()
             already = {row[0] for row in conn.execute(
                 "SELECT matched_expense_id FROM reconciliation_items "
                 "WHERE import_id = ? AND matched_expense_id IS NOT NULL",
                 (import_id,),
             ).fetchall() if row[0]}
+            # Build kwargs para _try_match_expense
+            kwargs = {}
+            if tol_days is not None: kwargs['tol_days'] = tol_days
+            if tol_days_back is not None: kwargs['tol_days_back'] = tol_days_back
+            if tol_days_forward is not None: kwargs['tol_days_forward'] = tol_days_forward
+            if tol_pct is not None: kwargs['tol_pct'] = tol_pct
+            if tol_cop is not None: kwargs['tol_cop'] = tol_cop
             converted = 0
             for r in pending:
                 rid, fecha, monto, sug_method = r
                 if not sug_method:
                     continue
                 eid = _try_match_expense(
-                    conn, fecha, float(monto), sug_method, already,
+                    conn, fecha, float(monto), sug_method, already, **kwargs,
                 )
                 if eid:
                     already.add(eid)
@@ -2256,8 +2287,19 @@ def make_api_app() -> FastAPI:
                     )
                     converted += 1
             conn.commit()
-            return {"ok": True, "import_id": import_id,
-                    "converted_to_matched": converted}
+            return {
+                "ok": True, "import_id": import_id,
+                "scanned": len(pending),
+                "converted_to_matched": converted,
+                "filter_month": month,
+                "tolerance_used": {
+                    "tol_days": kwargs.get('tol_days', 5),
+                    "tol_days_back": kwargs.get('tol_days_back'),
+                    "tol_days_forward": kwargs.get('tol_days_forward'),
+                    "tol_pct": kwargs.get('tol_pct', 0.05),
+                    "tol_cop": kwargs.get('tol_cop', 5000),
+                },
+            }
         finally:
             conn.close()
 
