@@ -1681,14 +1681,15 @@
         </div>
 
         <!-- Stats summary cards (recalculadas sobre filtro de mes) -->
-        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
           <template x-for="(label, k) in {
             'matched': '✓ Cuadrados',
             'unmatched_extract': '🚨 Falta en bot',
+            'added_to_bot': '✚ Adjudicados',
             'bank_charge': '🏦 Cargos banco',
             'transfer_internal': '🔄 Transferencias',
+            'reviewed': '👁️ Revisados',
             'duplicate': '♻️ Duplicados',
-            'other': '❓ Otros',
           }" :key="k">
             <button
               @click="$store.reconcile.statusFilter = ($store.reconcile.statusFilter === k ? 'all' : k)"
@@ -1711,9 +1712,10 @@
           >Mostrar todos</button>
           <button
             @click="$store.reconcile.bulkCreateBankCharges()"
-            :disabled="$store.reconcile.busy || !($store.reconcile.stats.bank_charge && $store.reconcile.stats.bank_charge.count)"
+            :disabled="$store.reconcile.busy || !($store.reconcile.filteredStats.bank_charge && $store.reconcile.filteredStats.bank_charge.count)"
             class="text-xs bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-md font-medium disabled:opacity-40"
-          >🏦 Crear todos los cargos del banco como gastos</button>
+            title="Crea N expenses con categoría 'comisiones' para todos los cargos del banco visibles (filtrados por mes si aplica)"
+          >🏦 Bulk: cargos banco → cat=comisiones</button>
           <button
             @click="$store.reconcile.rematch()"
             :disabled="$store.reconcile.busy"
@@ -1753,13 +1755,18 @@
                   <div class="font-semibold text-sm" x-text="$store.reconcile.fmtCop(item.monto_cop) + ' COP'"></div>
                   <div class="text-[10px] text-slate-400" x-show="item.moneda_original" x-text="item.moneda_original + ' ' + item.monto_original"></div>
                   <div class="mt-1 flex gap-1 justify-end flex-wrap">
+                    <!-- '+ Agregar al bot' SOLO para bank_charge: la categoría
+                         sugerida (comisiones) es la correcta. Para todos los
+                         demás (compras TC, transferencias, otros), forzamos
+                         'Adjudicar' para que el usuario elija categoría
+                         explícita y no termine como 'otro' por accidente. -->
                     <button
-                      x-show="['unmatched_extract', 'bank_charge', 'pago_pse'].includes(item.status) || (item.status === 'transfer_internal' && !item.matched_expense_id)"
+                      x-show="item.status === 'bank_charge'"
                       @click="$store.reconcile.addToBot(item.id)"
                       :disabled="$store.reconcile.busy"
                       class="text-[10px] bg-sky-600 hover:bg-sky-700 text-white px-2 py-1 rounded disabled:opacity-40"
-                      title="Crear expense con la categoría sugerida automática"
-                    >+ Agregar al bot</button>
+                      title="Crea expense con cat=comisiones (sugerida correcta para cargos del banco)"
+                    >+ Agregar como comisión</button>
                     <button
                       x-show="['unmatched_extract', 'bank_charge', 'pago_pse', 'transfer_internal', 'other'].includes(item.status)"
                       @click="$store.reconcile.openAdjudicate(item)"
@@ -1767,6 +1774,13 @@
                       class="text-[10px] bg-violet-600 hover:bg-violet-700 text-white px-2 py-1 rounded disabled:opacity-40"
                       title="Elegir categoría/método manualmente"
                     >🎯 Adjudicar</button>
+                    <button
+                      x-show="item.status === 'added_to_bot'"
+                      @click="$store.reconcile.revertItem(item.id)"
+                      :disabled="$store.reconcile.busy"
+                      class="text-[10px] bg-orange-600 hover:bg-orange-700 text-white px-2 py-1 rounded disabled:opacity-40"
+                      title="Borra el expense del bot creado desde este item y vuelve a 'Falta en bot'"
+                    >↩️ Revertir</button>
                     <button
                       x-show="!['matched', 'added_to_bot', 'reviewed', 'duplicate'].includes(item.status)"
                       @click="$store.reconcile.markReviewed(item.id)"
@@ -3282,6 +3296,33 @@ document.addEventListener('alpine:init', () => {
         });
         await this.loadItems();
       } finally { this.busy = false; }
+    },
+
+    // Revertir una adjudicación: borra el expense del bot que se
+    // creó desde este item, y devuelve el item a 'unmatched_extract'
+    // (o al tipo de origen). Útil cuando Daniel se da cuenta que
+    // adjudicó a una categoría incorrecta.
+    async revertItem(itemId) {
+      if (!confirm('Revertir esta adjudicación?\n\n' +
+                   'Esto borra el expense del bot creado desde este item. ' +
+                   'El item del extracto vuelve a "Falta en bot" para que ' +
+                   'lo re-adjudiques.\n\nNo se puede deshacer.')) return;
+      this.busy = true;
+      this.error = null;
+      try {
+        const r = await fetch('/api/reconcile/items/' + itemId + '/revert', {
+          method: 'POST',
+        });
+        if (!r.ok) {
+          const body = await r.text();
+          throw new Error(`Revertir falló (${r.status}): ${body.slice(0, 200)}`);
+        }
+        await this.loadItems();
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.busy = false;
+      }
     },
 
     // Estado del adjudicar: id del item con form abierto + valores

@@ -2303,6 +2303,60 @@ def make_api_app() -> FastAPI:
         finally:
             conn.close()
 
+    @api.post("/api/reconcile/items/{item_id}/revert")
+    def reconcile_item_revert(item_id: int):
+        """Revierte una adjudicación: borra el expense del bot creado
+        desde este item y devuelve el item a status='unmatched_extract'
+        (o a su tipo original si no era unmatched).
+
+        Solo opera sobre items con status='added_to_bot'. Si el item
+        está en otro status, retorna 400.
+        """
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            row = conn.execute(
+                "SELECT id, matched_expense_id, status, item_type "
+                "FROM reconciliation_items WHERE id = ?", (item_id,),
+            ).fetchone()
+            if not row:
+                raise HTTPException(404, f"item {item_id} not found")
+            rid, expense_id, status, item_type = row
+            if status != "added_to_bot":
+                raise HTTPException(
+                    400,
+                    f"item {item_id} no está en added_to_bot (status actual: {status}). "
+                    "Solo se pueden revertir adjudicaciones realizadas.",
+                )
+            # Borrar el expense del bot (si existe)
+            deleted_expense = False
+            if expense_id:
+                r = conn.execute(
+                    "DELETE FROM expenses WHERE id = ?", (expense_id,)
+                )
+                deleted_expense = r.rowcount > 0
+            # Restaurar el status del item según su tipo
+            new_status = "unmatched_extract"
+            if item_type in ("gmf", "comision", "cuota_manejo", "interes_tc",
+                             "seguro_deudor", "conversion_int",
+                             "foreign_exchange_fee", "avance_cajero"):
+                new_status = "bank_charge"
+            elif item_type == "transferencia_saliente":
+                new_status = "transfer_internal"
+            conn.execute(
+                "UPDATE reconciliation_items "
+                "SET status = ?, matched_expense_id = NULL WHERE id = ?",
+                (new_status, item_id),
+            )
+            conn.commit()
+            return {
+                "ok": True,
+                "item_id": item_id,
+                "deleted_expense_id": expense_id if deleted_expense else None,
+                "new_status": new_status,
+            }
+        finally:
+            conn.close()
+
     @api.delete("/api/reconcile/imports/{import_id}")
     def delete_reconcile_import(import_id: int):
         """Borra un import + sus items en cascada. NO toca los expenses
