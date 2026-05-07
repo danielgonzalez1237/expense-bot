@@ -325,6 +325,39 @@ class ReconcilePreviewRequest(BaseModel):
     transactions: list[ReconcileTxnIn]
 
 
+class ReconcileItemUpdate(BaseModel):
+    status: Optional[str] = None
+    notes: Optional[str] = None
+    matched_expense_id: Optional[int] = None
+
+
+class ReconcileAdjudicateBody(BaseModel):
+    categoria: str
+    metodo_pago: Optional[str] = None
+    user_name: Optional[str] = None
+    nota: Optional[str] = None
+    clase_contable: Optional[str] = None
+
+
+class ReconcileRelinkBody(BaseModel):
+    expense_id: int
+
+
+class ReconcileMarkBody(BaseModel):
+    action: str  # 'reviewed' or 'ignored'
+
+
+class ReconcileBulkCreateBody(BaseModel):
+    item_ids: list[int]
+    metodo_override: Optional[str] = None
+    user_name: Optional[str] = None
+
+
+class ReconcileFindCandidatesBody(BaseModel):
+    tol_days: Optional[int] = 10
+    tol_pct: Optional[float] = 0.10
+
+
 class RatesUpdate(BaseModel):
     TRM: float
     BOB_RATE: float
@@ -2271,6 +2304,437 @@ def make_api_app() -> FastAPI:
             conn.execute("DELETE FROM reconciliation_imports WHERE id = ?", (import_id,))
             conn.commit()
             return {"ok": True, "deleted_import_id": import_id}
+        finally:
+            conn.close()
+
+    # ─── Item actions (Commit C) ───
+
+    @api.patch("/api/reconcile/items/{item_id}")
+    def reconcile_patch_item(item_id: int, body: ReconcileItemUpdate):
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            existing = conn.execute(
+                "SELECT id, import_id FROM reconciliation_items WHERE id = ?",
+                (item_id,),
+            ).fetchone()
+            if not existing:
+                raise HTTPException(404, f"item {item_id} not found")
+            data = body.dict(exclude_unset=True)
+            if not data:
+                raise HTTPException(400, "no fields to update")
+            sets = ", ".join(f"{k} = ?" for k in data)
+            params = list(data.values()) + [item_id]
+            conn.execute(f"UPDATE reconciliation_items SET {sets} WHERE id = ?", params)
+            _audit_log(conn, existing[1], item_id, "item_patched", data)
+            conn.commit()
+            return {"ok": True, "id": item_id, **data}
+        finally:
+            conn.close()
+
+    @api.post("/api/reconcile/items/{item_id}/adjudicate")
+    def reconcile_adjudicate(item_id: int, body: ReconcileAdjudicateBody):
+        """Crea un expense desde un item del extracto con categoría/método
+        EXPLÍCITOS del usuario. NO acepta fallbacks silenciosos.
+        """
+        if not body.categoria:
+            raise HTTPException(400, "categoria es requerida (sin fallback 'otro')")
+        if body.categoria not in (bot.BUDGET or {}):
+            raise HTTPException(400, f"categoria {body.categoria!r} no existe en BUDGET")
+
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            row = conn.execute(
+                "SELECT id, import_id, fecha, monto_cop, descripcion, status "
+                "FROM reconciliation_items WHERE id = ?", (item_id,),
+            ).fetchone()
+            if not row:
+                raise HTTPException(404, f"item {item_id} not found")
+            rid, import_id, fecha, monto_cop, desc, status = row
+            if status in ("matched", "added_to_bot"):
+                raise HTTPException(409, f"item ya está {status}")
+
+            metodo = body.metodo_pago or "Sin especificar"
+            user_name = body.user_name or "Daniel"
+            nota = body.nota or desc[:120]
+            clase = body.clase_contable or "gasto"
+            monto_usd = round(float(monto_cop) / bot.TRM, 2) if bot.TRM else 0
+
+            cur = conn.execute(
+                "INSERT INTO expenses (user_id, user_name, fecha, monto_cop, monto_usd, "
+                " categoria, nota, created_at, metodo_pago, clase_contable, "
+                " deferred_total, deferred_index) "
+                "VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1)",
+                (user_name, fecha, float(monto_cop), monto_usd, body.categoria,
+                 nota, datetime.now().isoformat(), metodo, clase),
+            )
+            new_expense_id = cur.lastrowid
+            conn.execute(
+                "UPDATE reconciliation_items SET "
+                "matched_expense_id = ?, status = 'added_to_bot', "
+                "user_chosen_categoria = ?, user_chosen_metodo = ?, "
+                "user_chosen_user_name = ?, user_chosen_clase_contable = ? "
+                "WHERE id = ?",
+                (new_expense_id, body.categoria, metodo, user_name, clase, item_id),
+            )
+            _audit_log(conn, import_id, item_id, "item_adjudicated",
+                       {"categoria": body.categoria, "metodo_pago": metodo,
+                        "user_name": user_name, "clase_contable": clase,
+                        "nota": nota},
+                       expense_id=new_expense_id)
+            conn.commit()
+            return {"ok": True, "expense_id": new_expense_id,
+                    "categoria": body.categoria, "metodo_pago": metodo,
+                    "user_name": user_name, "clase_contable": clase}
+        finally:
+            conn.close()
+
+    @api.post("/api/reconcile/items/{item_id}/revert")
+    def reconcile_revert_item(item_id: int):
+        """Borra el expense creado desde este item, devuelve item al status
+        original según item_type."""
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            row = conn.execute(
+                "SELECT id, import_id, matched_expense_id, status, item_type "
+                "FROM reconciliation_items WHERE id = ?", (item_id,),
+            ).fetchone()
+            if not row:
+                raise HTTPException(404, f"item {item_id} not found")
+            rid, import_id, expense_id, status, item_type = row
+            if status not in ("added_to_bot", "matched"):
+                raise HTTPException(400,
+                    f"item {item_id} no es revertible (status: {status})")
+
+            deleted = False
+            if expense_id and status == "added_to_bot":
+                r = conn.execute("DELETE FROM expenses WHERE id = ?", (expense_id,))
+                deleted = r.rowcount > 0
+
+            new_status = "unmatched_extract"
+            if item_type in RECONCILE_BANK_CHARGE_TYPES:
+                new_status = "bank_charge"
+            elif item_type == "transferencia_saliente":
+                new_status = "transfer_internal"
+            conn.execute(
+                "UPDATE reconciliation_items SET status = ?, "
+                "matched_expense_id = NULL, user_chosen_categoria = NULL, "
+                "user_chosen_metodo = NULL, user_chosen_user_name = NULL, "
+                "user_chosen_clase_contable = NULL WHERE id = ?",
+                (new_status, item_id),
+            )
+            _audit_log(conn, import_id, item_id, "item_reverted",
+                       {"deleted_expense": deleted, "new_status": new_status},
+                       expense_id=expense_id if deleted else None)
+            conn.commit()
+            return {"ok": True, "item_id": item_id,
+                    "deleted_expense_id": expense_id if deleted else None,
+                    "new_status": new_status}
+        finally:
+            conn.close()
+
+    @api.post("/api/reconcile/items/{item_id}/relink")
+    def reconcile_relink(item_id: int, body: ReconcileRelinkBody):
+        """Vincula manualmente un item del extracto a un expense existente
+        del bot."""
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            row = conn.execute(
+                "SELECT id, import_id FROM reconciliation_items WHERE id = ?",
+                (item_id,),
+            ).fetchone()
+            if not row:
+                raise HTTPException(404, f"item {item_id} not found")
+            exp = conn.execute(
+                "SELECT id FROM expenses WHERE id = ?", (body.expense_id,),
+            ).fetchone()
+            if not exp:
+                raise HTTPException(404, f"expense {body.expense_id} not found")
+            conn.execute(
+                "UPDATE reconciliation_items SET matched_expense_id = ?, "
+                "status = 'matched' WHERE id = ?", (body.expense_id, item_id),
+            )
+            _audit_log(conn, row[1], item_id, "item_relinked",
+                       {"expense_id": body.expense_id}, expense_id=body.expense_id)
+            conn.commit()
+            return {"ok": True, "item_id": item_id, "expense_id": body.expense_id}
+        finally:
+            conn.close()
+
+    @api.post("/api/reconcile/items/{item_id}/mark")
+    def reconcile_mark_item(item_id: int, body: ReconcileMarkBody):
+        """Marca un item como reviewed o ignored (no crea expense)."""
+        if body.action not in ("reviewed", "ignored"):
+            raise HTTPException(400, f"action debe ser 'reviewed' o 'ignored'")
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            row = conn.execute(
+                "SELECT id, import_id FROM reconciliation_items WHERE id = ?",
+                (item_id,),
+            ).fetchone()
+            if not row:
+                raise HTTPException(404, f"item {item_id} not found")
+            conn.execute(
+                "UPDATE reconciliation_items SET status = ? WHERE id = ?",
+                (body.action, item_id),
+            )
+            _audit_log(conn, row[1], item_id, f"item_{body.action}", None)
+            conn.commit()
+            return {"ok": True, "item_id": item_id, "status": body.action}
+        finally:
+            conn.close()
+
+    @api.post("/api/reconcile/imports/{import_id}/bulk_create_bank_charges")
+    def bulk_create_bank_charges(import_id: int,
+                                  body: ReconcileBulkCreateBody):
+        """Crea N expenses desde items bank_charge. Cada item DEBE tener
+        suggested_categoria != null (si no, falla con 400)."""
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            placeholders = ",".join("?" * len(body.item_ids))
+            rows = conn.execute(
+                f"SELECT id, fecha, monto_cop, descripcion, suggested_categoria, "
+                f"suggested_method_pago, status FROM reconciliation_items "
+                f"WHERE import_id = ? AND id IN ({placeholders})",
+                [import_id] + list(body.item_ids),
+            ).fetchall()
+            created = []
+            now = datetime.now().isoformat()
+            for r in rows:
+                rid, fecha, monto_cop, desc, sug_cat, sug_method, status = r
+                if status in ("added_to_bot", "matched"):
+                    continue
+                if not sug_cat:
+                    raise HTTPException(400,
+                        f"item {rid} sin suggested_categoria — adjudica manualmente")
+                metodo = body.metodo_override or sug_method or "Sin especificar"
+                user_name = body.user_name or "Daniel"
+                monto_usd = round(float(monto_cop) / bot.TRM, 2) if bot.TRM else 0
+                cur = conn.execute(
+                    "INSERT INTO expenses (user_id, user_name, fecha, monto_cop, "
+                    " monto_usd, categoria, nota, created_at, metodo_pago, "
+                    " clase_contable, deferred_total, deferred_index) "
+                    "VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, 'gasto', 1, 1)",
+                    (user_name, fecha, float(monto_cop), monto_usd, sug_cat,
+                     desc[:120], now, metodo),
+                )
+                new_id = cur.lastrowid
+                conn.execute(
+                    "UPDATE reconciliation_items SET matched_expense_id = ?, "
+                    "status = 'added_to_bot', user_chosen_categoria = ?, "
+                    "user_chosen_metodo = ?, user_chosen_user_name = ?, "
+                    "user_chosen_clase_contable = 'gasto' WHERE id = ?",
+                    (new_id, sug_cat, metodo, user_name, rid),
+                )
+                _audit_log(conn, import_id, rid, "bulk_bank_charge_created",
+                           {"categoria": sug_cat, "metodo_pago": metodo},
+                           expense_id=new_id)
+                created.append({"item_id": rid, "expense_id": new_id})
+            conn.commit()
+            return {"ok": True, "created_count": len(created), "items": created}
+        finally:
+            conn.close()
+
+    @api.post("/api/reconcile/imports/{import_id}/rematch")
+    def reconcile_rematch(
+        import_id: int,
+        tol_days: Optional[int] = Query(None),
+        tol_days_back: Optional[int] = Query(None),
+        tol_days_forward: Optional[int] = Query(None),
+        tol_pct: Optional[float] = Query(None),
+        tol_cop: Optional[int] = Query(None),
+        month: Optional[str] = Query(None),
+    ):
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            imp = conn.execute(
+                "SELECT id FROM reconciliation_imports WHERE id = ?", (import_id,)
+            ).fetchone()
+            if not imp:
+                raise HTTPException(404, f"import {import_id} not found")
+            q = ("SELECT id, fecha, monto_cop, suggested_method_pago "
+                 "FROM reconciliation_items WHERE import_id = ? "
+                 "AND status IN ('unmatched_extract', 'pending', 'transfer_internal')")
+            params: list = [import_id]
+            if month:
+                try:
+                    datetime.strptime(month, "%Y-%m")
+                except ValueError:
+                    raise HTTPException(400, f"month {month!r} debe ser YYYY-MM")
+                q += " AND substr(fecha, 1, 7) = ?"
+                params.append(month)
+            pending = conn.execute(q, params).fetchall()
+            already = {r[0] for r in conn.execute(
+                "SELECT matched_expense_id FROM reconciliation_items "
+                "WHERE import_id = ? AND matched_expense_id IS NOT NULL",
+                (import_id,),
+            ).fetchall() if r[0]}
+            kwargs = {}
+            for k, v in [("tol_days", tol_days), ("tol_days_back", tol_days_back),
+                         ("tol_days_forward", tol_days_forward),
+                         ("tol_pct", tol_pct), ("tol_cop", tol_cop)]:
+                if v is not None: kwargs[k] = v
+            converted = 0
+            for r in pending:
+                rid, fecha, monto, sug_method = r
+                if not sug_method:
+                    continue
+                eid = _try_match_expense(conn, fecha, float(monto), sug_method,
+                                          already, **kwargs)
+                if eid:
+                    already.add(eid)
+                    conn.execute(
+                        "UPDATE reconciliation_items SET matched_expense_id = ?, "
+                        "status = 'matched' WHERE id = ?", (eid, rid),
+                    )
+                    converted += 1
+            _audit_log(conn, import_id, None, "rematch",
+                       {"converted": converted, "tolerance": kwargs, "month": month})
+            conn.commit()
+            return {"ok": True, "import_id": import_id,
+                    "scanned": len(pending), "converted_to_matched": converted,
+                    "filter_month": month, "tolerance_used": kwargs}
+        finally:
+            conn.close()
+
+    @api.post("/api/reconcile/imports/{import_id}/reclassify")
+    def reconcile_reclassify(import_id: int):
+        """Re-aplica heurísticas de reconcile_keyword_rules sobre items
+        pending/unmatched/bank_charge/transfer_internal/other."""
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            imp = conn.execute(
+                "SELECT id FROM reconciliation_imports WHERE id = ?", (import_id,)
+            ).fetchone()
+            if not imp:
+                raise HTTPException(404, f"import {import_id} not found")
+            rows = conn.execute(
+                "SELECT id, descripcion, item_type, suggested_categoria "
+                "FROM reconciliation_items WHERE import_id = ? "
+                "AND status IN ('unmatched_extract', 'pending', 'bank_charge', "
+                "                'transfer_internal', 'other')",
+                (import_id,),
+            ).fetchall()
+            updated = 0
+            for r in rows:
+                rid, desc, itype, current = r
+                new_sug = _suggest_category_from_db(conn, desc)
+                if new_sug is None and itype in RECONCILE_BANK_CHARGE_TYPES:
+                    new_sug = "comisiones"
+                if new_sug and new_sug != current:
+                    conn.execute(
+                        "UPDATE reconciliation_items SET suggested_categoria = ? "
+                        "WHERE id = ?", (new_sug, rid),
+                    )
+                    updated += 1
+            _audit_log(conn, import_id, None, "reclassify", {"updated": updated})
+            conn.commit()
+            return {"ok": True, "scanned": len(rows), "updated": updated}
+        finally:
+            conn.close()
+
+    # ─── Cross-check bot → extracto (orphans) ───
+
+    @api.get("/api/reconcile/imports/{import_id}/orphans_in_bot")
+    def reconcile_orphans_in_bot(import_id: int):
+        """Lista expenses del bot del rango del import que no matchearon
+        ningún item Y cuyo método_pago está en covered_methods."""
+        conn = sqlite3.connect(bot.DB_PATH)
+        conn.row_factory = sqlite3.Row
+        try:
+            imp = conn.execute(
+                "SELECT period_from, period_to, covered_methods_json "
+                "FROM reconciliation_imports WHERE id = ?", (import_id,),
+            ).fetchone()
+            if not imp:
+                raise HTTPException(404, f"import {import_id} not found")
+            covered = json.loads(imp["covered_methods_json"] or "[]")
+            if not covered:
+                return {"orphans": [], "note": "covered_methods vacío"}
+            matched_ids = {r[0] for r in conn.execute(
+                "SELECT matched_expense_id FROM reconciliation_items "
+                "WHERE import_id = ? AND matched_expense_id IS NOT NULL",
+                (import_id,),
+            ).fetchall() if r[0]}
+            placeholders = ",".join("?" * len(covered))
+            rows = conn.execute(
+                f"SELECT id, fecha, monto_cop, monto_usd, categoria, nota, "
+                f"COALESCE(metodo_pago,'Sin especificar') AS metodo_pago "
+                f"FROM expenses "
+                f"WHERE substr(fecha,1,10) >= ? AND substr(fecha,1,10) <= ? "
+                f"AND COALESCE(metodo_pago,'Sin especificar') IN ({placeholders}) "
+                f"ORDER BY fecha DESC",
+                [imp["period_from"], imp["period_to"]] + covered,
+            ).fetchall()
+            orphans = [dict(r) for r in rows if r["id"] not in matched_ids]
+            return {"import_id": import_id, "orphans": orphans,
+                    "covered_methods": covered, "total": len(orphans)}
+        finally:
+            conn.close()
+
+    @api.post("/api/reconcile/orphans/{expense_id}/find_candidates")
+    def reconcile_find_candidates(expense_id: int,
+                                   body: ReconcileFindCandidatesBody):
+        """Busca items del extracto cercanos en fecha+monto al expense
+        para que Daniel decida vincular manualmente."""
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            exp = conn.execute(
+                "SELECT id, fecha, monto_cop, metodo_pago FROM expenses WHERE id = ?",
+                (expense_id,),
+            ).fetchone()
+            if not exp:
+                raise HTTPException(404, f"expense {expense_id} not found")
+            from datetime import datetime as _dt, timedelta
+            try:
+                d_exp = _dt.strptime(exp[1][:10], "%Y-%m-%d")
+            except Exception:
+                raise HTTPException(400, "expense.fecha mal formada")
+            tol_days = body.tol_days or 10
+            tol_pct = body.tol_pct or 0.10
+            d_from = (d_exp - timedelta(days=tol_days)).strftime("%Y-%m-%d")
+            d_to = (d_exp + timedelta(days=tol_days)).strftime("%Y-%m-%d")
+            tol_cop = max(5000, abs(float(exp[2])) * tol_pct)
+            rows = conn.execute(
+                "SELECT id, import_id, fecha, monto_cop, descripcion, status, "
+                "matched_expense_id FROM reconciliation_items "
+                "WHERE substr(fecha,1,10) >= ? AND substr(fecha,1,10) <= ? "
+                "AND ABS(monto_cop - ?) <= ?",
+                (d_from, d_to, exp[2], tol_cop),
+            ).fetchall()
+            candidates = [
+                {"id": r[0], "import_id": r[1], "fecha": r[2],
+                 "monto_cop": r[3], "descripcion": r[4], "status": r[5],
+                 "matched_expense_id": r[6]}
+                for r in rows
+            ]
+            return {"expense_id": expense_id,
+                    "expense_fecha": exp[1], "expense_monto_cop": exp[2],
+                    "candidates": candidates}
+        finally:
+            conn.close()
+
+    @api.post("/api/reconcile/orphans/{expense_id}/relink_to/{item_id}")
+    def reconcile_relink_orphan(expense_id: int, item_id: int):
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            exp = conn.execute("SELECT id FROM expenses WHERE id = ?",
+                                (expense_id,)).fetchone()
+            if not exp:
+                raise HTTPException(404, f"expense {expense_id} not found")
+            it = conn.execute(
+                "SELECT id, import_id FROM reconciliation_items WHERE id = ?",
+                (item_id,),
+            ).fetchone()
+            if not it:
+                raise HTTPException(404, f"item {item_id} not found")
+            conn.execute(
+                "UPDATE reconciliation_items SET matched_expense_id = ?, "
+                "status = 'matched' WHERE id = ?", (expense_id, item_id),
+            )
+            _audit_log(conn, it[1], item_id, "orphan_resolved",
+                       {"expense_id": expense_id}, expense_id=expense_id)
+            conn.commit()
+            return {"ok": True, "item_id": item_id, "expense_id": expense_id}
         finally:
             conn.close()
 
