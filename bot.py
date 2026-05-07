@@ -911,6 +911,77 @@ def init_db():
 
     _run_migration("009_add_deferred_columns", _migration_009_add_deferred_columns)
 
+    def _migration_010_create_reconciliation_tables(conn):
+        """Crea las tablas para reconciliación de extractos bancarios.
+
+        - reconciliation_imports: una fila por archivo/extracto subido.
+        - reconciliation_items: una fila por movimiento del extracto, con
+          su clasificación (compra_tc / gmf / comision / etc.), su match
+          contra expenses (si existe), y un fingerprint para idempotencia
+          en re-uploads.
+
+        Idempotente: si las tablas ya existen, sale sin tocar nada.
+        """
+        cur = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='reconciliation_imports'"
+        ).fetchone()
+        if cur:
+            return
+        conn.execute("BEGIN")
+        try:
+            conn.execute("""
+                CREATE TABLE reconciliation_imports (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    label TEXT,
+                    period_from TEXT,
+                    period_to TEXT,
+                    total_items INTEGER DEFAULT 0,
+                    total_cop REAL DEFAULT 0,
+                    status TEXT DEFAULT 'open',
+                    imported_at TEXT NOT NULL,
+                    notes TEXT
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE reconciliation_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    import_id INTEGER NOT NULL,
+                    fecha TEXT NOT NULL,
+                    monto_cop REAL NOT NULL,
+                    monto_original REAL,
+                    moneda_original TEXT,
+                    descripcion TEXT NOT NULL,
+                    bank_prefix TEXT,
+                    item_type TEXT,
+                    fingerprint TEXT NOT NULL,
+                    matched_expense_id INTEGER,
+                    status TEXT DEFAULT 'pending',
+                    suggested_method_pago TEXT,
+                    suggested_categoria TEXT,
+                    notes TEXT,
+                    FOREIGN KEY(import_id) REFERENCES reconciliation_imports(id) ON DELETE CASCADE
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX idx_recon_items_import ON reconciliation_items(import_id)"
+            )
+            conn.execute(
+                "CREATE INDEX idx_recon_items_status ON reconciliation_items(status)"
+            )
+            conn.execute(
+                "CREATE INDEX idx_recon_items_fingerprint ON reconciliation_items(fingerprint)"
+            )
+            conn.execute("COMMIT")
+            print("[migration 010] reconciliation tables created")
+        except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            raise
+
+    _run_migration("010_create_reconciliation_tables", _migration_010_create_reconciliation_tables)
+
     conn.close()
 
 

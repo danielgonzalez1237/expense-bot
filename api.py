@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 import json
 import os
 import sqlite3
@@ -109,6 +110,74 @@ DEFERRAL_MODES_META = [
 class DeferralRequest(BaseModel):
     months: int  # 2..12
     mode: str    # 'upfront' or 'credito'
+
+
+# ──────────────── Reconciliación de extractos bancarios ────────────────
+# Daniel sube un JSON extraído con Claude chat de uno o varios extractos
+# bancarios consolidados. El backend clasifica cada movimiento, lo matchea
+# contra los expenses del bot, y devuelve el diff. Daniel reconcilia en
+# la UI: confirma matches, agrega los faltantes, marca duplicados.
+
+class ReconcileTransaction(BaseModel):
+    fecha: str  # YYYY-MM-DD
+    monto_cop: float
+    descripcion: str
+    moneda_original: Optional[str] = None
+    monto_original: Optional[float] = None
+
+
+class ReconcileImportRequest(BaseModel):
+    label: Optional[str] = None  # ej. "Cierre BdB 26 abr 2026"
+    notes: Optional[str] = None
+    transactions: list[ReconcileTransaction]
+
+
+class ReconcileItemUpdate(BaseModel):
+    status: Optional[str] = None  # 'reviewed' | 'ignored' | 'pending'
+    notes: Optional[str] = None
+    matched_expense_id: Optional[int] = None
+
+
+class ReconcileBulkCreateRequest(BaseModel):
+    """Para crear N expenses de cargos del banco con una sola llamada."""
+    item_ids: list[int]
+    categoria: Optional[str] = "comisiones"
+    user_name: Optional[str] = "Daniel"
+
+
+# Patrones de clasificación. ORDEN IMPORTA (primer match gana).
+RECONCILE_PATTERNS = [
+    ("gmf",                    r"gravamen|4\s*x\s*1[\.,]?000|impuesto.*4x1"),
+    ("conversion_int",         r"conversion\s+compra\s+internacional"),
+    ("comision",               r"comision\s+(transferencia|ach|interbancaria|por\s+internet)|iva\s+comision"),
+    ("cuota_manejo",           r"cuota\s+de\s+manejo"),
+    ("interes_tc",             r"intereses\s+corrientes|intereses\s+del\s+periodo"),
+    ("seguro_deudor",          r"seg\s+deud|seguro\s+deud"),
+    ("avance_cajero",          r"avance\s+cajero|avance\s+en\s+cajero|comision\s+avance"),
+    ("foreign_exchange_fee",   r"foreign\s+exchange\s+fee"),
+    ("transferencia_saliente", r"envio\s+por\s+bre|envio\s+a\s+|cargo\s+transferencia\s+ach|cargo\s+transferencia\s+canal"),
+    ("pago_pse",               r"pago\s+por\s+pse|pago\s+con\s+bre|car\s+domi\s+tra"),
+    # 'compra_tc' es el catch-all para items con prefijo de TC
+]
+
+# Prefijo del extracto → método de pago en el bot
+RECONCILE_PREFIX_TO_METHOD = {
+    "BdB Mastercard":         "BDB MC Dani",
+    "BdB LATAM Visa Daniel":  "BDB Visa Latam Dani",
+    "BdB LATAM Visa Maria":   "BDB Visa Latam Mado",
+    "BdB LATAM Visa Maria DOlores": "BDB Visa Latam Mado",
+    "BBVA TCBLACK":           "BBVA MC Dani",
+    "Wio":                    "WIO MC Dani",
+    "BdB Ahorros":            "Transferencia BDB",
+    "BBVA Ahorros":           "Transferencia BBVA",
+}
+
+# Tipos que se considera que son "cargos del banco" (auto-categorizables
+# como comisiones o impuestos bancarios, no compras del usuario).
+RECONCILE_BANK_CHARGE_TYPES = {
+    "gmf", "conversion_int", "comision", "cuota_manejo",
+    "interes_tc", "seguro_deudor", "avance_cajero", "foreign_exchange_fee",
+}
 
 
 class RatesUpdate(BaseModel):
@@ -1748,6 +1817,393 @@ def make_api_app() -> FastAPI:
             conn.execute("DELETE FROM expenses WHERE deferred_group_id = ?", (group_id,))
             conn.commit()
             return {"ok": True, "group_id": group_id, "deleted_count": count}
+        finally:
+            conn.close()
+
+    # ──────────────── Reconciliación de extractos ────────────────
+    # Daniel sube un JSON extraído con Claude chat de uno o varios
+    # extractos. Cada movimiento se clasifica, se matchea contra los
+    # expenses del bot, y queda en reconciliation_items con un status.
+    # Daniel resuelve cada uno desde el dashboard.
+
+    def _classify_item(descripcion: str, bank_prefix: str) -> str:
+        """Clasifica un item de extracto en un tipo. Primer match gana."""
+        d = (descripcion or "").lower()
+        for tipo, pat in RECONCILE_PATTERNS:
+            if re.search(pat, d):
+                return tipo
+        # Si tiene prefijo de TC, asume compra; si es ahorros sin patrón, "otro"
+        if bank_prefix in ("BdB Mastercard", "BdB LATAM Visa Daniel",
+                           "BdB LATAM Visa Maria", "BdB LATAM Visa Maria DOlores",
+                           "BBVA TCBLACK", "Wio", "Falabella Mastercard"):
+            return "compra_tc"
+        return "otro"
+
+    def _derive_bank_prefix(descripcion: str) -> str:
+        """Extrae el prefijo del banco/cuenta del campo descripcion.
+
+        Las descripciones del extracto vienen con formato
+        '<Banco/Cuenta> - <Detalle del comercio>'. El prefijo es lo que
+        está antes del primer ' - '. Si no hay separador, retorna ''.
+        """
+        if not descripcion:
+            return ""
+        if " - " in descripcion:
+            return descripcion.split(" - ", 1)[0].strip()
+        return ""
+
+    def _normalize_desc_for_fingerprint(s: str) -> str:
+        s = (s or "").lower().strip()
+        s = re.sub(r"\s+", " ", s)
+        s = re.sub(r"[^a-z0-9 ]", "", s)
+        return s[:100]
+
+    def _make_fingerprint(bank: str, fecha: str, monto: float, desc: str) -> str:
+        import hashlib
+        key = f"{bank}|{fecha}|{round(float(monto), 2)}|{_normalize_desc_for_fingerprint(desc)}"
+        return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+
+    def _try_match_expense(conn, item_fecha: str, item_monto: float,
+                           method_pago: str, used_expense_ids: set,
+                           tol_days: int = 3, tol_cop: int = 2000,
+                           tol_pct: float = 0.01) -> Optional[int]:
+        """Encuentra el mejor expense del bot que matchea el item.
+
+        Criterios:
+          - método_pago == method_pago O 'Sin especificar' (recoge unbranded)
+          - fecha dentro de ±tol_days
+          - monto_cop dentro de ±max(tol_cop, monto*tol_pct)
+        Retorna expense_id del mejor match o None.
+        """
+        from datetime import datetime, timedelta
+        try:
+            d_item = datetime.strptime(item_fecha[:10], "%Y-%m-%d")
+        except Exception:
+            return None
+        d_from = (d_item - timedelta(days=tol_days)).strftime("%Y-%m-%d")
+        d_to = (d_item + timedelta(days=tol_days)).strftime("%Y-%m-%d")
+        tol_amount = max(tol_cop, abs(item_monto) * tol_pct)
+        rows = conn.execute(
+            "SELECT id, fecha, monto_cop, metodo_pago FROM expenses "
+            "WHERE fecha >= ? AND fecha <= ? "
+            "AND ABS(monto_cop - ?) <= ? "
+            "AND (metodo_pago = ? OR metodo_pago = 'Sin especificar' OR metodo_pago IS NULL)",
+            (d_from, d_to + " 23:59", item_monto, tol_amount, method_pago),
+        ).fetchall()
+        if not rows:
+            return None
+        # Score: preferir match exacto de método > misma fecha > monto exacto
+        best = None
+        best_score = -1
+        for r in rows:
+            eid, e_fecha, e_monto, e_method = r
+            if eid in used_expense_ids:
+                continue
+            score = 0
+            if e_method == method_pago:
+                score += 100
+            elif e_method in (None, "Sin especificar"):
+                score += 50
+            try:
+                e_d = datetime.strptime(e_fecha[:10], "%Y-%m-%d")
+                day_diff = abs((e_d - d_item).days)
+                score += max(0, 30 - day_diff * 5)
+            except Exception:
+                pass
+            amount_diff = abs(e_monto - item_monto)
+            score += max(0, 50 - int(amount_diff / 100))
+            if score > best_score:
+                best_score = score
+                best = eid
+        return best
+
+    @api.post("/api/reconcile/import")
+    def reconcile_import(body: ReconcileImportRequest):
+        """Recibe un JSON con N transacciones, las clasifica, intenta match
+        contra expenses del bot, y guarda el import + items.
+
+        Retorna el resumen del diff con counts por status y total por tipo.
+        """
+        if not body.transactions:
+            raise HTTPException(400, "transactions vacío")
+
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            now = datetime.now().isoformat()
+            # Compute period bounds from transactions
+            fechas = [t.fecha[:10] for t in body.transactions if t.fecha]
+            period_from = min(fechas) if fechas else None
+            period_to = max(fechas) if fechas else None
+            total_cop = sum(float(t.monto_cop or 0) for t in body.transactions)
+
+            cur = conn.execute(
+                "INSERT INTO reconciliation_imports "
+                "(label, period_from, period_to, total_items, total_cop, status, imported_at, notes) "
+                "VALUES (?, ?, ?, ?, ?, 'open', ?, ?)",
+                (body.label or f"Import {now[:10]}", period_from, period_to,
+                 len(body.transactions), total_cop, now, body.notes or ""),
+            )
+            import_id = cur.lastrowid
+
+            # Track which expenses ya matchearon, para no asignar el mismo dos veces
+            used_expense_ids: set[int] = set()
+
+            # Existing fingerprints across all imports — para idempotencia
+            existing_fps = {row[0] for row in conn.execute(
+                "SELECT fingerprint FROM reconciliation_items"
+            ).fetchall()}
+
+            stats = {"matched": 0, "unmatched_extract": 0, "bank_charge": 0,
+                     "transfer_internal": 0, "duplicate": 0, "other": 0}
+            type_totals: dict[str, dict] = {}
+
+            for t in body.transactions:
+                bank_prefix = _derive_bank_prefix(t.descripcion)
+                item_type = _classify_item(t.descripcion, bank_prefix)
+                fp = _make_fingerprint(bank_prefix, t.fecha[:10],
+                                       float(t.monto_cop), t.descripcion)
+                # Aggregate stats por tipo
+                bucket = type_totals.setdefault(
+                    item_type, {"count": 0, "total_cop": 0.0}
+                )
+                bucket["count"] += 1
+                bucket["total_cop"] += float(t.monto_cop)
+
+                if fp in existing_fps:
+                    status = "duplicate"
+                    matched_id = None
+                    suggested_method = None
+                    suggested_cat = None
+                    stats["duplicate"] += 1
+                else:
+                    existing_fps.add(fp)
+                    suggested_method = RECONCILE_PREFIX_TO_METHOD.get(bank_prefix)
+                    suggested_cat = None
+                    matched_id = None
+
+                    if item_type in RECONCILE_BANK_CHARGE_TYPES:
+                        status = "bank_charge"
+                        suggested_cat = "comisiones"
+                        stats["bank_charge"] += 1
+                    elif item_type == "transferencia_saliente":
+                        # Intentar match contra expenses con método 'Transferencia <BANK>'
+                        if suggested_method:
+                            matched_id = _try_match_expense(
+                                conn, t.fecha[:10], float(t.monto_cop),
+                                suggested_method, used_expense_ids,
+                            )
+                        if matched_id:
+                            used_expense_ids.add(matched_id)
+                            status = "matched"
+                            stats["matched"] += 1
+                        else:
+                            status = "transfer_internal"
+                            stats["transfer_internal"] += 1
+                    elif item_type in ("compra_tc", "pago_pse"):
+                        if suggested_method:
+                            matched_id = _try_match_expense(
+                                conn, t.fecha[:10], float(t.monto_cop),
+                                suggested_method, used_expense_ids,
+                            )
+                        if matched_id:
+                            used_expense_ids.add(matched_id)
+                            status = "matched"
+                            stats["matched"] += 1
+                        else:
+                            status = "unmatched_extract"
+                            stats["unmatched_extract"] += 1
+                    else:
+                        status = "other"
+                        stats["other"] += 1
+
+                conn.execute(
+                    "INSERT INTO reconciliation_items "
+                    "(import_id, fecha, monto_cop, monto_original, moneda_original, "
+                    " descripcion, bank_prefix, item_type, fingerprint, "
+                    " matched_expense_id, status, suggested_method_pago, suggested_categoria) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (import_id, t.fecha[:10], float(t.monto_cop),
+                     t.monto_original, t.moneda_original,
+                     t.descripcion, bank_prefix, item_type, fp,
+                     matched_id, status, suggested_method, suggested_cat),
+                )
+            conn.commit()
+            return {
+                "ok": True,
+                "import_id": import_id,
+                "period_from": period_from,
+                "period_to": period_to,
+                "total_items": len(body.transactions),
+                "total_cop": total_cop,
+                "stats": stats,
+                "by_type": [
+                    {"type": k, "count": v["count"],
+                     "total_cop": round(v["total_cop"], 2)}
+                    for k, v in sorted(type_totals.items(),
+                                       key=lambda x: -x[1]["total_cop"])
+                ],
+            }
+        finally:
+            conn.close()
+
+    @api.get("/api/reconcile/imports")
+    def list_reconcile_imports():
+        rows = _query_all(
+            "SELECT id, label, period_from, period_to, total_items, total_cop, "
+            "status, imported_at, notes FROM reconciliation_imports "
+            "ORDER BY id DESC"
+        )
+        return {"imports": rows}
+
+    @api.get("/api/reconcile/imports/{import_id}")
+    def get_reconcile_import(import_id: int, status: Optional[str] = Query(None)):
+        conn = sqlite3.connect(bot.DB_PATH)
+        conn.row_factory = sqlite3.Row
+        try:
+            imp = conn.execute(
+                "SELECT * FROM reconciliation_imports WHERE id = ?", (import_id,),
+            ).fetchone()
+            if not imp:
+                raise HTTPException(404, f"import {import_id} not found")
+            q = "SELECT * FROM reconciliation_items WHERE import_id = ?"
+            params: list = [import_id]
+            if status:
+                q += " AND status = ?"
+                params.append(status)
+            q += " ORDER BY fecha, id"
+            items = [dict(r) for r in conn.execute(q, params).fetchall()]
+            # Stats
+            stats: dict = {}
+            for r in conn.execute(
+                "SELECT status, COUNT(*), SUM(monto_cop) FROM reconciliation_items "
+                "WHERE import_id = ? GROUP BY status", (import_id,),
+            ).fetchall():
+                stats[r[0]] = {"count": r[1], "total_cop": round(r[2] or 0, 2)}
+            return {"import": dict(imp), "items": items, "stats": stats}
+        finally:
+            conn.close()
+
+    @api.patch("/api/reconcile/items/{item_id}")
+    def update_reconcile_item(item_id: int, body: ReconcileItemUpdate):
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            existing = conn.execute(
+                "SELECT id FROM reconciliation_items WHERE id = ?", (item_id,),
+            ).fetchone()
+            if not existing:
+                raise HTTPException(404, f"item {item_id} not found")
+            data = body.dict(exclude_unset=True)
+            if not data:
+                raise HTTPException(400, "no fields to update")
+            sets = ", ".join(f"{k} = ?" for k in data)
+            params = list(data.values()) + [item_id]
+            conn.execute(
+                f"UPDATE reconciliation_items SET {sets} WHERE id = ?", params,
+            )
+            conn.commit()
+            return {"ok": True, "id": item_id, **data}
+        finally:
+            conn.close()
+
+    @api.post("/api/reconcile/items/{item_id}/create_expense")
+    def reconcile_item_create_expense(item_id: int):
+        """Crea un expense desde un item del extracto y lo deja matched."""
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            row = conn.execute(
+                "SELECT id, fecha, monto_cop, descripcion, bank_prefix, item_type, "
+                "suggested_method_pago, suggested_categoria, status "
+                "FROM reconciliation_items WHERE id = ?", (item_id,),
+            ).fetchone()
+            if not row:
+                raise HTTPException(404, f"item {item_id} not found")
+            (rid, fecha, monto_cop, descripcion, bank_prefix, item_type,
+             sug_method, sug_cat, status) = row
+            if status == "matched":
+                raise HTTPException(409, "item ya está matched a un expense")
+            metodo = sug_method or "Sin especificar"
+            categoria = sug_cat or ("comisiones" if item_type in
+                                    ("gmf", "comision", "cuota_manejo",
+                                     "interes_tc", "seguro_deudor",
+                                     "conversion_int", "foreign_exchange_fee",
+                                     "avance_cajero")
+                                    else "otro")
+            monto_usd = round(float(monto_cop) / bot.TRM, 2) if bot.TRM else 0
+            cur = conn.execute(
+                "INSERT INTO expenses "
+                "(user_id, user_name, fecha, monto_cop, monto_usd, categoria, "
+                " nota, created_at, metodo_pago, clase_contable, "
+                " deferred_total, deferred_index) "
+                "VALUES (NULL, 'Daniel', ?, ?, ?, ?, ?, ?, ?, 'gasto', 1, 1)",
+                (fecha, float(monto_cop), monto_usd, categoria,
+                 descripcion[:120], datetime.now().isoformat(), metodo),
+            )
+            new_expense_id = cur.lastrowid
+            conn.execute(
+                "UPDATE reconciliation_items SET matched_expense_id = ?, status = 'added_to_bot' "
+                "WHERE id = ?", (new_expense_id, item_id),
+            )
+            conn.commit()
+            return {"ok": True, "expense_id": new_expense_id, "categoria": categoria,
+                    "metodo_pago": metodo}
+        finally:
+            conn.close()
+
+    @api.post("/api/reconcile/import/{import_id}/bulk_create_bank_charges")
+    def bulk_create_bank_charges(import_id: int, body: ReconcileBulkCreateRequest):
+        """Crea expenses de N items de cargo del banco en una sola transacción."""
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            placeholders = ",".join("?" * len(body.item_ids))
+            rows = conn.execute(
+                f"SELECT id, fecha, monto_cop, descripcion, bank_prefix, item_type, "
+                f"suggested_method_pago, status FROM reconciliation_items "
+                f"WHERE import_id = ? AND id IN ({placeholders})",
+                [import_id] + list(body.item_ids),
+            ).fetchall()
+            created = []
+            for row in rows:
+                rid, fecha, monto_cop, descripcion, bank_prefix, item_type, sug_method, status = row
+                if status == "added_to_bot" or status == "matched":
+                    continue
+                metodo = sug_method or "Sin especificar"
+                monto_usd = round(float(monto_cop) / bot.TRM, 2) if bot.TRM else 0
+                cur = conn.execute(
+                    "INSERT INTO expenses "
+                    "(user_id, user_name, fecha, monto_cop, monto_usd, categoria, "
+                    " nota, created_at, metodo_pago, clase_contable, "
+                    " deferred_total, deferred_index) "
+                    "VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, 'gasto', 1, 1)",
+                    (body.user_name or "Daniel", fecha, float(monto_cop), monto_usd,
+                     body.categoria or "comisiones", descripcion[:120],
+                     datetime.now().isoformat(), metodo),
+                )
+                new_id = cur.lastrowid
+                conn.execute(
+                    "UPDATE reconciliation_items SET matched_expense_id = ?, status = 'added_to_bot' "
+                    "WHERE id = ?", (new_id, rid),
+                )
+                created.append({"item_id": rid, "expense_id": new_id})
+            conn.commit()
+            return {"ok": True, "created_count": len(created), "items": created}
+        finally:
+            conn.close()
+
+    @api.delete("/api/reconcile/imports/{import_id}")
+    def delete_reconcile_import(import_id: int):
+        """Borra un import + sus items en cascada. NO toca los expenses
+        que se hayan creado desde 'added_to_bot' (esos quedan en el bot)."""
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            r = conn.execute(
+                "SELECT COUNT(*) FROM reconciliation_imports WHERE id = ?", (import_id,)
+            ).fetchone()
+            if not r or r[0] == 0:
+                raise HTTPException(404, f"import {import_id} not found")
+            conn.execute("DELETE FROM reconciliation_items WHERE import_id = ?", (import_id,))
+            conn.execute("DELETE FROM reconciliation_imports WHERE id = ?", (import_id,))
+            conn.commit()
+            return {"ok": True, "deleted_import_id": import_id}
         finally:
             conn.close()
 

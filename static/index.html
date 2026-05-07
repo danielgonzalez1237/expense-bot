@@ -75,6 +75,14 @@
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
       </button>
       <button
+        @click="$store.reconcile.open = true"
+        class="text-slate-500 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300 transition p-2"
+        title="Conciliación de extractos"
+        aria-label="Conciliación"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 17l-5-5 5-5"/><path d="M6 12h13"/><path d="M13 7l5 5-5 5"/></svg>
+      </button>
+      <button
         @click="openSettings()"
         class="text-slate-500 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300 transition p-2"
         title="Configuración"
@@ -1527,6 +1535,235 @@
   </div>
 </div>
 
+<!-- ──────────────── Conciliación de extractos modal ──────────────── -->
+<div
+  x-data
+  x-show="$store.reconcile.open"
+  x-cloak
+  class="fixed inset-0 z-50 flex items-stretch sm:items-center justify-center modal-backdrop bg-slate-900/40 dark:bg-slate-950/70"
+  @click.self="$store.reconcile.close()"
+  @keydown.escape.window="$store.reconcile.close()"
+>
+  <div
+    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full sm:max-w-5xl sm:rounded-2xl sm:my-8 shadow-xl fade flex flex-col max-h-screen sm:max-h-[92vh]"
+    x-show="$store.reconcile.open"
+    x-transition
+  >
+    <!-- Header -->
+    <div class="flex items-center justify-between p-5 border-b border-slate-200 dark:border-slate-800">
+      <div>
+        <div class="text-xs text-slate-500 uppercase tracking-wide">🔍 Conciliación</div>
+        <div class="text-lg font-bold">Extractos bancarios</div>
+      </div>
+      <div class="flex items-center gap-3">
+        <button
+          x-show="$store.reconcile.view === 'results'"
+          @click="$store.reconcile.reset()"
+          class="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+        >+ Nuevo import</button>
+        <button
+          @click="$store.reconcile.close()"
+          class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Body -->
+    <div class="flex-1 overflow-y-auto p-5">
+
+      <!-- ── Vista PASTE ── -->
+      <div x-show="$store.reconcile.view === 'paste'" class="space-y-4">
+        <div class="text-sm text-slate-600 dark:text-slate-400">
+          Pega el JSON de tu extracto bancario extraído con Claude chat. Formato:
+          un array <code class="text-xs bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">[{fecha, monto_cop, descripcion}, ...]</code>
+          o un objeto <code class="text-xs bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded">{transactions: [...]}</code>.
+        </div>
+
+        <label class="block">
+          <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">Etiqueta del import (opcional)</span>
+          <input
+            type="text"
+            x-model="$store.reconcile.label"
+            placeholder="ej. Cierre BdB 26 abr 2026"
+            class="mt-1 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm"
+          />
+        </label>
+
+        <label class="block">
+          <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">JSON del extracto</span>
+          <textarea
+            x-model="$store.reconcile.jsonText"
+            rows="14"
+            placeholder='[{"fecha":"2026-04-15","monto_cop":50000,"descripcion":"BdB Mastercard - STARBUCKS"}, ...]'
+            class="mt-1 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 font-mono text-xs"
+          ></textarea>
+        </label>
+
+        <label class="block">
+          <span class="text-xs font-medium text-slate-500 uppercase tracking-wide">Notas (opcional)</span>
+          <input
+            type="text"
+            x-model="$store.reconcile.notes"
+            placeholder="ej. cubre enero a abril"
+            class="mt-1 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-sm"
+          />
+        </label>
+
+        <div x-show="$store.reconcile.error" class="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-lg p-3 text-sm text-red-700 dark:text-red-400" x-text="$store.reconcile.error"></div>
+
+        <div class="flex items-center justify-between gap-2 pt-2">
+          <button
+            @click="$store.reconcile.loadHistory().then(() => $store.reconcile.view = 'history')"
+            class="text-xs text-sky-600 dark:text-sky-400 hover:underline"
+          >Ver imports anteriores</button>
+          <button
+            @click="$store.reconcile.submitImport()"
+            :disabled="$store.reconcile.busy || !$store.reconcile.jsonText"
+            class="bg-sky-600 hover:bg-sky-700 text-white px-5 py-2 rounded-lg font-medium text-sm disabled:opacity-40"
+            x-text="$store.reconcile.busy ? 'Procesando…' : 'Importar y comparar'"
+          ></button>
+        </div>
+      </div>
+
+      <!-- ── Vista HISTORY ── -->
+      <div x-show="$store.reconcile.view === 'history'" class="space-y-3">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-semibold">Imports anteriores</h3>
+          <button @click="$store.reconcile.view = 'paste'" class="text-xs text-sky-600 hover:underline">← Nuevo import</button>
+        </div>
+        <div class="space-y-2">
+          <template x-for="imp in $store.reconcile.history" :key="imp.id">
+            <button
+              @click="$store.reconcile.openImport(imp.id)"
+              class="w-full text-left bg-slate-50 dark:bg-slate-800/40 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-3 transition"
+            >
+              <div class="flex items-baseline justify-between">
+                <span class="font-medium text-sm" x-text="imp.label || ('Import #' + imp.id)"></span>
+                <span class="text-[11px] text-slate-500" x-text="imp.imported_at && imp.imported_at.slice(0, 10)"></span>
+              </div>
+              <div class="text-[11px] text-slate-500 mt-0.5">
+                <span x-text="imp.period_from"></span> → <span x-text="imp.period_to"></span>
+                · <span x-text="imp.total_items"></span> items
+                · <span x-text="$store.reconcile.fmtCop(imp.total_cop) + ' COP'"></span>
+              </div>
+            </button>
+          </template>
+          <div x-show="!$store.reconcile.history.length" class="text-sm text-slate-500 italic text-center py-6">
+            No hay imports todavía.
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Vista RESULTS ── -->
+      <div x-show="$store.reconcile.view === 'results'" class="space-y-4">
+        <!-- Stats summary cards -->
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+          <template x-for="(label, k) in {
+            'matched': '✓ Cuadrados',
+            'unmatched_extract': '🚨 Falta en bot',
+            'bank_charge': '🏦 Cargos banco',
+            'transfer_internal': '🔄 Transferencias',
+            'duplicate': '♻️ Duplicados',
+            'other': '❓ Otros',
+          }" :key="k">
+            <button
+              @click="$store.reconcile.statusFilter = (k === 'matched' && $store.reconcile.statusFilter === 'matched' ? 'all' : k)"
+              :class="$store.reconcile.statusFilter === k ? 'ring-2 ring-sky-400' : ''"
+              class="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-lg p-2 text-left hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+            >
+              <div class="text-[10px] uppercase tracking-wide text-slate-500" x-text="label"></div>
+              <div class="text-sm font-bold mt-0.5" x-text="($store.reconcile.stats[k] && $store.reconcile.stats[k].count) || 0"></div>
+              <div class="text-[10px] text-slate-500" x-text="$store.reconcile.fmtCop(($store.reconcile.stats[k] && $store.reconcile.stats[k].total_cop) || 0) + ' COP'"></div>
+            </button>
+          </template>
+        </div>
+
+        <!-- Acciones globales -->
+        <div class="flex items-center gap-2 flex-wrap">
+          <button
+            @click="$store.reconcile.statusFilter = 'all'"
+            :class="$store.reconcile.statusFilter === 'all' ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-800 text-slate-600'"
+            class="text-xs px-3 py-1.5 rounded-md"
+          >Mostrar todos</button>
+          <button
+            @click="$store.reconcile.bulkCreateBankCharges()"
+            :disabled="$store.reconcile.busy || !($store.reconcile.stats.bank_charge && $store.reconcile.stats.bank_charge.count)"
+            class="text-xs bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-md font-medium disabled:opacity-40"
+          >🏦 Crear todos los cargos del banco como gastos</button>
+          <button
+            @click="$store.reconcile.deleteImport()"
+            :disabled="$store.reconcile.busy"
+            class="text-xs text-red-600 dark:text-red-400 hover:underline ml-auto"
+          >🗑️ Borrar este import</button>
+        </div>
+
+        <div x-show="$store.reconcile.error" class="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-lg p-3 text-sm text-red-700 dark:text-red-400" x-text="$store.reconcile.error"></div>
+
+        <!-- Items list -->
+        <div class="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden divide-y divide-slate-100 dark:divide-slate-800">
+          <template x-for="item in $store.reconcile.filteredItems" :key="item.id">
+            <div class="px-3 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-800/40">
+              <div class="flex items-baseline justify-between gap-3">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-baseline gap-2 flex-wrap">
+                    <span class="text-[10px] tracking-wide font-medium px-1.5 py-0.5 rounded" :class="$store.reconcile.statusColor(item.status)" x-text="$store.reconcile.statusLabel(item.status)"></span>
+                    <span class="text-[10px] text-slate-500" x-text="$store.reconcile.typeLabel(item.item_type)"></span>
+                    <span class="text-[11px] text-slate-500 dark:text-slate-400" x-text="item.fecha"></span>
+                    <span class="text-[11px] text-slate-500 dark:text-slate-400 italic" x-text="item.bank_prefix"></span>
+                  </div>
+                  <div class="text-sm mt-0.5 truncate" x-text="item.descripcion"></div>
+                  <div class="text-[10px] text-slate-400 mt-0.5" x-show="item.suggested_method_pago">
+                    Sugerido: <span x-text="item.suggested_method_pago"></span><span x-show="item.suggested_categoria" x-text="' / cat: ' + item.suggested_categoria"></span>
+                  </div>
+                  <div class="text-[10px] text-emerald-600 dark:text-emerald-400 mt-0.5" x-show="item.matched_expense_id">
+                    ↔ Vinculado a expense #<span x-text="item.matched_expense_id"></span>
+                  </div>
+                </div>
+                <div class="text-right shrink-0">
+                  <div class="font-semibold text-sm" x-text="$store.reconcile.fmtCop(item.monto_cop) + ' COP'"></div>
+                  <div class="text-[10px] text-slate-400" x-show="item.moneda_original" x-text="item.moneda_original + ' ' + item.monto_original"></div>
+                  <div class="mt-1 flex gap-1 justify-end">
+                    <button
+                      x-show="['unmatched_extract', 'bank_charge', 'pago_pse'].includes(item.status) || (item.status === 'transfer_internal' && !item.matched_expense_id)"
+                      @click="$store.reconcile.addToBot(item.id)"
+                      :disabled="$store.reconcile.busy"
+                      class="text-[10px] bg-sky-600 hover:bg-sky-700 text-white px-2 py-1 rounded disabled:opacity-40"
+                    >+ Agregar al bot</button>
+                    <button
+                      x-show="!['matched', 'added_to_bot', 'reviewed', 'duplicate'].includes(item.status)"
+                      @click="$store.reconcile.markReviewed(item.id)"
+                      :disabled="$store.reconcile.busy"
+                      class="text-[10px] bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 px-2 py-1 rounded disabled:opacity-40"
+                    >👁️ Revisado</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
+          <div x-show="!$store.reconcile.filteredItems.length" class="p-6 text-center text-sm text-slate-500 italic">
+            Sin items en este filtro.
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Footer -->
+    <div class="border-t border-slate-200 dark:border-slate-800 p-3 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+      <span x-show="$store.reconcile.view === 'results' && $store.reconcile.importMeta">
+        Import #<span x-text="$store.reconcile.importId"></span>
+        · <span x-text="$store.reconcile.importMeta && $store.reconcile.importMeta.period_from"></span>
+        → <span x-text="$store.reconcile.importMeta && $store.reconcile.importMeta.period_to"></span>
+        · <span x-text="$store.reconcile.importMeta && $store.reconcile.importMeta.total_items"></span> items
+        · <span x-text="$store.reconcile.fmtCop($store.reconcile.importMeta && $store.reconcile.importMeta.total_cop) + ' COP'"></span>
+      </span>
+      <span x-show="$store.reconcile.view === 'paste'">Pega el JSON arriba y dale a "Importar y comparar".</span>
+    </div>
+  </div>
+</div>
+
 <!-- ──────────────── Guide / onboarding modal ──────────────── -->
 <div
   x-data
@@ -2706,6 +2943,246 @@ document.addEventListener('alpine:init', () => {
       } finally {
         this.busy = false;
       }
+    },
+  });
+
+  // ──────────────── Conciliación de extractos ────────────────
+  // Daniel pega un JSON extraído con Claude chat de uno o varios
+  // extractos bancarios. El backend clasifica + matchea contra los
+  // expenses del bot. Acá manejamos la UI: paste-area, vista del
+  // diff con tabs por status, y acciones inline (agregar al bot,
+  // marcar revisado, crear cargos del banco en bulk).
+  Alpine.store('reconcile', {
+    open: false,
+    busy: false,
+    error: null,
+    // 'paste' = pegar JSON · 'results' = ver el diff de un import
+    view: 'paste',
+    // Form
+    label: '',
+    notes: '',
+    jsonText: '',
+    // Resultados del último import
+    importId: null,
+    importMeta: null,
+    items: [],
+    stats: {},
+    byType: [],
+    statusFilter: 'all',
+    // Lista de imports históricos (para "ver imports anteriores")
+    history: [],
+
+    reset() {
+      this.label = '';
+      this.notes = '';
+      this.jsonText = '';
+      this.importId = null;
+      this.importMeta = null;
+      this.items = [];
+      this.stats = {};
+      this.byType = [];
+      this.statusFilter = 'all';
+      this.error = null;
+      this.view = 'paste';
+    },
+
+    close() {
+      this.open = false;
+      this.error = null;
+    },
+
+    async loadHistory() {
+      try {
+        const r = await fetch('/api/reconcile/imports');
+        if (r.ok) {
+          const d = await r.json();
+          this.history = d.imports || [];
+        }
+      } catch (e) { /* silent */ }
+    },
+
+    async submitImport() {
+      this.busy = true;
+      this.error = null;
+      let parsed;
+      try {
+        parsed = JSON.parse(this.jsonText);
+      } catch (e) {
+        this.error = 'JSON inválido: ' + (e.message || e);
+        this.busy = false;
+        return;
+      }
+      // Allow either an array directly OR an object with 'transactions'
+      let txns = Array.isArray(parsed) ? parsed : parsed.transactions;
+      if (!Array.isArray(txns) || txns.length === 0) {
+        this.error = 'JSON debe ser un array de transacciones, o un objeto con campo "transactions"';
+        this.busy = false;
+        return;
+      }
+      try {
+        const resp = await fetch('/api/reconcile/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            label: this.label || null,
+            notes: this.notes || null,
+            transactions: txns,
+          }),
+        });
+        if (!resp.ok) {
+          const body = await resp.text();
+          throw new Error(`Import falló (${resp.status}): ${body.slice(0, 200)}`);
+        }
+        const data = await resp.json();
+        this.importId = data.import_id;
+        this.importMeta = data;
+        this.stats = data.stats;
+        this.byType = data.by_type;
+        await this.loadItems();
+        this.view = 'results';
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    async loadItems() {
+      if (!this.importId) return;
+      try {
+        const url = '/api/reconcile/imports/' + this.importId;
+        const r = await fetch(url);
+        if (r.ok) {
+          const d = await r.json();
+          this.items = d.items || [];
+          this.stats = d.stats || this.stats;
+        }
+      } catch (e) { /* silent */ }
+    },
+
+    async openImport(importId) {
+      this.importId = importId;
+      this.view = 'results';
+      await this.loadItems();
+    },
+
+    get filteredItems() {
+      if (this.statusFilter === 'all') return this.items;
+      return this.items.filter(i => i.status === this.statusFilter);
+    },
+
+    statusLabel(s) {
+      return ({
+        'matched': '✓ Cuadrado',
+        'unmatched_extract': '🚨 Falta en bot',
+        'bank_charge': '🏦 Cargo banco',
+        'transfer_internal': '🔄 Transferencia',
+        'duplicate': '♻️ Duplicado',
+        'other': '❓ Otro',
+        'added_to_bot': '✚ Agregado al bot',
+        'reviewed': '👁️ Revisado',
+        'pending': '⏳ Pendiente',
+      })[s] || s;
+    },
+
+    statusColor(s) {
+      return ({
+        'matched':           'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
+        'unmatched_extract': 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
+        'bank_charge':       'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
+        'transfer_internal': 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300',
+        'duplicate':         'bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
+        'added_to_bot':      'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300',
+        'reviewed':          'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
+      })[s] || 'bg-slate-100 text-slate-700';
+    },
+
+    typeLabel(t) {
+      return ({
+        'compra_tc':              '💳 Compra TC',
+        'pago_pse':               '🏛️ PSE comercio',
+        'gmf':                    '🇨🇴 GMF (4x1000)',
+        'comision':               '💰 Comisión bancaria',
+        'cuota_manejo':           '📅 Cuota manejo',
+        'interes_tc':             '📈 Intereses TC',
+        'seguro_deudor':          '🛡️ Seguro deudor',
+        'conversion_int':         '🌐 Conversión int',
+        'avance_cajero':          '🏧 Avance cajero',
+        'foreign_exchange_fee':   '💱 Fee FX',
+        'transferencia_saliente': '🔄 Transferencia',
+        'otro':                   '❓ Otro',
+      })[t] || t;
+    },
+
+    async addToBot(itemId) {
+      this.busy = true;
+      try {
+        const r = await fetch('/api/reconcile/items/' + itemId + '/create_expense', {
+          method: 'POST',
+        });
+        if (!r.ok) {
+          const body = await r.text();
+          throw new Error(`No pude agregar al bot (${r.status}): ${body.slice(0, 200)}`);
+        }
+        await this.loadItems();
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    async markReviewed(itemId) {
+      this.busy = true;
+      try {
+        await fetch('/api/reconcile/items/' + itemId, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'reviewed' }),
+        });
+        await this.loadItems();
+      } finally { this.busy = false; }
+    },
+
+    async bulkCreateBankCharges() {
+      const ids = this.items
+        .filter(i => i.status === 'bank_charge')
+        .map(i => i.id);
+      if (!ids.length) return;
+      if (!confirm(`Crear ${ids.length} expenses de cargos del banco con categoría "comisiones"?`)) return;
+      this.busy = true;
+      try {
+        const r = await fetch('/api/reconcile/import/' + this.importId + '/bulk_create_bank_charges', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item_ids: ids, categoria: 'comisiones', user_name: 'Daniel' }),
+        });
+        if (!r.ok) {
+          const body = await r.text();
+          throw new Error(`Bulk falló (${r.status}): ${body.slice(0, 200)}`);
+        }
+        await this.loadItems();
+      } catch (e) {
+        this.error = e.message || String(e);
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    async deleteImport() {
+      if (!this.importId) return;
+      if (!confirm(`Borrar el import #${this.importId}? Los expenses creados desde "Agregar al bot" se mantienen.`)) return;
+      this.busy = true;
+      try {
+        await fetch('/api/reconcile/imports/' + this.importId, { method: 'DELETE' });
+        this.reset();
+        await this.loadHistory();
+      } finally { this.busy = false; }
+    },
+
+    fmtCop(v) {
+      const n = Math.round(Number(v) || 0);
+      return '$' + n.toLocaleString('de-DE');
     },
   });
 
