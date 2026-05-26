@@ -1516,9 +1516,15 @@ def make_main_menu():
 def make_payment_keyboard(expense_id):
     """Build inline keyboard for payment method selection, organized by bank."""
     rows = []
+    # Iconos para grupos "singleton" (un solo método con el mismo nombre del grupo).
+    _SINGLETON_ICONS = {"Efectivo": "💵", "USDT": "₮"}
     for bank, methods in PAYMENT_METHODS.items():
-        if bank == "Efectivo":
-            rows.append([InlineKeyboardButton("💵 Efectivo", callback_data=f"pago|{expense_id}|Efectivo")])
+        # Grupos singleton (Efectivo, USDT, etc.): un solo botón cuyo
+        # callback es solo el nombre del grupo. Evita guardar "USDT USDT"
+        # como metodo_pago y muestra un botón limpio sin header redundante.
+        if bank == "Efectivo" or methods == [bank]:
+            icon = _SINGLETON_ICONS.get(bank, "•")
+            rows.append([InlineKeyboardButton(f"{icon} {bank}", callback_data=f"pago|{expense_id}|{bank}")])
         else:
             btns = []
             for m in methods:
