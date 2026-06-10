@@ -186,10 +186,18 @@
         <div class="text-xs text-slate-500 uppercase tracking-wide">💼 P&G del mes · <span x-text="monthLabel"></span></div>
         <div class="text-[11px] text-slate-400 dark:text-slate-600">Bitácora familiar — ingresos vs egresos</div>
       </div>
-      <button
-        @click="openIncomeEditor()"
-        class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-1.5 font-medium transition"
-      >✏️ Editar ingresos</button>
+      <div class="flex items-center gap-2">
+        <a
+          :href="'/api/export/csv_full?month=' + month"
+          download
+          title="Descarga CSV completo del mes (ingresos + gastos con categoría, subcategoría, método, clase contable, cuotas, nota) — listo para análisis en Claude Code"
+          class="text-xs bg-sky-600 hover:bg-sky-700 text-white rounded-lg px-3 py-1.5 font-medium transition"
+        >📥 Descargar análisis</a>
+        <button
+          @click="openIncomeEditor()"
+          class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-1.5 font-medium transition"
+        >✏️ Editar ingresos</button>
+      </div>
     </div>
 
     <div class="grid grid-cols-3 gap-3">
@@ -814,10 +822,11 @@
     <div class="flex items-center justify-between mb-3">
       <h2 class="text-sm font-semibold movimientos-anchor">Movimientos</h2>
       <a
-        :href="'/api/export/csv?month=' + month"
+        :href="'/api/export/csv_full?month=' + month"
         class="text-xs bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg px-3 py-1.5 transition"
         download
-      >📁 CSV</a>
+        title="CSV completo del mes (gastos + ingresos detallados)"
+      >📁 CSV completo</a>
     </div>
 
     <!-- Filtros · Conciliación (3 filas) -->

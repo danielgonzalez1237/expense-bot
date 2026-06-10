@@ -2898,6 +2898,110 @@ def make_api_app() -> FastAPI:
             },
         )
 
+    @api.get("/api/export/csv_full")
+    def export_csv_full(month: Optional[str] = Query(None)):
+        """Comprehensive monthly CSV: combina gastos + ingresos en un solo
+        archivo, enriquecidos con metadata de categoría (parent, label,
+        icon), método de pago, clase contable, info de cuotas diferidas
+        y nombre/icono de fuente de ingreso. Diseñado para análisis
+        externo (ej. subir a Claude Code y pedir patrones de eficiencia).
+        """
+        prefix = _month_prefix(month)
+
+        # Gastos enriquecidos
+        expense_rows = _query_all(
+            "SELECT id, user_name, fecha, monto_cop, monto_usd, categoria, nota, "
+            "COALESCE(metodo_pago, 'Sin especificar') AS metodo_pago, "
+            "COALESCE(clase_contable, 'gasto') AS clase_contable, "
+            "deferred_total, deferred_index, deferred_group_id, deferred_mode, "
+            "created_at "
+            "FROM expenses WHERE fecha LIKE ? ORDER BY fecha DESC, id DESC",
+            (f"{prefix}%",),
+        )
+
+        # Ingresos enriquecidos con label/icon de la fuente
+        conn = sqlite3.connect(bot.DB_PATH)
+        conn.row_factory = sqlite3.Row
+        try:
+            income_rows = conn.execute(
+                "SELECT e.id, e.source_key, e.fecha, e.monto, e.currency, "
+                "e.monto_usd, e.rate_used, e.nota, e.created_at, "
+                "s.label AS source_label, s.icon AS source_icon "
+                "FROM income_entries e "
+                "LEFT JOIN income_sources s ON e.source_key = s.key "
+                "WHERE e.period = ? "
+                "ORDER BY e.fecha DESC NULLS LAST, e.id DESC",
+                (prefix,),
+            ).fetchall()
+            income_rows = [dict(r) for r in income_rows]
+        finally:
+            conn.close()
+
+        if not expense_rows and not income_rows:
+            raise HTTPException(404, f"sin gastos ni ingresos para {prefix}")
+
+        def cat_meta(key):
+            v = bot.BUDGET.get(key, {}) if isinstance(bot.BUDGET, dict) else {}
+            parent_key = v.get("parent") or ""
+            parent_v = bot.BUDGET.get(parent_key, {}) if parent_key else {}
+            return (
+                v.get("label", key),
+                v.get("icon", "📦"),
+                parent_key,
+                parent_v.get("label", "") if parent_key else "",
+            )
+
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow([
+            "tipo", "id", "fecha", "monto_cop", "monto_usd", "moneda_original",
+            "categoria_key", "categoria_label", "categoria_icon",
+            "parent_key", "parent_label",
+            "usuario", "nota",
+            "metodo_pago", "clase_contable",
+            "deferred_total", "deferred_index", "deferred_group_id", "deferred_mode",
+            "tasa_conversion", "created_at",
+        ])
+
+        for r in expense_rows:
+            label, icon, p_key, p_label = cat_meta(r["categoria"])
+            writer.writerow([
+                "gasto", r["id"], r["fecha"], r["monto_cop"], r["monto_usd"], "COP",
+                r["categoria"], label, icon,
+                p_key, p_label,
+                r["user_name"] or "", r["nota"] or "",
+                r["metodo_pago"], r["clase_contable"],
+                r["deferred_total"] if r["deferred_total"] is not None else "",
+                r["deferred_index"] if r["deferred_index"] is not None else "",
+                r["deferred_group_id"] or "",
+                r["deferred_mode"] or "",
+                "", r["created_at"] or "",
+            ])
+
+        for r in income_rows:
+            writer.writerow([
+                "ingreso", r["id"], r["fecha"] or "", "", r["monto_usd"],
+                r["currency"] or "USD",
+                r["source_key"] or "",
+                r["source_label"] or r["source_key"] or "",
+                r["source_icon"] or "💰",
+                "", "",  # ingresos no usan parent/sub
+                "", r["nota"] or "",
+                "", "",  # ni metodo_pago ni clase_contable
+                "", "", "", "",
+                r["rate_used"] if r["rate_used"] is not None else "",
+                r["created_at"] or "",
+            ])
+
+        buf.seek(0)
+        return StreamingResponse(
+            iter([buf.getvalue()]),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="gg_finanzas_{prefix.replace("-", "_")}.csv"'
+            },
+        )
+
     # ──────────────── Static frontend ────────────────
     # Serve index.html at / and any other static assets under /static/*.
     # Keeping these AFTER the /api/* routes above ensures they don't shadow
