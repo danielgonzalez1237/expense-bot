@@ -186,13 +186,19 @@
         <div class="text-xs text-slate-500 uppercase tracking-wide">💼 P&G del mes · <span x-text="monthLabel"></span></div>
         <div class="text-[11px] text-slate-400 dark:text-slate-600">Bitácora familiar — ingresos vs egresos</div>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 flex-wrap justify-end">
         <a
           :href="'/api/export/csv_full?month=' + month"
           download
-          title="Descarga CSV completo del mes (ingresos + gastos con categoría, subcategoría, método, clase contable, cuotas, nota) — listo para análisis en Claude Code"
+          title="CSV del mes con datos REALES (ingresos + gastos ya registrados, detallados por categoría/sub/método/cuotas)"
           class="text-xs bg-sky-600 hover:bg-sky-700 text-white rounded-lg px-3 py-1.5 font-medium transition"
-        >📥 Descargar análisis</a>
+        >📥 CSV real</a>
+        <a
+          :href="'/api/export/csv_projected?month=' + month"
+          download
+          title="CSV del mes con PROYECCIONES (presupuesto por categoría con overrides + ingresos esperados por fuente). Para comparar plan vs ejecutado."
+          class="text-xs bg-violet-600 hover:bg-violet-700 text-white rounded-lg px-3 py-1.5 font-medium transition"
+        >🎯 CSV proyectado</a>
         <button
           @click="openIncomeEditor()"
           class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-1.5 font-medium transition"

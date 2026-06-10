@@ -3002,6 +3002,111 @@ def make_api_app() -> FastAPI:
             },
         )
 
+    @api.get("/api/export/csv_projected")
+    def export_csv_projected(month: Optional[str] = Query(None)):
+        """CSV de PROYECCIONES del mes: presupuesto por categoría (con
+        overrides per-período si los hay) + ingresos esperados por fuente
+        activa. Complementa /api/export/csv_full (datos reales) para que
+        Daniel pueda comparar plan vs ejecutado en análisis externo.
+        """
+        prefix = _month_prefix(month)
+        conn = sqlite3.connect(bot.DB_PATH)
+        conn.row_factory = sqlite3.Row
+        try:
+            # Presupuesto efectivo por categoría para este período
+            eff = _effective_budget_for_period(conn, prefix)
+            # Fuentes de ingreso (todas, marcamos cuáles están activas)
+            income_sources = conn.execute(
+                "SELECT key, label, icon, currency, expected_usd, active, "
+                "created_at, updated_at "
+                "FROM income_sources ORDER BY active DESC, label"
+            ).fetchall()
+            income_sources = [dict(r) for r in income_sources]
+        finally:
+            conn.close()
+
+        if not eff and not income_sources:
+            raise HTTPException(404, f"sin proyección para {prefix}")
+
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow([
+            "tipo", "key", "label", "icon",
+            "parent_key", "parent_label",
+            "monto_usd_mensual", "monto_usd_anual",
+            "tipo_categoria", "is_override",
+            "moneda", "active", "notas",
+        ])
+
+        # Gastos proyectados (orden: parents primero, luego subs)
+        # Ordenamos para que el CSV sea legible: top-level alfabético, sub
+        # debajo del parent. Mismos criterios que el picker de Telegram.
+        top_level = sorted(
+            [(k, v) for k, v in eff.items() if not v.get("parent")],
+            key=lambda kv: kv[1].get("label", kv[0]).lower(),
+        )
+        for pk, pv in top_level:
+            p_label = pv.get("label", pk)
+            # Parent (sin importe si tiene hijos — el budget vive en los subs)
+            writer.writerow([
+                "gasto_proyectado", pk, p_label, pv.get("icon", "📦"),
+                "", "",
+                pv.get("usd", 0), pv.get("annual_usd", 0),
+                pv.get("tipo", "variable"),
+                "true" if pv.get("is_override") else "false",
+                "USD", "1",
+                "padre con sub-categorías" if pv.get("has_children") else "",
+            ])
+            # Subs del parent
+            subs = sorted(
+                [(k, v) for k, v in eff.items() if v.get("parent") == pk],
+                key=lambda kv: kv[1].get("label", kv[0]).lower(),
+            )
+            for ck, cv in subs:
+                writer.writerow([
+                    "gasto_proyectado", ck, cv.get("label", ck), cv.get("icon", "📦"),
+                    pk, p_label,
+                    cv.get("usd", 0), cv.get("annual_usd", 0),
+                    cv.get("tipo", "variable"),
+                    "true" if cv.get("is_override") else "false",
+                    "USD", "1", "",
+                ])
+        # Huérfanos (parent no encontrado) — defensivo
+        seen = {k for k, _ in top_level}
+        for k, v in eff.items():
+            if k not in seen and v.get("parent") not in {tk for tk, _ in top_level}:
+                writer.writerow([
+                    "gasto_proyectado", k, v.get("label", k), v.get("icon", "📦"),
+                    v.get("parent") or "", "",
+                    v.get("usd", 0), v.get("annual_usd", 0),
+                    v.get("tipo", "variable"),
+                    "true" if v.get("is_override") else "false",
+                    "USD", "1", "huérfano (parent no encontrado)",
+                ])
+
+        # Ingresos proyectados (por fuente)
+        for s in income_sources:
+            writer.writerow([
+                "ingreso_proyectado", s["key"], s["label"] or s["key"],
+                s["icon"] or "💰",
+                "", "",
+                s["expected_usd"] or 0,
+                round((s["expected_usd"] or 0) * 12, 2),
+                "", "",
+                s["currency"] or "USD",
+                "1" if s["active"] else "0",
+                "" if s["active"] else "fuente inactiva",
+            ])
+
+        buf.seek(0)
+        return StreamingResponse(
+            iter([buf.getvalue()]),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="gg_proyeccion_{prefix.replace("-", "_")}.csv"'
+            },
+        )
+
     # ──────────────── Static frontend ────────────────
     # Serve index.html at / and any other static assets under /static/*.
     # Keeping these AFTER the /api/* routes above ensures they don't shadow
