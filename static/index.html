@@ -251,13 +251,42 @@
       <div class="text-[10px] text-slate-500 uppercase tracking-wide mb-1.5">Por fuente</div>
       <div class="space-y-1">
         <template x-for="s in pnl.income.by_source" :key="s.source_key">
-          <div class="flex justify-between text-xs">
-            <span class="truncate">
-              <span x-text="s.icon"></span>
-              <span x-text="s.label"></span>
-              <span class="text-slate-400 dark:text-slate-600" x-text="' · ' + s.count"></span>
-            </span>
-            <span class="font-semibold" x-text="fmtUsd(s.total_usd)"></span>
+          <div>
+            <!-- Header clickeable (toggle dropdown) -->
+            <button
+              type="button"
+              @click="toggleSource(s.source_key)"
+              class="w-full flex justify-between items-center text-xs hover:bg-slate-50 dark:hover:bg-slate-800/40 rounded px-1.5 py-1 transition"
+              :title="expandedSources[s.source_key] ? 'Ocultar entries' : 'Ver entries individuales'"
+            >
+              <span class="truncate flex items-center gap-1">
+                <span class="text-slate-400 dark:text-slate-600 text-[10px] inline-block w-2.5 transition-transform"
+                      :class="expandedSources[s.source_key] ? 'rotate-90' : ''">▶</span>
+                <span x-text="s.icon"></span>
+                <span x-text="s.label"></span>
+                <span class="text-slate-400 dark:text-slate-600" x-text="' · ' + s.count"></span>
+              </span>
+              <span class="font-semibold" x-text="fmtUsd(s.total_usd)"></span>
+            </button>
+            <!-- Dropdown: entries individuales de esta fuente -->
+            <div x-show="expandedSources[s.source_key]" x-transition class="ml-6 mt-0.5 mb-1 space-y-0.5 border-l-2 border-slate-200 dark:border-slate-700 pl-2">
+              <template x-for="e in entriesForSource(s.source_key)" :key="e.id">
+                <div class="flex justify-between text-[11px] text-slate-600 dark:text-slate-400 py-0.5">
+                  <span class="truncate flex-1 mr-2">
+                    <span class="text-slate-400 dark:text-slate-500" x-text="(e.fecha || '').slice(5)"></span>
+                    <span x-show="e.nota" class="ml-1" x-text="e.nota || ''"></span>
+                    <span x-show="!e.nota" class="ml-1 italic text-slate-400 dark:text-slate-600">(sin nota)</span>
+                    <span x-show="e.currency && e.currency !== 'USD'" class="ml-1 text-slate-400 dark:text-slate-600">
+                      · <span x-text="e.monto + ' ' + e.currency"></span>
+                    </span>
+                  </span>
+                  <span x-text="fmtUsd(e.monto_usd)"></span>
+                </div>
+              </template>
+              <div x-show="!entriesForSource(s.source_key).length" class="text-[11px] italic text-slate-400 dark:text-slate-600 py-0.5">
+                (sin entries individuales este mes)
+              </div>
+            </div>
           </div>
         </template>
       </div>
@@ -4234,6 +4263,15 @@ function dashboard() {
     paymentMethods: {},
     rates: { TRM: 3700, BOB_RATE: 9.20, AED_RATE: 3.67 },
     pnl: { income: { total_usd: 0, by_source: [] }, expenses: { total_usd: 0 }, net: { usd: 0, pct_of_income: null } },
+    incomeEntries: [],          // entries individuales del mes (para el dropdown por fuente)
+    expandedSources: {},        // { source_key: true } indica fuentes desplegadas
+
+    entriesForSource(key) {
+      return this.incomeEntries.filter(e => e.source_key === key);
+    },
+    toggleSource(key) {
+      this.expandedSources[key] = !this.expandedSources[key];
+    },
 
     async init() {
       // Defensive: Alpine auto-invokes init() for any x-data object that has
@@ -4468,16 +4506,20 @@ function dashboard() {
           : 'from=' + encodeURIComponent(b.from) + '&to=' + encodeURIComponent(b.to);
         // The expenses endpoint still takes month only — show the active month's
         // expenses even when the gauge/aggregates use a wider window.
-        const [sumR, expR, pnlR] = await Promise.all([
+        const [sumR, expR, pnlR, incR] = await Promise.all([
           fetch('/api/summary?' + rangeQs),
           fetch('/api/expenses?month=' + encodeURIComponent(this.month) + '&limit=500'),
           fetch('/api/pnl?' + rangeQs),
+          fetch('/api/income/entries?month=' + encodeURIComponent(this.month)),
         ]);
         if (!sumR.ok) throw new Error('No se pudo cargar el resumen (' + sumR.status + ')');
         if (!expR.ok) throw new Error('No se pudo cargar el historial (' + expR.status + ')');
         this.summary = await sumR.json();
         this.expenses = (await expR.json()).expenses || [];
         if (pnlR.ok) this.pnl = await pnlR.json();
+        if (incR.ok) this.incomeEntries = (await incR.json()).entries || [];
+        // Cambio de mes → cerrar todos los dropdowns para no arrastrar estado
+        this.expandedSources = {};
       } catch (e) {
         this.error = e.message || String(e);
       } finally {
