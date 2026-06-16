@@ -4450,12 +4450,50 @@ function dashboard() {
       this.expandedSources[key] = !this.expandedSources[key];
     },
     // ── Donut de ingresos por fuente ─────────────
+    _hexToRgb(h) {
+      h = h.replace('#', '');
+      return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+    },
+    _gradientShades(hexA, hexB, n) {
+      if (n <= 0) return [];
+      if (n === 1) return [hexA];
+      const a = this._hexToRgb(hexA), b = this._hexToRgb(hexB), out = [];
+      for (let i = 0; i < n; i++) {
+        const t = i / (n - 1);
+        const c = [0, 1, 2].map(j => Math.round(a[j] + (b[j] - a[j]) * t));
+        out.push('#' + c.map(v => v.toString(16).padStart(2, '0')).join(''));
+      }
+      return out;
+    },
+    _isClp(s) {
+      return /clp/i.test(s.label || '') || /clp/i.test(s.source_key || '');
+    },
     get incomeItems() {
       const src = (this.pnl && this.pnl.income && this.pnl.income.by_source) || [];
-      const pal = this.analytics.palette;
-      return src
-        .filter(x => (x.total_usd || 0) > 0)
-        .map((it, i) => ({ ...it, color: pal[i % pal.length] }));
+      const active = src.filter(x => (x.total_usd || 0) > 0)
+        .sort((a, b) => (b.total_usd || 0) - (a.total_usd || 0));
+      const clp = active.filter(s => this._isClp(s));
+      // Orden: desc por monto, pero las CLP se agrupan contiguas en el rango
+      // del primer CLP (no se repiten después).
+      const order = [];
+      let inserted = false;
+      for (const s of active) {
+        if (this._isClp(s)) {
+          if (!inserted) { order.push(...clp); inserted = true; }
+        } else {
+          order.push(s);
+        }
+      }
+      // Colores: no-CLP de una paleta sin teal/cyan; CLP en degradado teal
+      // (claro→oscuro) para que se lean como una sola sección.
+      const otherPool = ['#6366f1', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#84cc16', '#f97316', '#a855f7', '#64748b'];
+      const clpShades = this._gradientShades('#5eead4', '#0d9488', clp.length);
+      let oi = 0, ci = 0;
+      return order.map(s => {
+        const clpFlag = this._isClp(s);
+        const color = clpFlag ? clpShades[ci++ % (clpShades.length || 1)] : otherPool[oi++ % otherPool.length];
+        return { ...s, color, isClp: clpFlag };
+      });
     },
     get incomeDonutCenter() {
       const items = this.incomeItems;
@@ -4470,7 +4508,7 @@ function dashboard() {
       const items = this.incomeItems;
       if (!items.length) return '<div class="text-xs text-slate-400 dark:text-slate-600 italic py-8 text-center">Sin ingresos este mes</div>';
       const tot = items.reduce((a, b) => a + (b.total_usd || 0), 0) || 1;
-      const VB = 220, cx = 110, cy = 110, rO = 96, rI = 60;
+      const VB = 220, cx = 110, cy = 110, rO = 94, rI = 60, rB = 100;
       const dark = this.isDark;
       const stroke = dark ? '#0f172a' : '#ffffff';
       const polar = (r, a) => [(cx + r * Math.cos(a * Math.PI / 180)).toFixed(2), (cy + r * Math.sin(a * Math.PI / 180)).toFixed(2)];
@@ -4480,7 +4518,7 @@ function dashboard() {
         const dim = (this.incomeHoverKey && this.incomeHoverKey !== it.source_key) ? 0.4 : 1;
         paths = `<path d="M ${cx - rO} ${cy} A ${rO} ${rO} 0 1 1 ${cx + rO} ${cy} A ${rO} ${rO} 0 1 1 ${cx - rO} ${cy} Z M ${cx - rI} ${cy} A ${rI} ${rI} 0 1 0 ${cx + rI} ${cy} A ${rI} ${rI} 0 1 0 ${cx - rI} ${cy} Z" fill="${it.color}" fill-opacity="${dim}" fill-rule="evenodd"/>`;
       } else {
-        let cum = 0;
+        let cum = 0, clpStart = null, clpEnd = null;
         items.forEach((it, i) => {
           const frac = (it.total_usd || 0) / tot;
           const a0 = -90 + 360 * cum;
@@ -4491,8 +4529,16 @@ function dashboard() {
           const [x1i, y1i] = polar(rI, a1), [x0i, y0i] = polar(rI, a0);
           const d = `M ${x0o} ${y0o} A ${rO} ${rO} 0 ${large} 1 ${x1o} ${y1o} L ${x1i} ${y1i} A ${rI} ${rI} 0 ${large} 0 ${x0i} ${y0i} Z`;
           const dim = (this.incomeHoverKey && this.incomeHoverKey !== it.source_key) ? 0.4 : 1;
-          paths += `<path d="${d}" fill="${it.color}" fill-opacity="${dim}" stroke="${stroke}" stroke-width="1.5"/>`;
+          paths += `<path d="${d}" fill="${it.color}" fill-opacity="${dim}" stroke="${stroke}" stroke-width="2"/>`;
+          if (it.isClp) { if (clpStart === null) clpStart = a0; clpEnd = a1; }
         });
+        // Bracket externo que marca la sección CLP completa
+        if (clpStart !== null && clpEnd !== null && clpEnd > clpStart) {
+          const dimB = (this.incomeHoverKey && !((this.incomeItems.find(x => x.source_key === this.incomeHoverKey) || {}).isClp)) ? 0.35 : 1;
+          const [bx0, by0] = polar(rB, clpStart + 0.6), [bx1, by1] = polar(rB, clpEnd - 0.6);
+          const largeB = (clpEnd - clpStart) > 180 ? 1 : 0;
+          paths += `<path d="M ${bx0} ${by0} A ${rB} ${rB} 0 ${largeB} 1 ${bx1} ${by1}" fill="none" stroke="#0d9488" stroke-width="3" stroke-linecap="round" opacity="${dimB}"/>`;
+        }
       }
       return `<svg viewBox="0 0 ${VB} ${VB}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block">${paths}</svg>`;
     },
