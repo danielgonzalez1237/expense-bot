@@ -4744,8 +4744,8 @@ function dashboard() {
     },
     // Geometría compartida entre el SVG y el cálculo de hover (deben coincidir)
     _chartGeo(n) {
-      const VBW = 600, VBH = 240;
-      const mL = 46, mR = 12, mT = 12, mB = 32;
+      const VBW = 600, VBH = 248;
+      const mL = 52, mR = 16, mT = 18, mB = 34;
       const plotLeft = mL, plotRight = VBW - mR;
       const plotTop = mT, plotBottom = VBH - mB;
       const plotW = plotRight - plotLeft, plotH = plotBottom - plotTop;
@@ -4753,14 +4753,39 @@ function dashboard() {
       return { VBW, VBH, mL, mR, mT, mB, plotLeft, plotRight, plotTop, plotBottom, plotW, plotH, COL };
     },
     _fmtAxis(v) {
-      if (v >= 1000) return '$' + (v / 1000).toFixed(v >= 10000 ? 0 : 1) + 'k';
+      if (v === 0) return '$0';
+      if (v >= 1000) {
+        const k = v / 1000;
+        return '$' + k.toFixed(2).replace(/\.?0+$/, '') + 'k';
+      }
       return '$' + Math.round(v);
+    },
+    // Escala con topes "redondos" (0, 250, 500, 1k...) en vez de fracciones feas
+    _niceScale(max, target) {
+      if (!max || max <= 0) return { niceMax: 1, step: 1, ticks: [0, 1] };
+      const rawStep = max / (target || 4);
+      const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+      const res = rawStep / mag;
+      const mult = res <= 1 ? 1 : res <= 2 ? 2 : res <= 2.5 ? 2.5 : res <= 5 ? 5 : 10;
+      const step = mult * mag;
+      const niceMax = Math.ceil(max / step) * step;
+      const ticks = [];
+      for (let v = 0; v <= niceMax + step * 1e-6; v += step) ticks.push(Math.round(v * 100) / 100);
+      return { niceMax, step, ticks };
+    },
+    _mesAbbr(mm) {
+      const a = ['', 'ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+      return a[parseInt(mm, 10)] || '';
     },
     get chartSvg() {
       const d = this.analytics.data;
       if (!d || !d.days || !d.days.length) {
         return '<div class="text-xs text-slate-400 dark:text-slate-600 italic py-10 text-center">Sin datos en el rango seleccionado</div>';
       }
+      const dark = this.isDark;
+      const cGrid = dark ? '#273449' : '#eef2f7';
+      const cBase = dark ? '#475569' : '#cbd5e1';
+      const cTxt  = dark ? '#8b96a8' : '#9aa4b2';
       const groups = d.groups.map(g => g.key);
       const pal = this.analytics.palette;
       const colorOf = {};
@@ -4769,25 +4794,23 @@ function dashboard() {
       const g = this._chartGeo(N);
       const cumulative = this.analytics.mode === 'cumulative';
 
-      // Escala Y: max diario (columnas) o total acumulado (acumulada)
+      // Escala Y con topes redondos + headroom (las barras no tocan el tope)
       const dayTotals = d.days.map(day => {
         const row = d.daily[day] || {};
         return groups.reduce((s, k) => s + (row[k] || 0), 0);
       });
-      const maxV = cumulative
-        ? Math.max(1, d.grand_total_usd || 1)
-        : Math.max(1, ...dayTotals);
+      const rawMax = cumulative ? (d.grand_total_usd || 0) : Math.max(0, ...dayTotals);
+      const sc = this._niceScale(rawMax, 4);
+      const maxV = sc.niceMax || 1;
       const yOf = v => g.plotBottom - (v / maxV) * g.plotH;
 
-      // Grilla Y + etiquetas en $
+      // Grilla Y horizontal sutil + etiquetas $ redondas, alineadas a la derecha
       let grid = '';
-      const STEPS = 4;
-      for (let s = 0; s <= STEPS; s++) {
-        const val = maxV * s / STEPS;
+      sc.ticks.forEach(val => {
         const y = yOf(val);
-        grid += `<line x1="${g.plotLeft}" y1="${y.toFixed(1)}" x2="${g.plotRight}" y2="${y.toFixed(1)}" stroke="#e2e8f0" stroke-width="0.5" stroke-dasharray="2 2"/>`;
-        grid += `<text x="${g.plotLeft - 5}" y="${(y + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="#94a3b8">${this._fmtAxis(val)}</text>`;
-      }
+        grid += `<line x1="${g.plotLeft}" y1="${y.toFixed(1)}" x2="${g.plotRight}" y2="${y.toFixed(1)}" stroke="${cGrid}" stroke-width="1"/>`;
+        grid += `<text x="${g.plotLeft - 8}" y="${(y + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="${cTxt}">${this._fmtAxis(val)}</text>`;
+      });
 
       let inner = '';
       if (cumulative) {
@@ -4800,10 +4823,14 @@ function dashboard() {
         const area = `M ${pts[0][0].toFixed(1)},${g.plotBottom} ` +
           pts.map(p => 'L ' + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ') +
           ` L ${pts[pts.length - 1][0].toFixed(1)},${g.plotBottom} Z`;
-        inner = `<path d="${area}" fill="#6366f1" fill-opacity="0.12"/>` +
-                `<polyline points="${poly}" fill="none" stroke="#6366f1" stroke-width="2" stroke-linejoin="round"/>`;
+        inner = `<path d="${area}" fill="#6366f1" fill-opacity="0.14"/>` +
+                `<polyline points="${poly}" fill="none" stroke="#6366f1" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
+        // Punto final marcado
+        const last = pts[pts.length - 1];
+        inner += `<circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="3" fill="#6366f1"/>`;
       } else {
-        const barW = Math.min(g.COL * 0.72, 24);
+        const barW = Math.min(g.COL * 0.66, 22);
+        const r = Math.min(2, barW / 4);
         d.days.forEach((day, i) => {
           const row = d.daily[day] || {};
           const cx = g.plotLeft + i * g.COL + g.COL / 2;
@@ -4811,23 +4838,27 @@ function dashboard() {
           groups.forEach(k => {
             const v = row[k] || 0; if (!v) return;
             const h = (v / maxV) * g.plotH; yc -= h;
-            inner += `<rect x="${(cx - barW / 2).toFixed(1)}" y="${yc.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${colorOf[k]}" rx="1"/>`;
+            inner += `<rect x="${(cx - barW / 2).toFixed(1)}" y="${yc.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${colorOf[k]}" rx="${r.toFixed(1)}"/>`;
           });
         });
       }
 
-      // Eje X: fechas (mm-dd), más grandes y oscuras, con margen propio
-      const step = Math.max(1, Math.ceil(N / 9));
+      // Eje X: ~6 fechas. Día limpio ("15"); el mes solo cuando cambia ("15 abr")
+      const targetX = Math.min(N, 6);
+      const step = Math.max(1, Math.round(N / targetX));
       let xlabels = '';
+      let lastMonth = null;
       d.days.forEach((day, i) => {
         if (i % step === 0 || i === N - 1) {
           const cx = g.plotLeft + i * g.COL + g.COL / 2;
-          xlabels += `<text x="${cx.toFixed(1)}" y="${g.plotBottom + 16}" text-anchor="middle" font-size="9.5" fill="#64748b">${day.slice(5)}</text>`;
+          const mo = day.slice(5, 7), dd = parseInt(day.slice(8, 10), 10);
+          const txt = (mo !== lastMonth) ? (dd + ' ' + this._mesAbbr(mo)) : String(dd);
+          lastMonth = mo;
+          xlabels += `<text x="${cx.toFixed(1)}" y="${(g.plotBottom + 17).toFixed(1)}" text-anchor="middle" font-size="10" fill="${cTxt}">${txt}</text>`;
         }
       });
-      const axis = `<line x1="${g.plotLeft}" y1="${g.plotBottom}" x2="${g.plotRight}" y2="${g.plotBottom}" stroke="#cbd5e1" stroke-width="0.75"/>`;
 
-      return `<svg viewBox="0 0 ${g.VBW} ${g.VBH}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto">${grid}${axis}${inner}${xlabels}</svg>`;
+      return `<svg viewBox="0 0 ${g.VBW} ${g.VBH}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto">${grid}${inner}${xlabels}</svg>`;
     },
     onChartHover(e) {
       const d = this.analytics.data;
