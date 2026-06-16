@@ -67,6 +67,11 @@
     </div>
     <div class="flex items-center gap-2">
       <button
+        @click="openAnalytics()"
+        class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-3 py-1.5 font-medium transition flex items-center gap-1"
+        title="Análisis de gasto diario por categoría"
+      >📊 Análisis</button>
+      <button
         @click="$store.guide.open = true"
         class="text-slate-500 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300 transition p-2"
         title="Guía de uso"
@@ -1007,6 +1012,119 @@
 
     <div class="text-[11px] text-slate-400 dark:text-slate-600 mt-3 text-center" x-show="filteredExpenses.length">
       <span x-text="filteredExpenses.length"></span> de <span x-text="expenses.length"></span> gastos · tap para editar
+    </div>
+  </section>
+
+  <!-- ──────────────── Análisis de gasto diario ──────────────── -->
+  <section id="analytics-section" x-show="analytics.open" style="display:none"
+           class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm">
+    <div class="flex items-center justify-between mb-3">
+      <div>
+        <h2 class="text-sm font-semibold">📊 Análisis de gasto</h2>
+        <p class="text-[11px] text-slate-400 dark:text-slate-600">Gasto diario en USD, agrupado por categoría padre</p>
+      </div>
+      <button @click="analytics.open = false"
+              class="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition">✕ Cerrar</button>
+    </div>
+
+    <!-- Controles de rango -->
+    <div class="flex flex-wrap items-center gap-2 mb-3 text-xs">
+      <div class="flex gap-1">
+        <template x-for="q in [7,14,21,30]" :key="q">
+          <button @click="setQuickRange(q)"
+            :class="analytics.quick === q ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'"
+            class="px-2.5 py-1 rounded-md font-semibold transition" x-text="q + 'd'"></button>
+        </template>
+      </div>
+      <span class="text-slate-300 dark:text-slate-700">|</span>
+      <label class="flex items-center gap-1">
+        <span class="text-[10px] text-slate-500">Desde</span>
+        <input type="date" x-model="analytics.from" @change="applyCustomRange()"
+               class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs"/>
+      </label>
+      <label class="flex items-center gap-1">
+        <span class="text-[10px] text-slate-500">Hasta</span>
+        <input type="date" x-model="analytics.to" @change="applyCustomRange()"
+               class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs"/>
+      </label>
+      <span x-show="analytics.loading" class="text-[10px] text-slate-400 italic">cargando…</span>
+    </div>
+
+    <!-- Resumen + toggle de vista -->
+    <div class="flex items-center justify-between mb-2 flex-wrap gap-2" x-show="analytics.data">
+      <div class="text-xs text-slate-500">
+        <span class="font-semibold text-slate-700 dark:text-slate-300" x-text="fmtUsd(analytics.data && analytics.data.grand_total_usd)"></span>
+        total ·
+        <span x-text="fmtUsd(analytics.data && analytics.data.avg_daily_usd)"></span>/día prom ·
+        <span x-text="(analytics.data && analytics.data.n_days) || 0"></span> días
+      </div>
+      <div class="flex gap-1 text-[10px]">
+        <button @click="analytics.mode = 'columns'"
+          :class="analytics.mode === 'columns' ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
+          class="px-2 py-1 rounded-md font-semibold transition">Columnas</button>
+        <button @click="analytics.mode = 'cumulative'"
+          :class="analytics.mode === 'cumulative' ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
+          class="px-2 py-1 rounded-md font-semibold transition">Acumulada</button>
+      </div>
+    </div>
+
+    <!-- Gráfica (SVG inyectado) -->
+    <div x-html="chartSvg" class="mb-2 overflow-x-auto"></div>
+
+    <!-- Leyenda (solo en modo columnas) -->
+    <div x-show="analytics.mode === 'columns' && analytics.data" class="flex flex-wrap gap-x-3 gap-y-1 mb-4 text-[11px]">
+      <template x-for="(g, idx) in (analytics.data ? analytics.data.groups : [])" :key="g.key">
+        <span class="flex items-center gap-1">
+          <span class="inline-block w-2.5 h-2.5 rounded-sm" :style="'background:' + analyticsColor(idx)"></span>
+          <span x-text="g.icon + ' ' + g.label"></span>
+          <span class="text-slate-400 dark:text-slate-600" x-text="fmtUsd(g.total_usd)"></span>
+        </span>
+      </template>
+    </div>
+
+    <!-- Tabla media/mediana -->
+    <div x-show="analytics.data">
+      <div class="flex items-center justify-between mb-1.5 flex-wrap gap-2">
+        <div class="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600 font-semibold">Media / mediana por transacción</div>
+        <div class="flex gap-1 text-[10px]">
+          <button @click="analytics.statGroup = 'category'"
+            :class="analytics.statGroup === 'category' ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
+            class="px-2 py-1 rounded-md font-semibold transition">Por categoría</button>
+          <button @click="analytics.statGroup = 'payment'"
+            :class="analytics.statGroup === 'payment' ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
+            class="px-2 py-1 rounded-md font-semibold transition">Por método</button>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600 border-b border-slate-100 dark:border-slate-800">
+              <th class="text-left py-1 font-semibold" x-text="analytics.statGroup === 'category' ? 'Categoría' : 'Método'"></th>
+              <th class="text-right py-1 font-semibold">#</th>
+              <th class="text-right py-1 font-semibold">Total</th>
+              <th class="text-right py-1 font-semibold">Media</th>
+              <th class="text-right py-1 font-semibold">Mediana</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="row in analyticsStatRows" :key="row.key || row.method">
+              <tr class="border-b border-slate-50 dark:border-slate-800/50">
+                <td class="py-1 pr-2">
+                  <span x-show="row.icon" x-text="row.icon"></span>
+                  <span x-text="row.label || row.method"></span>
+                </td>
+                <td class="text-right py-1 text-slate-500" x-text="row.count"></td>
+                <td class="text-right py-1 font-medium" x-text="fmtUsd(row.total_usd)"></td>
+                <td class="text-right py-1" x-text="fmtUsd(row.mean_usd)"></td>
+                <td class="text-right py-1 font-semibold" x-text="fmtUsd(row.median_usd)"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+      <p class="text-[10px] text-slate-400 dark:text-slate-600 mt-2 italic">
+        La gráfica agrupa por categoría padre (subs suman en su padre). Mediana = valor central por transacción, menos sensible a compras grandes que la media.
+      </p>
     </div>
   </section>
 
@@ -4265,6 +4383,14 @@ function dashboard() {
     pnl: { income: { total_usd: 0, by_source: [] }, expenses: { total_usd: 0 }, net: { usd: 0, pct_of_income: null } },
     incomeEntries: [],          // entries individuales del mes (para el dropdown por fuente)
     expandedSources: {},        // { source_key: true } indica fuentes desplegadas
+    analytics: {
+      open: false, loaded: false, loading: false,
+      mode: 'columns',          // 'columns' | 'cumulative'
+      statGroup: 'category',    // 'category' | 'payment'
+      quick: 30, from: '', to: '', data: null,
+      palette: ['#6366f1','#10b981','#f59e0b','#ef4444','#06b6d4','#8b5cf6',
+                '#ec4899','#84cc16','#f97316','#14b8a6','#a855f7','#64748b'],
+    },
 
     entriesForSource(key) {
       return this.incomeEntries.filter(e => e.source_key === key);
@@ -4531,6 +4657,111 @@ function dashboard() {
       const store = Alpine.store('income');
       store.onClose = async () => { await this.reload(); };
       store.openFor(this.month, (this.pnl && this.pnl.expenses && this.pnl.expenses.total_usd) || 0);
+    },
+
+    // ── Análisis de gasto diario ─────────────────
+    openAnalytics() {
+      this.analytics.open = true;
+      if (!this.analytics.loaded) this.setQuickRange(this.analytics.quick || 30);
+      this.$nextTick(() => {
+        const el = document.getElementById('analytics-section');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    },
+    _fmtDate(d) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const da = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${da}`;
+    },
+    setQuickRange(n) {
+      const today = new Date();
+      const from = new Date(today.getTime() - (n - 1) * 86400000);
+      this.analytics.to = this._fmtDate(today);
+      this.analytics.from = this._fmtDate(from);
+      this.analytics.quick = n;
+      this.loadAnalytics();
+    },
+    applyCustomRange() {
+      this.analytics.quick = null;
+      if (this.analytics.from && this.analytics.to) this.loadAnalytics();
+    },
+    async loadAnalytics() {
+      this.analytics.loading = true;
+      try {
+        const qs = 'from=' + encodeURIComponent(this.analytics.from) +
+                   '&to=' + encodeURIComponent(this.analytics.to);
+        const r = await fetch('/api/analytics/daily?' + qs);
+        if (r.ok) { this.analytics.data = await r.json(); this.analytics.loaded = true; }
+      } catch (e) { /* silencioso */ } finally { this.analytics.loading = false; }
+    },
+    analyticsColor(idx) {
+      const p = this.analytics.palette;
+      return p[idx % p.length];
+    },
+    get analyticsStatRows() {
+      const d = this.analytics.data;
+      if (!d) return [];
+      return this.analytics.statGroup === 'category'
+        ? (d.stats_by_category || [])
+        : (d.stats_by_payment || []);
+    },
+    get chartSvg() {
+      const d = this.analytics.data;
+      if (!d || !d.days || !d.days.length) {
+        return '<div class="text-xs text-slate-400 dark:text-slate-600 italic py-10 text-center">Sin datos en el rango seleccionado</div>';
+      }
+      const groups = d.groups.map(g => g.key);
+      const pal = this.analytics.palette;
+      const colorOf = {};
+      d.groups.forEach((g, i) => { colorOf[g.key] = pal[i % pal.length]; });
+      const labelOf = {};
+      d.groups.forEach(g => { labelOf[g.key] = g.label; });
+      const COL = 18, barW = 12, H = 220, top = 10, bottom = 190, plotH = bottom - top;
+      const N = d.days.length, W = Math.max(N * COL, 60);
+      const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      let inner = '';
+      if (this.analytics.mode === 'cumulative') {
+        const grand = d.grand_total_usd || 1;
+        let run = 0; const pts = [];
+        d.days.forEach((day, i) => {
+          const row = d.daily[day] || {};
+          run += groups.reduce((s, k) => s + (row[k] || 0), 0);
+          const x = i * COL + COL / 2;
+          const y = bottom - (run / grand) * plotH;
+          pts.push([x, y]);
+        });
+        const poly = pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+        const area = `M ${pts[0][0].toFixed(1)},${bottom} ` +
+          pts.map(p => 'L ' + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ') +
+          ` L ${pts[pts.length - 1][0].toFixed(1)},${bottom} Z`;
+        inner = `<path d="${area}" fill="#6366f1" fill-opacity="0.12"/>` +
+                `<polyline points="${poly}" fill="none" stroke="#6366f1" stroke-width="2" stroke-linejoin="round"/>`;
+      } else {
+        const maxT = Math.max(1, ...d.days.map(day => {
+          const row = d.daily[day] || {};
+          return groups.reduce((s, k) => s + (row[k] || 0), 0);
+        }));
+        d.days.forEach((day, i) => {
+          const row = d.daily[day] || {};
+          let yc = bottom;
+          groups.forEach(k => {
+            const v = row[k] || 0; if (!v) return;
+            const h = (v / maxT) * plotH; yc -= h;
+            inner += `<rect x="${i * COL + 3}" y="${yc.toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" fill="${colorOf[k]}" rx="1">` +
+                     `<title>${esc(day)} · ${esc(labelOf[k] || k)}: $${v.toFixed(2)}</title></rect>`;
+          });
+        });
+      }
+      const step = Math.max(1, Math.ceil(N / 8));
+      let labels = '';
+      d.days.forEach((day, i) => {
+        if (i % step === 0 || i === N - 1) {
+          labels += `<text x="${i * COL + COL / 2}" y="${H - 10}" text-anchor="middle" font-size="8" fill="#94a3b8">${day.slice(5)}</text>`;
+        }
+      });
+      const base = `<line x1="0" y1="${bottom}" x2="${W}" y2="${bottom}" stroke="#cbd5e1" stroke-width="0.5"/>`;
+      return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:240px">${base}${inner}${labels}</svg>`;
     },
 
     get netPos() {

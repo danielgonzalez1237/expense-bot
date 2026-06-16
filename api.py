@@ -3107,6 +3107,146 @@ def make_api_app() -> FastAPI:
             },
         )
 
+    @api.get("/api/analytics/daily")
+    def analytics_daily(
+        from_: Optional[str] = Query(None, alias="from"),
+        to: Optional[str] = Query(None),
+    ):
+        """Gasto diario en USD agrupado por categoría PADRE, en un rango de
+        fechas (a nivel día, cruza meses). Devuelve la matriz diaria para la
+        gráfica + stats (media/mediana por transacción) por categoría y por
+        método de pago. Solo lectura — no toca nada.
+        """
+        import datetime as _dt
+        from collections import defaultdict
+
+        if not to:
+            to = _dt.date.today().isoformat()
+        if not from_:
+            from_ = (_dt.date.fromisoformat(to) - _dt.timedelta(days=29)).isoformat()
+        try:
+            d_from = _dt.date.fromisoformat(from_)
+            d_to = _dt.date.fromisoformat(to)
+        except ValueError:
+            raise HTTPException(400, "from/to deben ser YYYY-MM-DD")
+        if d_from > d_to:
+            d_from, d_to = d_to, d_from
+        # Límite defensivo: máximo 366 días por consulta
+        if (d_to - d_from).days > 366:
+            d_from = d_to - _dt.timedelta(days=366)
+
+        rows = _query_all(
+            "SELECT fecha, monto_usd, categoria, "
+            "COALESCE(metodo_pago, 'Sin especificar') AS metodo_pago "
+            "FROM expenses WHERE fecha >= ? AND fecha <= ? ORDER BY fecha",
+            (d_from.isoformat(), d_to.isoformat()),
+        )
+
+        def _parent_group(cat):
+            v = bot.BUDGET.get(cat, {}) if isinstance(bot.BUDGET, dict) else {}
+            return v.get("parent") or cat
+
+        def _meta(key):
+            v = bot.BUDGET.get(key, {}) if isinstance(bot.BUDGET, dict) else {}
+            return v.get("label", key), v.get("icon", "📦")
+
+        def _median(lst):
+            if not lst:
+                return 0.0
+            s = sorted(lst)
+            n = len(s)
+            m = n // 2
+            return s[m] if n % 2 else (s[m - 1] + s[m]) / 2
+
+        # Lista de todos los días del rango (incluye días sin gasto)
+        days = []
+        cur = d_from
+        while cur <= d_to:
+            days.append(cur.isoformat())
+            cur += _dt.timedelta(days=1)
+
+        group_total = defaultdict(float)
+        daily = {d: defaultdict(float) for d in days}
+        amounts_by_group = defaultdict(list)
+        amounts_by_method = defaultdict(list)
+        method_total = defaultdict(float)
+        grand = 0.0
+        for r in rows:
+            g = _parent_group(r["categoria"])
+            amt = float(r["monto_usd"] or 0)
+            group_total[g] += amt
+            day = (r["fecha"] or "")[:10]
+            if day in daily:
+                daily[day][g] += amt
+            amounts_by_group[g].append(amt)
+            amounts_by_method[r["metodo_pago"]].append(amt)
+            method_total[r["metodo_pago"]] += amt
+            grand += amt
+
+        # Ordenar grupos por gasto total desc; tope 11 + "Otros" para que la
+        # gráfica apilada sea legible (aunque agrupemos por padre).
+        ordered = sorted(group_total.items(), key=lambda x: -x[1])
+        CAP = 11
+        top_keys = [k for k, _ in ordered[:CAP]]
+        other_keys = [k for k, _ in ordered[CAP:]]
+
+        chart_groups = []
+        for k in top_keys:
+            lab, ic = _meta(k)
+            chart_groups.append({"key": k, "label": lab, "icon": ic,
+                                 "total_usd": round(group_total[k], 2)})
+        if other_keys:
+            chart_groups.append({
+                "key": "__otros__", "label": "Otros", "icon": "📦",
+                "total_usd": round(sum(group_total[k] for k in other_keys), 2),
+            })
+
+        daily_out = {}
+        for d in days:
+            dd = daily[d]
+            row = {}
+            for k in top_keys:
+                if dd.get(k):
+                    row[k] = round(dd[k], 2)
+            if other_keys:
+                ot = sum(dd.get(k, 0) for k in other_keys)
+                if ot:
+                    row["__otros__"] = round(ot, 2)
+            daily_out[d] = row
+
+        stats_by_category = []
+        for k, _ in ordered:
+            lab, ic = _meta(k)
+            amts = amounts_by_group[k]
+            stats_by_category.append({
+                "key": k, "label": lab, "icon": ic,
+                "count": len(amts), "total_usd": round(group_total[k], 2),
+                "mean_usd": round(sum(amts) / len(amts), 2) if amts else 0.0,
+                "median_usd": round(_median(amts), 2),
+            })
+
+        stats_by_payment = []
+        for m, tot in sorted(method_total.items(), key=lambda x: -x[1]):
+            amts = amounts_by_method[m]
+            stats_by_payment.append({
+                "method": m, "count": len(amts), "total_usd": round(tot, 2),
+                "mean_usd": round(sum(amts) / len(amts), 2) if amts else 0.0,
+                "median_usd": round(_median(amts), 2),
+            })
+
+        return {
+            "from": d_from.isoformat(),
+            "to": d_to.isoformat(),
+            "n_days": len(days),
+            "days": days,
+            "groups": chart_groups,
+            "daily": daily_out,
+            "grand_total_usd": round(grand, 2),
+            "avg_daily_usd": round(grand / len(days), 2) if days else 0.0,
+            "stats_by_category": stats_by_category,
+            "stats_by_payment": stats_by_payment,
+        }
+
     # ──────────────── Static frontend ────────────────
     # Serve index.html at / and any other static assets under /static/*.
     # Keeping these AFTER the /api/* routes above ensures they don't shadow
