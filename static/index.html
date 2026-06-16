@@ -1068,8 +1068,44 @@
       </div>
     </div>
 
-    <!-- Gráfica (SVG inyectado) -->
-    <div x-html="chartSvg" class="mb-2 overflow-x-auto"></div>
+    <!-- Gráfica (SVG inyectado) + capa de hover -->
+    <div class="relative mb-2" x-show="analytics.data">
+      <div x-html="chartSvg" @mousemove="onChartHover($event)" @mouseleave="analytics.hover = null"></div>
+      <!-- Guía vertical -->
+      <div x-show="analytics.hover" class="absolute top-0 bottom-5 w-px bg-slate-400/40 dark:bg-slate-500/40 pointer-events-none" :style="'left:' + hoverGuideLeft"></div>
+      <!-- Tooltip que sigue el cursor -->
+      <div x-show="hoverDay" x-cloak
+           class="absolute z-30 top-1 pointer-events-none bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg px-3 py-2 text-[11px] min-w-[150px] max-w-[230px]"
+           :style="'left:' + (analytics.hover ? analytics.hover.frac * 100 : 0) + '%; transform: translateX(' + ((hoverDay && hoverDay.flip) ? 'calc(-100% - 10px)' : '10px') + ')'">
+        <template x-if="hoverDay">
+          <div>
+            <div class="font-semibold text-slate-700 dark:text-slate-200 mb-1" x-text="hoverDay.day"></div>
+            <template x-if="analytics.mode === 'cumulative'">
+              <div class="space-y-0.5">
+                <div class="flex justify-between gap-3"><span class="text-slate-500">Acumulado</span><span class="font-semibold" x-text="fmtUsd(hoverDay.cum)"></span></div>
+                <div class="flex justify-between gap-3"><span class="text-slate-500">Este día</span><span x-text="fmtUsd(hoverDay.total)"></span></div>
+              </div>
+            </template>
+            <template x-if="analytics.mode !== 'cumulative'">
+              <div class="space-y-0.5">
+                <template x-for="it in hoverDay.items" :key="it.label">
+                  <div class="flex justify-between gap-3 items-center">
+                    <span class="flex items-center gap-1 truncate">
+                      <span class="inline-block w-2 h-2 rounded-sm shrink-0" :style="'background:' + it.color"></span>
+                      <span class="truncate" x-text="it.icon + ' ' + it.label"></span>
+                    </span>
+                    <span class="font-medium shrink-0" x-text="fmtUsd(it.value)"></span>
+                  </div>
+                </template>
+                <div class="flex justify-between gap-3 border-t border-slate-100 dark:border-slate-700 mt-1 pt-1 font-semibold">
+                  <span>Total día</span><span x-text="fmtUsd(hoverDay.total)"></span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+    </div>
 
     <!-- Leyenda (solo en modo columnas) -->
     <div x-show="analytics.mode === 'columns' && analytics.data" class="flex flex-wrap gap-x-3 gap-y-1 mb-4 text-[11px]">
@@ -4387,7 +4423,7 @@ function dashboard() {
       open: false, loaded: false, loading: false,
       mode: 'columns',          // 'columns' | 'cumulative'
       statGroup: 'category',    // 'category' | 'payment'
-      quick: 30, from: '', to: '', data: null,
+      quick: 30, from: '', to: '', data: null, hover: null,
       palette: ['#6366f1','#10b981','#f59e0b','#ef4444','#06b6d4','#8b5cf6',
                 '#ec4899','#84cc16','#f97316','#14b8a6','#a855f7','#64748b'],
     },
@@ -4706,6 +4742,20 @@ function dashboard() {
         ? (d.stats_by_category || [])
         : (d.stats_by_payment || []);
     },
+    // Geometría compartida entre el SVG y el cálculo de hover (deben coincidir)
+    _chartGeo(n) {
+      const VBW = 600, VBH = 240;
+      const mL = 46, mR = 12, mT = 12, mB = 32;
+      const plotLeft = mL, plotRight = VBW - mR;
+      const plotTop = mT, plotBottom = VBH - mB;
+      const plotW = plotRight - plotLeft, plotH = plotBottom - plotTop;
+      const COL = plotW / Math.max(1, n);
+      return { VBW, VBH, mL, mR, mT, mB, plotLeft, plotRight, plotTop, plotBottom, plotW, plotH, COL };
+    },
+    _fmtAxis(v) {
+      if (v >= 1000) return '$' + (v / 1000).toFixed(v >= 10000 ? 0 : 1) + 'k';
+      return '$' + Math.round(v);
+    },
     get chartSvg() {
       const d = this.analytics.data;
       if (!d || !d.days || !d.days.length) {
@@ -4715,53 +4765,105 @@ function dashboard() {
       const pal = this.analytics.palette;
       const colorOf = {};
       d.groups.forEach((g, i) => { colorOf[g.key] = pal[i % pal.length]; });
-      const labelOf = {};
-      d.groups.forEach(g => { labelOf[g.key] = g.label; });
-      const COL = 18, barW = 12, H = 220, top = 10, bottom = 190, plotH = bottom - top;
-      const N = d.days.length, W = Math.max(N * COL, 60);
-      const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const N = d.days.length;
+      const g = this._chartGeo(N);
+      const cumulative = this.analytics.mode === 'cumulative';
+
+      // Escala Y: max diario (columnas) o total acumulado (acumulada)
+      const dayTotals = d.days.map(day => {
+        const row = d.daily[day] || {};
+        return groups.reduce((s, k) => s + (row[k] || 0), 0);
+      });
+      const maxV = cumulative
+        ? Math.max(1, d.grand_total_usd || 1)
+        : Math.max(1, ...dayTotals);
+      const yOf = v => g.plotBottom - (v / maxV) * g.plotH;
+
+      // Grilla Y + etiquetas en $
+      let grid = '';
+      const STEPS = 4;
+      for (let s = 0; s <= STEPS; s++) {
+        const val = maxV * s / STEPS;
+        const y = yOf(val);
+        grid += `<line x1="${g.plotLeft}" y1="${y.toFixed(1)}" x2="${g.plotRight}" y2="${y.toFixed(1)}" stroke="#e2e8f0" stroke-width="0.5" stroke-dasharray="2 2"/>`;
+        grid += `<text x="${g.plotLeft - 5}" y="${(y + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="#94a3b8">${this._fmtAxis(val)}</text>`;
+      }
+
       let inner = '';
-      if (this.analytics.mode === 'cumulative') {
-        const grand = d.grand_total_usd || 1;
+      if (cumulative) {
         let run = 0; const pts = [];
         d.days.forEach((day, i) => {
-          const row = d.daily[day] || {};
-          run += groups.reduce((s, k) => s + (row[k] || 0), 0);
-          const x = i * COL + COL / 2;
-          const y = bottom - (run / grand) * plotH;
-          pts.push([x, y]);
+          run += dayTotals[i];
+          pts.push([g.plotLeft + i * g.COL + g.COL / 2, yOf(run)]);
         });
         const poly = pts.map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
-        const area = `M ${pts[0][0].toFixed(1)},${bottom} ` +
+        const area = `M ${pts[0][0].toFixed(1)},${g.plotBottom} ` +
           pts.map(p => 'L ' + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ') +
-          ` L ${pts[pts.length - 1][0].toFixed(1)},${bottom} Z`;
+          ` L ${pts[pts.length - 1][0].toFixed(1)},${g.plotBottom} Z`;
         inner = `<path d="${area}" fill="#6366f1" fill-opacity="0.12"/>` +
                 `<polyline points="${poly}" fill="none" stroke="#6366f1" stroke-width="2" stroke-linejoin="round"/>`;
       } else {
-        const maxT = Math.max(1, ...d.days.map(day => {
-          const row = d.daily[day] || {};
-          return groups.reduce((s, k) => s + (row[k] || 0), 0);
-        }));
+        const barW = Math.min(g.COL * 0.72, 24);
         d.days.forEach((day, i) => {
           const row = d.daily[day] || {};
-          let yc = bottom;
+          const cx = g.plotLeft + i * g.COL + g.COL / 2;
+          let yc = g.plotBottom;
           groups.forEach(k => {
             const v = row[k] || 0; if (!v) return;
-            const h = (v / maxT) * plotH; yc -= h;
-            inner += `<rect x="${i * COL + 3}" y="${yc.toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" fill="${colorOf[k]}" rx="1">` +
-                     `<title>${esc(day)} · ${esc(labelOf[k] || k)}: $${v.toFixed(2)}</title></rect>`;
+            const h = (v / maxV) * g.plotH; yc -= h;
+            inner += `<rect x="${(cx - barW / 2).toFixed(1)}" y="${yc.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${colorOf[k]}" rx="1"/>`;
           });
         });
       }
-      const step = Math.max(1, Math.ceil(N / 8));
-      let labels = '';
+
+      // Eje X: fechas (mm-dd), más grandes y oscuras, con margen propio
+      const step = Math.max(1, Math.ceil(N / 9));
+      let xlabels = '';
       d.days.forEach((day, i) => {
         if (i % step === 0 || i === N - 1) {
-          labels += `<text x="${i * COL + COL / 2}" y="${H - 10}" text-anchor="middle" font-size="8" fill="#94a3b8">${day.slice(5)}</text>`;
+          const cx = g.plotLeft + i * g.COL + g.COL / 2;
+          xlabels += `<text x="${cx.toFixed(1)}" y="${g.plotBottom + 16}" text-anchor="middle" font-size="9.5" fill="#64748b">${day.slice(5)}</text>`;
         }
       });
-      const base = `<line x1="0" y1="${bottom}" x2="${W}" y2="${bottom}" stroke="#cbd5e1" stroke-width="0.5"/>`;
-      return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:240px">${base}${inner}${labels}</svg>`;
+      const axis = `<line x1="${g.plotLeft}" y1="${g.plotBottom}" x2="${g.plotRight}" y2="${g.plotBottom}" stroke="#cbd5e1" stroke-width="0.75"/>`;
+
+      return `<svg viewBox="0 0 ${g.VBW} ${g.VBH}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto">${grid}${axis}${inner}${xlabels}</svg>`;
+    },
+    onChartHover(e) {
+      const d = this.analytics.data;
+      if (!d || !d.days || !d.days.length) { this.analytics.hover = null; return; }
+      const rect = e.currentTarget.getBoundingClientRect();
+      const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+      const N = d.days.length;
+      const g = this._chartGeo(N);
+      const vbX = frac * g.VBW;
+      let idx = Math.floor((vbX - g.plotLeft) / g.COL);
+      if (idx < 0 || idx >= N) { this.analytics.hover = null; return; }
+      this.analytics.hover = { index: idx, frac };
+    },
+    get hoverGuideLeft() {
+      const d = this.analytics.data, h = this.analytics.hover;
+      if (!d || !h) return '0%';
+      const g = this._chartGeo(d.days.length);
+      const cx = g.plotLeft + h.index * g.COL + g.COL / 2;
+      return (cx / g.VBW * 100).toFixed(2) + '%';
+    },
+    get hoverDay() {
+      const d = this.analytics.data, h = this.analytics.hover;
+      if (!d || !h) return null;
+      const day = d.days[h.index]; if (!day) return null;
+      const row = d.daily[day] || {};
+      const items = d.groups
+        .map((gr, i) => ({ label: gr.label, icon: gr.icon, color: this.analyticsColor(i), value: row[gr.key] || 0 }))
+        .filter(x => x.value > 0)
+        .sort((a, b) => b.value - a.value);
+      const total = items.reduce((s, x) => s + x.value, 0);
+      let cum = 0;
+      for (let i = 0; i <= h.index; i++) {
+        const r = d.daily[d.days[i]] || {};
+        cum += d.groups.reduce((s, gr) => s + (r[gr.key] || 0), 0);
+      }
+      return { day, items, total, cum, flip: h.frac > 0.5 };
     },
 
     get netPos() {
