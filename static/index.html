@@ -254,17 +254,31 @@
     <!-- Mini breakdown by income source -->
     <div class="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800" x-show="pnl.income && pnl.income.by_source && pnl.income.by_source.length">
       <div class="text-[10px] text-slate-500 uppercase tracking-wide mb-1.5">Por fuente</div>
+
+      <!-- Donut de ingresos por fuente (hover resalta segmento + centro) -->
+      <div class="relative mb-3 select-none" style="max-width:220px;margin-left:auto;margin-right:auto"
+           @mousemove="onDonutHover($event)" @mouseleave="incomeHoverKey = null">
+        <div x-html="incomeDonutSvg"></div>
+        <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center px-8">
+          <div class="text-[10px] text-slate-500 dark:text-slate-400 leading-tight max-w-[130px] truncate" x-text="incomeDonutCenter.label"></div>
+          <div class="text-base font-bold leading-tight mt-0.5" x-text="fmtUsd(incomeDonutCenter.value)"></div>
+          <div class="text-[10px] text-indigo-500 dark:text-indigo-400 font-semibold mt-0.5" x-show="incomeDonutCenter.hovered" x-text="incomeDonutCenter.pct + '% del total'"></div>
+        </div>
+      </div>
+
       <div class="space-y-1">
-        <template x-for="s in pnl.income.by_source" :key="s.source_key">
-          <div>
+        <template x-for="s in incomeItems" :key="s.source_key">
+          <div @mouseenter="incomeHoverKey = s.source_key" @mouseleave="incomeHoverKey = null">
             <!-- Header clickeable (toggle dropdown) -->
             <button
               type="button"
               @click="toggleSource(s.source_key)"
               class="w-full flex justify-between items-center text-xs hover:bg-slate-50 dark:hover:bg-slate-800/40 rounded px-1.5 py-1 transition"
+              :class="incomeHoverKey === s.source_key ? 'bg-slate-100 dark:bg-slate-800/60' : ''"
               :title="expandedSources[s.source_key] ? 'Ocultar entries' : 'Ver entries individuales'"
             >
               <span class="truncate flex items-center gap-1">
+                <span class="inline-block w-2.5 h-2.5 rounded-sm shrink-0" :style="'background:' + s.color"></span>
                 <span class="text-slate-400 dark:text-slate-600 text-[10px] inline-block w-2.5 transition-transform"
                       :class="expandedSources[s.source_key] ? 'rotate-90' : ''">▶</span>
                 <span x-text="s.icon"></span>
@@ -4419,6 +4433,7 @@ function dashboard() {
     pnl: { income: { total_usd: 0, by_source: [] }, expenses: { total_usd: 0 }, net: { usd: 0, pct_of_income: null } },
     incomeEntries: [],          // entries individuales del mes (para el dropdown por fuente)
     expandedSources: {},        // { source_key: true } indica fuentes desplegadas
+    incomeHoverKey: null,       // fuente resaltada en el donut de ingresos
     analytics: {
       open: false, loaded: false, loading: false,
       mode: 'columns',          // 'columns' | 'cumulative'
@@ -4433,6 +4448,73 @@ function dashboard() {
     },
     toggleSource(key) {
       this.expandedSources[key] = !this.expandedSources[key];
+    },
+    // ── Donut de ingresos por fuente ─────────────
+    get incomeItems() {
+      const src = (this.pnl && this.pnl.income && this.pnl.income.by_source) || [];
+      const pal = this.analytics.palette;
+      return src
+        .filter(x => (x.total_usd || 0) > 0)
+        .map((it, i) => ({ ...it, color: pal[i % pal.length] }));
+    },
+    get incomeDonutCenter() {
+      const items = this.incomeItems;
+      const tot = items.reduce((a, b) => a + (b.total_usd || 0), 0);
+      if (this.incomeHoverKey) {
+        const it = items.find(x => x.source_key === this.incomeHoverKey);
+        if (it) return { label: it.label, value: it.total_usd, pct: tot > 0 ? Math.round(it.total_usd / tot * 100) : 0, hovered: true };
+      }
+      return { label: 'Total ingresos', value: tot, pct: 100, hovered: false };
+    },
+    get incomeDonutSvg() {
+      const items = this.incomeItems;
+      if (!items.length) return '<div class="text-xs text-slate-400 dark:text-slate-600 italic py-8 text-center">Sin ingresos este mes</div>';
+      const tot = items.reduce((a, b) => a + (b.total_usd || 0), 0) || 1;
+      const VB = 220, cx = 110, cy = 110, rO = 96, rI = 60;
+      const dark = this.isDark;
+      const stroke = dark ? '#0f172a' : '#ffffff';
+      const polar = (r, a) => [(cx + r * Math.cos(a * Math.PI / 180)).toFixed(2), (cy + r * Math.sin(a * Math.PI / 180)).toFixed(2)];
+      let paths = '';
+      if (items.length === 1) {
+        const it = items[0];
+        const dim = (this.incomeHoverKey && this.incomeHoverKey !== it.source_key) ? 0.4 : 1;
+        paths = `<path d="M ${cx - rO} ${cy} A ${rO} ${rO} 0 1 1 ${cx + rO} ${cy} A ${rO} ${rO} 0 1 1 ${cx - rO} ${cy} Z M ${cx - rI} ${cy} A ${rI} ${rI} 0 1 0 ${cx + rI} ${cy} A ${rI} ${rI} 0 1 0 ${cx - rI} ${cy} Z" fill="${it.color}" fill-opacity="${dim}" fill-rule="evenodd"/>`;
+      } else {
+        let cum = 0;
+        items.forEach((it, i) => {
+          const frac = (it.total_usd || 0) / tot;
+          const a0 = -90 + 360 * cum;
+          cum += frac;
+          const a1 = (i === items.length - 1) ? 270 : (-90 + 360 * cum);
+          const large = (a1 - a0) > 180 ? 1 : 0;
+          const [x0o, y0o] = polar(rO, a0), [x1o, y1o] = polar(rO, a1);
+          const [x1i, y1i] = polar(rI, a1), [x0i, y0i] = polar(rI, a0);
+          const d = `M ${x0o} ${y0o} A ${rO} ${rO} 0 ${large} 1 ${x1o} ${y1o} L ${x1i} ${y1i} A ${rI} ${rI} 0 ${large} 0 ${x0i} ${y0i} Z`;
+          const dim = (this.incomeHoverKey && this.incomeHoverKey !== it.source_key) ? 0.4 : 1;
+          paths += `<path d="${d}" fill="${it.color}" fill-opacity="${dim}" stroke="${stroke}" stroke-width="1.5"/>`;
+        });
+      }
+      return `<svg viewBox="0 0 ${VB} ${VB}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block">${paths}</svg>`;
+    },
+    onDonutHover(e) {
+      const items = this.incomeItems;
+      if (!items.length) { if (this.incomeHoverKey !== null) this.incomeHoverKey = null; return; }
+      const tot = items.reduce((a, b) => a + (b.total_usd || 0), 0) || 1;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const scale = 220 / rect.width;
+      const dx = (e.clientX - rect.left) * scale - 110;
+      const dy = (e.clientY - rect.top) * scale - 110;
+      const r = Math.hypot(dx, dy);
+      if (r < 60 || r > 96) { if (this.incomeHoverKey !== null) this.incomeHoverKey = null; return; }
+      const ang = Math.atan2(dy, dx) * 180 / Math.PI;
+      const frac = ((((ang + 90) % 360) + 360) % 360) / 360;
+      let cum = 0, key = null;
+      for (let i = 0; i < items.length; i++) {
+        const f = (items[i].total_usd || 0) / tot;
+        if (frac >= cum && frac < cum + f) { key = items[i].source_key; break; }
+        cum += f;
+      }
+      if (this.incomeHoverKey !== key) this.incomeHoverKey = key;
     },
 
     async init() {
