@@ -263,12 +263,31 @@
           <div class="text-[10px] text-slate-500 dark:text-slate-400 leading-tight max-w-[130px] truncate" x-text="incomeDonutCenter.label"></div>
           <div class="text-base font-bold leading-tight mt-0.5" x-text="fmtUsd(incomeDonutCenter.value)"></div>
           <div class="text-[10px] text-indigo-500 dark:text-indigo-400 font-semibold mt-0.5" x-show="incomeDonutCenter.hovered" x-text="incomeDonutCenter.pct + '% del total'"></div>
+          <div class="text-[9px] text-slate-400 dark:text-slate-500 mt-0.5 max-w-[140px] truncate" x-show="incomeDonutCenter.sub" x-text="incomeDonutCenter.sub"></div>
         </div>
+      </div>
+
+      <!-- Chips de total por grupo (hover resalta el grupo en el donut) -->
+      <div class="flex flex-wrap gap-1.5 justify-center mb-3">
+        <template x-for="grp in incomeGroups" :key="grp.key">
+          <button type="button"
+            @mouseenter="incomeHoverGroup = grp.key; incomeHoverKey = null"
+            @mouseleave="incomeHoverGroup = null"
+            class="flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] transition"
+            :class="incomeHoverGroup === grp.key ? 'border-slate-400 dark:border-slate-500 bg-slate-50 dark:bg-slate-800' : 'border-slate-200 dark:border-slate-700'"
+            :title="grp.count + ' fuente(s)'"
+          >
+            <span class="inline-block w-2.5 h-2.5 rounded-sm shrink-0" :style="'background:' + grp.color"></span>
+            <span x-text="grp.icon + ' ' + grp.label"></span>
+            <span class="font-semibold" x-text="fmtUsd(grp.total)"></span>
+            <span class="text-slate-400 dark:text-slate-600" x-text="grp.pct + '%'"></span>
+          </button>
+        </template>
       </div>
 
       <div class="space-y-1">
         <template x-for="s in incomeItems" :key="s.source_key">
-          <div @mouseenter="incomeHoverKey = s.source_key" @mouseleave="incomeHoverKey = null">
+          <div @mouseenter="incomeHoverKey = s.source_key; incomeHoverGroup = null" @mouseleave="incomeHoverKey = null">
             <!-- Header clickeable (toggle dropdown) -->
             <button
               type="button"
@@ -4434,6 +4453,7 @@ function dashboard() {
     incomeEntries: [],          // entries individuales del mes (para el dropdown por fuente)
     expandedSources: {},        // { source_key: true } indica fuentes desplegadas
     incomeHoverKey: null,       // fuente resaltada en el donut de ingresos
+    incomeHoverGroup: null,     // grupo resaltado (chip de total por grupo)
     analytics: {
       open: false, loaded: false, loading: false,
       mode: 'columns',          // 'columns' | 'cumulative'
@@ -4465,44 +4485,69 @@ function dashboard() {
       }
       return out;
     },
-    _isClp(s) {
-      return /clp/i.test(s.label || '') || /clp/i.test(s.source_key || '');
+    // Definición de grupos de ingreso (orden = orden en el donut).
+    // Cada grupo: degradado de color a→b. Matching por regex de label o por
+    // lista explícita de source_key; lo no reconocido cae en 'otros'.
+    _incomeGroupDefs() {
+      return [
+        { key: 'clp',     label: 'CLP',              icon: '🌊', a: '#5eead4', b: '#0d9488', match: s => /clp/i.test(s.label || '') },
+        { key: 'rentas',  label: 'Rentas',           icon: '🏠', a: '#fcd34d', b: '#b45309', match: s => /alquiler|renta/i.test(s.label || '') },
+        { key: 'defi',    label: 'Cripto DeFi',      icon: '💰', a: '#c4b5fd', b: '#6d28d9', keys: ['aave', 'yield', 'fluid', 'deltayield', 'caashback'] },
+        { key: 'cefi',    label: 'Cripto CeFi',      icon: '💵', a: '#f9a8d4', b: '#db2777', keys: ['nexo'] },
+        { key: 'mineria', label: 'Minería',          icon: '⛏️', a: '#d6d3d1', b: '#78716c', keys: ['potosi'] },
+        { key: 'trading', label: 'Trading',          icon: '📈', a: '#fca5a5', b: '#dc2626', keys: ['futuros'] },
+        { key: 'otros',   label: 'Tradicional/Otros', icon: '🏦', a: '#7dd3fc', b: '#0284c7', keys: ['ib_dividends', 'intereses'] },
+      ];
+    },
+    _groupOf(s) {
+      for (const g of this._incomeGroupDefs()) {
+        if (g.match && g.match(s)) return g.key;
+        if (g.keys && g.keys.includes(s.source_key)) return g.key;
+      }
+      return 'otros';
     },
     get incomeItems() {
       const src = (this.pnl && this.pnl.income && this.pnl.income.by_source) || [];
-      const active = src.filter(x => (x.total_usd || 0) > 0)
-        .sort((a, b) => (b.total_usd || 0) - (a.total_usd || 0));
-      const clp = active.filter(s => this._isClp(s));
-      // Orden: desc por monto, pero las CLP se agrupan contiguas en el rango
-      // del primer CLP (no se repiten después).
+      const active = src.filter(x => (x.total_usd || 0) > 0);
+      const defs = this._incomeGroupDefs();
+      const tagged = active.map(s => ({ s, gk: this._groupOf(s) }));
       const order = [];
-      let inserted = false;
-      for (const s of active) {
-        if (this._isClp(s)) {
-          if (!inserted) { order.push(...clp); inserted = true; }
-        } else {
-          order.push(s);
-        }
+      for (const g of defs) {
+        const inG = tagged.filter(t => t.gk === g.key).map(t => t.s)
+          .sort((a, b) => (b.total_usd || 0) - (a.total_usd || 0));
+        if (!inG.length) continue;
+        const shades = this._gradientShades(g.a, g.b, inG.length);
+        inG.forEach((s, i) => order.push({ ...s, color: shades[i], groupKey: g.key, groupLabel: g.label, groupIcon: g.icon }));
       }
-      // Colores: no-CLP de una paleta sin teal/cyan; CLP en degradado teal
-      // (claro→oscuro) para que se lean como una sola sección.
-      const otherPool = ['#6366f1', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#84cc16', '#f97316', '#a855f7', '#64748b'];
-      const clpShades = this._gradientShades('#5eead4', '#0d9488', clp.length);
-      let oi = 0, ci = 0;
-      return order.map(s => {
-        const clpFlag = this._isClp(s);
-        const color = clpFlag ? clpShades[ci++ % (clpShades.length || 1)] : otherPool[oi++ % otherPool.length];
-        return { ...s, color, isClp: clpFlag };
-      });
+      return order;
+    },
+    get incomeGroups() {
+      const items = this.incomeItems;
+      const tot = items.reduce((a, b) => a + (b.total_usd || 0), 0) || 1;
+      const out = [];
+      for (const g of this._incomeGroupDefs()) {
+        const inG = items.filter(s => s.groupKey === g.key);
+        if (!inG.length) continue;
+        const gt = inG.reduce((a, b) => a + (b.total_usd || 0), 0);
+        out.push({ key: g.key, label: g.label, icon: g.icon, color: g.b, total: gt, pct: Math.round(gt / tot * 100), count: inG.length });
+      }
+      return out;
     },
     get incomeDonutCenter() {
       const items = this.incomeItems;
       const tot = items.reduce((a, b) => a + (b.total_usd || 0), 0);
+      if (this.incomeHoverGroup) {
+        const g = this.incomeGroups.find(x => x.key === this.incomeHoverGroup);
+        if (g) return { label: g.icon + ' ' + g.label, value: g.total, pct: g.pct, sub: g.count + (g.count === 1 ? ' fuente' : ' fuentes'), hovered: true };
+      }
       if (this.incomeHoverKey) {
         const it = items.find(x => x.source_key === this.incomeHoverKey);
-        if (it) return { label: it.label, value: it.total_usd, pct: tot > 0 ? Math.round(it.total_usd / tot * 100) : 0, hovered: true };
+        if (it) {
+          const g = this.incomeGroups.find(x => x.key === it.groupKey);
+          return { label: it.label, value: it.total_usd, pct: tot > 0 ? Math.round(it.total_usd / tot * 100) : 0, sub: g ? (g.icon + ' ' + g.label + ' · ' + this.fmtUsd(g.total)) : '', hovered: true };
+        }
       }
-      return { label: 'Total ingresos', value: tot, pct: 100, hovered: false };
+      return { label: 'Total ingresos', value: tot, pct: 100, sub: '', hovered: false };
     },
     get incomeDonutSvg() {
       const items = this.incomeItems;
@@ -4512,13 +4557,21 @@ function dashboard() {
       const dark = this.isDark;
       const stroke = dark ? '#0f172a' : '#ffffff';
       const polar = (r, a) => [(cx + r * Math.cos(a * Math.PI / 180)).toFixed(2), (cy + r * Math.sin(a * Math.PI / 180)).toFixed(2)];
+      // Grupo activo (hover de chip o de una fuente)
+      const hoveredGroup = this.incomeHoverGroup ||
+        (this.incomeHoverKey ? ((items.find(x => x.source_key === this.incomeHoverKey) || {}).groupKey) : null);
+      const isActive = (it) => {
+        if (this.incomeHoverGroup) return it.groupKey === this.incomeHoverGroup;
+        if (this.incomeHoverKey) return it.source_key === this.incomeHoverKey;
+        return true;
+      };
       let paths = '';
       if (items.length === 1) {
         const it = items[0];
-        const dim = (this.incomeHoverKey && this.incomeHoverKey !== it.source_key) ? 0.4 : 1;
-        paths = `<path d="M ${cx - rO} ${cy} A ${rO} ${rO} 0 1 1 ${cx + rO} ${cy} A ${rO} ${rO} 0 1 1 ${cx - rO} ${cy} Z M ${cx - rI} ${cy} A ${rI} ${rI} 0 1 0 ${cx + rI} ${cy} A ${rI} ${rI} 0 1 0 ${cx - rI} ${cy} Z" fill="${it.color}" fill-opacity="${dim}" fill-rule="evenodd"/>`;
+        paths = `<path d="M ${cx - rO} ${cy} A ${rO} ${rO} 0 1 1 ${cx + rO} ${cy} A ${rO} ${rO} 0 1 1 ${cx - rO} ${cy} Z M ${cx - rI} ${cy} A ${rI} ${rI} 0 1 0 ${cx + rI} ${cy} A ${rI} ${rI} 0 1 0 ${cx - rI} ${cy} Z" fill="${it.color}" fill-rule="evenodd"/>`;
       } else {
-        let cum = 0, clpStart = null, clpEnd = null;
+        let cum = 0;
+        const spans = {};
         items.forEach((it, i) => {
           const frac = (it.total_usd || 0) / tot;
           const a0 = -90 + 360 * cum;
@@ -4528,17 +4581,23 @@ function dashboard() {
           const [x0o, y0o] = polar(rO, a0), [x1o, y1o] = polar(rO, a1);
           const [x1i, y1i] = polar(rI, a1), [x0i, y0i] = polar(rI, a0);
           const d = `M ${x0o} ${y0o} A ${rO} ${rO} 0 ${large} 1 ${x1o} ${y1o} L ${x1i} ${y1i} A ${rI} ${rI} 0 ${large} 0 ${x0i} ${y0i} Z`;
-          const dim = (this.incomeHoverKey && this.incomeHoverKey !== it.source_key) ? 0.4 : 1;
+          const dim = isActive(it) ? 1 : 0.35;
           paths += `<path d="${d}" fill="${it.color}" fill-opacity="${dim}" stroke="${stroke}" stroke-width="2"/>`;
-          if (it.isClp) { if (clpStart === null) clpStart = a0; clpEnd = a1; }
+          if (!spans[it.groupKey]) spans[it.groupKey] = { a0, a1, count: 0 };
+          spans[it.groupKey].a1 = a1;
+          spans[it.groupKey].count++;
         });
-        // Bracket externo que marca la sección CLP completa
-        if (clpStart !== null && clpEnd !== null && clpEnd > clpStart) {
-          const dimB = (this.incomeHoverKey && !((this.incomeItems.find(x => x.source_key === this.incomeHoverKey) || {}).isClp)) ? 0.35 : 1;
-          const [bx0, by0] = polar(rB, clpStart + 0.6), [bx1, by1] = polar(rB, clpEnd - 0.6);
-          const largeB = (clpEnd - clpStart) > 180 ? 1 : 0;
-          paths += `<path d="M ${bx0} ${by0} A ${rB} ${rB} 0 ${largeB} 1 ${bx1} ${by1}" fill="none" stroke="#0d9488" stroke-width="3" stroke-linecap="round" opacity="${dimB}"/>`;
-        }
+        // Bracket externo por grupo (solo grupos con ≥2 fuentes)
+        const colorByGroup = {};
+        this._incomeGroupDefs().forEach(g => { colorByGroup[g.key] = g.b; });
+        Object.keys(spans).forEach(gk => {
+          const sp = spans[gk];
+          if (sp.count < 2) return;
+          const op = (!hoveredGroup || hoveredGroup === gk) ? 1 : 0.25;
+          const [bx0, by0] = polar(rB, sp.a0 + 0.8), [bx1, by1] = polar(rB, sp.a1 - 0.8);
+          const largeB = (sp.a1 - sp.a0) > 180 ? 1 : 0;
+          paths += `<path d="M ${bx0} ${by0} A ${rB} ${rB} 0 ${largeB} 1 ${bx1} ${by1}" fill="none" stroke="${colorByGroup[gk] || '#64748b'}" stroke-width="3" stroke-linecap="round" opacity="${op}"/>`;
+        });
       }
       return `<svg viewBox="0 0 ${VB} ${VB}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block">${paths}</svg>`;
     },
@@ -4560,6 +4619,7 @@ function dashboard() {
         if (frac >= cum && frac < cum + f) { key = items[i].source_key; break; }
         cum += f;
       }
+      if (this.incomeHoverGroup !== null) this.incomeHoverGroup = null;
       if (this.incomeHoverKey !== key) this.incomeHoverKey = key;
     },
 
