@@ -3425,22 +3425,44 @@ document.addEventListener('alpine:init', () => {
       if (this.onClose) this.onClose();
     },
 
+    async _fetchRetry(url, tries = 3) {
+      let lastErr;
+      for (let i = 0; i < tries; i++) {
+        try {
+          const r = await fetch(url);
+          if (r.ok || (r.status >= 400 && r.status < 500)) return r;
+          lastErr = new Error('HTTP ' + r.status);
+        } catch (e) { lastErr = e; }
+        if (i < tries - 1) await new Promise(res => setTimeout(res, 500 * (i + 1)));
+      }
+      throw lastErr;
+    },
     async reload() {
       this.busy = true;
       this.error = null;
+      // Cada recurso por separado (allSettled): si uno falla, los demás
+      // igual cargan — así el dropdown de fuentes no queda vacío por un
+      // blip en /entries o /rates. Cada fetch reintenta hasta 3 veces.
+      const [sourcesR, entriesR, ratesR] = await Promise.allSettled([
+        this._fetchRetry('/api/income/sources'),
+        this._fetchRetry('/api/income/entries?month=' + this.month),
+        this._fetchRetry('/api/rates/history/' + this.month),
+      ]);
       try {
-        const [sourcesR, entriesR, ratesR] = await Promise.all([
-          fetch('/api/income/sources'),
-          fetch('/api/income/entries?month=' + this.month),
-          fetch('/api/rates/history/' + this.month),
-        ]);
-        if (sourcesR.ok) this.sources = (await sourcesR.json()).sources || [];
-        if (entriesR.ok) this.entries = (await entriesR.json()).entries || [];
-        if (ratesR.ok) {
-          const r = await ratesR.json();
+        if (sourcesR.status === 'fulfilled' && sourcesR.value.ok) {
+          this.sources = (await sourcesR.value.json()).sources || [];
+        }
+        if (entriesR.status === 'fulfilled' && entriesR.value.ok) {
+          this.entries = (await entriesR.value.json()).entries || [];
+        }
+        if (ratesR.status === 'fulfilled' && ratesR.value.ok) {
+          const r = await ratesR.value.json();
           this.currentRates = r.rates;
           this.ratesIsHistorical = !!r.is_historical;
           this.rateForm = { ...r.rates };
+        }
+        if ((!this.sources || !this.sources.length) && sourcesR.status === 'rejected') {
+          this.error = 'El servidor está lento; las fuentes no cargaron. Toca recargar.';
         }
       } catch (e) {
         this.error = e.message || String(e);
