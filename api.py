@@ -375,6 +375,10 @@ class RatesUpdate(BaseModel):
     TRM: float
     BOB_RATE: float
     AED_RATE: float
+    # Opcionales por compat: PUTs antiguos sin estos campos siguen funcionando;
+    # si vienen None, el endpoint conserva el valor actual.
+    CLP_RATE: Optional[float] = None
+    ARS_RATE: Optional[float] = None
 
 
 class IncomeSourceCreate(BaseModel):
@@ -399,6 +403,8 @@ class RatesHistoryUpdate(BaseModel):
     TRM: float
     BOB_RATE: float
     AED_RATE: float
+    CLP_RATE: Optional[float] = None
+    ARS_RATE: Optional[float] = None
 
 
 def _query_all(sql: str, params: tuple = ()) -> list[dict]:
@@ -667,6 +673,8 @@ def make_api_app() -> FastAPI:
             "trm": bot.TRM,
             "bob_rate": bot.BOB_RATE,
             "aed_rate": bot.AED_RATE,
+            "clp_rate": bot.CLP_RATE,
+            "ars_rate": bot.ARS_RATE,
         }
 
     @api.get("/api/budget")
@@ -689,6 +697,8 @@ def make_api_app() -> FastAPI:
             "TRM": bot.TRM,
             "BOB_RATE": bot.BOB_RATE,
             "AED_RATE": bot.AED_RATE,
+            "CLP_RATE": bot.CLP_RATE,
+            "ARS_RATE": bot.ARS_RATE,
         }
 
     @api.get("/api/expenses")
@@ -936,22 +946,28 @@ def make_api_app() -> FastAPI:
     import re as _re
     _VALID_KEY = _re.compile(r"^[a-z_][a-z0-9_]*$")
     _VALID_PERIOD = _re.compile(r"^\d{4}-\d{2}$")
-    _SUPPORTED_CURRENCIES = ("COP", "USD", "BOB", "AED")
+    _SUPPORTED_CURRENCIES = ("COP", "USD", "BOB", "AED", "CLP", "ARS")
 
     def _rates_for_period(conn, period: str) -> dict:
         """Return the rates applicable to a given YYYY-MM period.
 
         Prefers a row in exchange_rates_history; falls back to the current
-        globals (bot.TRM/BOB_RATE/AED_RATE) if no historical row exists.
+        globals (bot.TRM/BOB_RATE/AED_RATE/CLP_RATE/ARS_RATE) if no historical
+        row exists. clp_rate/ars_rate pueden ser NULL en meses viejos (las
+        columnas se agregaron en migración 012) → COALESCE al global.
         Read-only — does NOT write a history row automatically.
         """
         row = conn.execute(
-            "SELECT trm, bob_rate, aed_rate FROM exchange_rates_history WHERE period = ?",
-            (period,),
+            "SELECT trm, bob_rate, aed_rate, "
+            "COALESCE(clp_rate, ?), COALESCE(ars_rate, ?) "
+            "FROM exchange_rates_history WHERE period = ?",
+            (bot.CLP_RATE, bot.ARS_RATE, period),
         ).fetchone()
         if row:
-            return {"TRM": row[0], "BOB_RATE": row[1], "AED_RATE": row[2]}
-        return {"TRM": bot.TRM, "BOB_RATE": bot.BOB_RATE, "AED_RATE": bot.AED_RATE}
+            return {"TRM": row[0], "BOB_RATE": row[1], "AED_RATE": row[2],
+                    "CLP_RATE": row[3], "ARS_RATE": row[4]}
+        return {"TRM": bot.TRM, "BOB_RATE": bot.BOB_RATE, "AED_RATE": bot.AED_RATE,
+                "CLP_RATE": bot.CLP_RATE, "ARS_RATE": bot.ARS_RATE}
 
     def _to_usd(monto: float, currency: str, rates: dict) -> tuple[float, float]:
         """Convert an amount from its currency to USD using the given rates.
@@ -966,6 +982,12 @@ def make_api_app() -> FastAPI:
             return round(float(monto) / rate, 2), rate
         if currency == "AED":
             rate = float(rates.get("AED_RATE") or 1)
+            return round(float(monto) / rate, 2), rate
+        if currency == "CLP":
+            rate = float(rates.get("CLP_RATE") or 1)
+            return round(float(monto) / rate, 2), rate
+        if currency == "ARS":
+            rate = float(rates.get("ARS_RATE") or 1)
             return round(float(monto) / rate, 2), rate
         raise HTTPException(400, f"unsupported currency: {currency!r}")
 
@@ -1192,17 +1214,21 @@ def make_api_app() -> FastAPI:
         conn = sqlite3.connect(bot.DB_PATH)
         try:
             rows = conn.execute(
-                "SELECT period, trm, bob_rate, aed_rate, updated_at "
-                "FROM exchange_rates_history ORDER BY period DESC"
+                "SELECT period, trm, bob_rate, aed_rate, "
+                "COALESCE(clp_rate, ?), COALESCE(ars_rate, ?), updated_at "
+                "FROM exchange_rates_history ORDER BY period DESC",
+                (bot.CLP_RATE, bot.ARS_RATE),
             ).fetchall()
             return {
                 "history": [
                     {"period": r[0], "TRM": r[1], "BOB_RATE": r[2],
-                     "AED_RATE": r[3], "updated_at": r[4]}
+                     "AED_RATE": r[3], "CLP_RATE": r[4], "ARS_RATE": r[5],
+                     "updated_at": r[6]}
                     for r in rows
                 ],
                 "current_globals": {
                     "TRM": bot.TRM, "BOB_RATE": bot.BOB_RATE, "AED_RATE": bot.AED_RATE,
+                    "CLP_RATE": bot.CLP_RATE, "ARS_RATE": bot.ARS_RATE,
                 },
             }
         finally:
@@ -1231,20 +1257,35 @@ def make_api_app() -> FastAPI:
         now = datetime.now().isoformat()
         conn = sqlite3.connect(bot.DB_PATH)
         try:
+            # CLP/ARS son opcionales en el body (compat). Si no vienen, conservar
+            # lo que ya tenga el período, o el global si el período no existe.
+            existing = conn.execute(
+                "SELECT COALESCE(clp_rate, ?), COALESCE(ars_rate, ?) "
+                "FROM exchange_rates_history WHERE period = ?",
+                (bot.CLP_RATE, bot.ARS_RATE, period),
+            ).fetchone()
+            cur_clp = existing[0] if existing else bot.CLP_RATE
+            cur_ars = existing[1] if existing else bot.ARS_RATE
+            clp = float(rates.CLP_RATE) if rates.CLP_RATE is not None else float(cur_clp)
+            ars = float(rates.ARS_RATE) if rates.ARS_RATE is not None else float(cur_ars)
+            if clp <= 0 or ars <= 0:
+                raise HTTPException(400, "las tasas CLP/ARS deben ser positivas")
             conn.execute(
-                "INSERT INTO exchange_rates_history (period, trm, bob_rate, aed_rate, updated_at) "
-                "VALUES (?, ?, ?, ?, ?) "
+                "INSERT INTO exchange_rates_history (period, trm, bob_rate, aed_rate, clp_rate, ars_rate, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(period) DO UPDATE SET "
                 "  trm=excluded.trm, bob_rate=excluded.bob_rate, "
-                "  aed_rate=excluded.aed_rate, updated_at=excluded.updated_at",
+                "  aed_rate=excluded.aed_rate, clp_rate=excluded.clp_rate, "
+                "  ars_rate=excluded.ars_rate, updated_at=excluded.updated_at",
                 (period, float(rates.TRM), float(rates.BOB_RATE),
-                 float(rates.AED_RATE), now),
+                 float(rates.AED_RATE), clp, ars, now),
             )
             conn.commit()
 
             # Recompute monto_usd for all income entries in this period so the
             # P&L for the month reflects the updated rates.
-            new_rates = {"TRM": rates.TRM, "BOB_RATE": rates.BOB_RATE, "AED_RATE": rates.AED_RATE}
+            new_rates = {"TRM": rates.TRM, "BOB_RATE": rates.BOB_RATE, "AED_RATE": rates.AED_RATE,
+                         "CLP_RATE": clp, "ARS_RATE": ars}
             entries = conn.execute(
                 "SELECT id, monto, currency FROM income_entries WHERE period = ?",
                 (period,),
@@ -1661,10 +1702,17 @@ def make_api_app() -> FastAPI:
     def update_rates(rates: RatesUpdate):
         if rates.TRM <= 0 or rates.BOB_RATE <= 0 or rates.AED_RATE <= 0:
             raise HTTPException(400, "las tasas deben ser positivas")
+        # CLP/ARS opcionales: si no vienen, preservar el global actual (no borrar).
+        clp = float(rates.CLP_RATE) if rates.CLP_RATE is not None else float(bot.CLP_RATE)
+        ars = float(rates.ARS_RATE) if rates.ARS_RATE is not None else float(bot.ARS_RATE)
+        if clp <= 0 or ars <= 0:
+            raise HTTPException(400, "las tasas CLP/ARS deben ser positivas")
         new_rates = {
             "TRM": int(rates.TRM),
             "BOB_RATE": float(rates.BOB_RATE),
             "AED_RATE": float(rates.AED_RATE),
+            "CLP_RATE": clp,
+            "ARS_RATE": ars,
         }
         conn = sqlite3.connect(bot.DB_PATH)
         try:

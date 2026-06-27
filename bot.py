@@ -39,6 +39,11 @@ _DEFAULT_RATES = {
     "TRM": int(os.environ.get("TRM", "3700")),
     "BOB_RATE": float(os.environ.get("BOB_RATE", "9.20")),
     "AED_RATE": float(os.environ.get("AED_RATE", "3.67")),
+    # CLP (peso chileno) y ARS (peso argentino) — agregadas 2026-06.
+    # Unidades locales por 1 USD (igual que TRM/BOB/AED). ARS = tasa USDT
+    # (El Dorado), CLP = mercado. Editables por mes desde "Tasas del mes".
+    "CLP_RATE": float(os.environ.get("CLP_RATE", "923")),
+    "ARS_RATE": float(os.environ.get("ARS_RATE", "1553")),
 }
 
 _DEFAULT_BUDGET = {
@@ -87,6 +92,8 @@ PAYMENT_METHODS = {}
 TRM = _DEFAULT_RATES["TRM"]
 BOB_RATE = _DEFAULT_RATES["BOB_RATE"]
 AED_RATE = _DEFAULT_RATES["AED_RATE"]
+CLP_RATE = _DEFAULT_RATES["CLP_RATE"]
+ARS_RATE = _DEFAULT_RATES["ARS_RATE"]
 TOTAL_BUDGET_USD = 0  # recomputado en load_config
 BUDGET_LIMIT_USD = 5000
 # Categorías agrupadas para el menú
@@ -370,7 +377,7 @@ ALIASES = {
 # ════════════════════════════════════════
 # ── Parse amount: supports 50000, 100usd, 50bob, usd100, bob50, "bob 45", "usd 100"
 AMOUNT_RE = re.compile(
-    r'^(cop|usd|bob|aed)?\s*(\d[\d.,]*)\s*(cop|usd|bob|aed)?$',
+    r'^(cop|usd|bob|aed|clp|ars)?\s*(\d[\d.,]*)\s*(cop|usd|bob|aed|clp|ars)?$',
     re.IGNORECASE
 )
 
@@ -406,6 +413,16 @@ def parse_amount(raw: str):
         monto_cop = monto_usd * TRM
         display = f"{amount:,.0f} AED"
         return monto_cop, display, "aed"
+    elif currency == "clp":
+        monto_usd = amount / CLP_RATE
+        monto_cop = monto_usd * TRM
+        display = f"{amount:,.0f} CLP"
+        return monto_cop, display, "clp"
+    elif currency == "ars":
+        monto_usd = amount / ARS_RATE
+        monto_cop = monto_usd * TRM
+        display = f"{amount:,.0f} ARS"
+        return monto_cop, display, "ars"
     elif currency == "cop":
         display = f"${amount:,.0f}".replace(",", ".") + " COP"
         return amount, display, "cop"
@@ -431,7 +448,7 @@ def smart_parse(parts):
     currency_override = None
     clean_parts = []
     for p in parts:
-        if p.lower().strip() in ("cop", "bob", "aed") and currency_override is None:
+        if p.lower().strip() in ("cop", "bob", "aed", "clp", "ars") and currency_override is None:
             currency_override = p.lower().strip()
         else:
             clean_parts.append(p)
@@ -1214,6 +1231,42 @@ def init_db():
 
     _run_migration("011_reconciliation_v2_schema", _migration_011_reconciliation_v2_schema)
 
+    def _migration_012_add_clp_ars_rates(conn):
+        """Agrega soporte para CLP (peso chileno) y ARS (peso argentino).
+
+        1. Columnas clp_rate / ars_rate en exchange_rates_history (tasas por mes).
+           Nullable: meses históricos quedan NULL y la lectura cae al global
+           (no había gastos en CLP/ARS antes, así que no afecta nada).
+        2. Siembra CLP_RATE/ARS_RATE en config.rates si faltan (923 / 1553).
+
+        Idempotente: si las columnas ya existen, no las re-agrega. No toca
+        ninguna fila de expenses ni de income_entries — data intacta.
+        """
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(exchange_rates_history)").fetchall()]
+        if "clp_rate" not in cols:
+            conn.execute("ALTER TABLE exchange_rates_history ADD COLUMN clp_rate REAL")
+        if "ars_rate" not in cols:
+            conn.execute("ALTER TABLE exchange_rates_history ADD COLUMN ars_rate REAL")
+        # Sembrar config.rates con CLP/ARS si faltan
+        row = conn.execute("SELECT value FROM config WHERE key = 'rates'").fetchone()
+        rates = json.loads(row[0]) if row and row[0] else {}
+        changed = False
+        if "CLP_RATE" not in rates:
+            rates["CLP_RATE"] = _DEFAULT_RATES["CLP_RATE"]; changed = True
+        if "ARS_RATE" not in rates:
+            rates["ARS_RATE"] = _DEFAULT_RATES["ARS_RATE"]; changed = True
+        if changed:
+            now = datetime.now().isoformat()
+            if row:
+                conn.execute("UPDATE config SET value = ?, updated_at = ? WHERE key = 'rates'",
+                             (json.dumps(rates), now))
+            else:
+                conn.execute("INSERT INTO config (key, value, updated_at) VALUES ('rates', ?, ?)",
+                             (json.dumps(rates), now))
+        conn.commit()
+
+    _run_migration("012_add_clp_ars_rates", _migration_012_add_clp_ars_rates)
+
     conn.close()
 
 
@@ -1227,7 +1280,7 @@ def load_config():
         so that historical rows with custom/recovered categories don't crash
         BUDGET[cat] direct-access sites.
     """
-    global BUDGET, PAYMENT_METHODS, TRM, BOB_RATE, AED_RATE, TOTAL_BUDGET_USD
+    global BUDGET, PAYMENT_METHODS, TRM, BOB_RATE, AED_RATE, CLP_RATE, ARS_RATE, TOTAL_BUDGET_USD
     conn = sqlite3.connect(DB_PATH)
     rows = dict(conn.execute("SELECT key, value FROM config").fetchall())
 
@@ -1258,6 +1311,8 @@ def load_config():
     TRM = int(r.get("TRM", _DEFAULT_RATES["TRM"]))
     BOB_RATE = float(r.get("BOB_RATE", _DEFAULT_RATES["BOB_RATE"]))
     AED_RATE = float(r.get("AED_RATE", _DEFAULT_RATES["AED_RATE"]))
+    CLP_RATE = float(r.get("CLP_RATE", _DEFAULT_RATES["CLP_RATE"]))
+    ARS_RATE = float(r.get("ARS_RATE", _DEFAULT_RATES["ARS_RATE"]))
 
     # Recompute TOTAL_BUDGET_USD
     TOTAL_BUDGET_USD = sum(v.get("usd", 0) for v in BUDGET.values())

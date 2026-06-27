@@ -1198,7 +1198,7 @@
   </section>
 
   <footer class="text-center text-[11px] text-slate-400 dark:text-slate-700 mt-8 space-y-1">
-    <div>@gastos_gg_bot · TRM <span x-text="rates.TRM"></span> · BOB <span x-text="rates.BOB_RATE"></span> · AED <span x-text="rates.AED_RATE"></span></div>
+    <div>@gastos_gg_bot · TRM <span x-text="rates.TRM"></span> · BOB <span x-text="rates.BOB_RATE"></span> · AED <span x-text="rates.AED_RATE"></span> · CLP <span x-text="rates.CLP_RATE"></span> · ARS <span x-text="rates.ARS_RATE"></span></div>
     <div class="text-slate-300 dark:text-slate-800">v8 · <span x-text="summary.budget_limit_usd ? '$' + summary.budget_limit_usd + ' USD/mes' : ''"></span></div>
   </footer>
 </div>
@@ -1529,6 +1529,8 @@
               <option value="COP">COP</option>
               <option value="AED">AED</option>
               <option value="BOB">BOB</option>
+              <option value="CLP">CLP</option>
+              <option value="ARS">ARS</option>
             </select>
           </div>
           <div class="grid grid-cols-[1fr_auto] gap-2 mb-2">
@@ -1647,7 +1649,7 @@
                   @change="$store.income.updateSource(s)"
                   class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-1 text-xs w-16"
                 >
-                  <option>USD</option><option>COP</option><option>AED</option><option>BOB</option>
+                  <option>USD</option><option>COP</option><option>AED</option><option>BOB</option><option>CLP</option><option>ARS</option>
                 </select>
                 <button
                   @click="$store.income.deleteSource(s.key)"
@@ -1727,6 +1729,32 @@
               step="0.001"
               min="0"
               x-model.number="$store.income.rateForm.AED_RATE"
+              class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 focus:ring-1 focus:ring-slate-400"
+            />
+          </label>
+          <label class="block">
+            <div class="flex items-baseline justify-between mb-1">
+              <span class="text-xs font-semibold text-slate-600 dark:text-slate-400">CLP (CLP por 1 USD)</span>
+              <span class="text-[10px] text-slate-400">ej. 923</span>
+            </div>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              x-model.number="$store.income.rateForm.CLP_RATE"
+              class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 focus:ring-1 focus:ring-slate-400"
+            />
+          </label>
+          <label class="block">
+            <div class="flex items-baseline justify-between mb-1">
+              <span class="text-xs font-semibold text-slate-600 dark:text-slate-400">ARS (ARS por 1 USD)</span>
+              <span class="text-[10px] text-slate-400">ej. 1553 · USDT/El Dorado</span>
+            </div>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              x-model.number="$store.income.rateForm.ARS_RATE"
               class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 focus:ring-1 focus:ring-slate-400"
             />
           </label>
@@ -3352,8 +3380,8 @@ document.addEventListener('alpine:init', () => {
     entries: [],
     expensesUsd: 0,
     ratesIsHistorical: false,
-    currentRates: { TRM: 3700, BOB_RATE: 9.20, AED_RATE: 3.67 },
-    rateForm: { TRM: 3700, BOB_RATE: 9.20, AED_RATE: 3.67 },
+    currentRates: { TRM: 3700, BOB_RATE: 9.20, AED_RATE: 3.67, CLP_RATE: 923, ARS_RATE: 1553 },
+    rateForm: { TRM: 3700, BOB_RATE: 9.20, AED_RATE: 3.67, CLP_RATE: 923, ARS_RATE: 1553 },
     form: {
       source_key: '',
       currency: 'USD',
@@ -4470,7 +4498,7 @@ function dashboard() {
     expenses: [],
     budget: {},
     paymentMethods: {},
-    rates: { TRM: 3700, BOB_RATE: 9.20, AED_RATE: 3.67 },
+    rates: { TRM: 3700, BOB_RATE: 9.20, AED_RATE: 3.67, CLP_RATE: 923, ARS_RATE: 1553 },
     pnl: { income: { total_usd: 0, by_source: [] }, expenses: { total_usd: 0 }, net: { usd: 0, pct_of_income: null } },
     incomeEntries: [],          // entries individuales del mes (para el dropdown por fuente)
     expandedSources: {},        // { source_key: true } indica fuentes desplegadas
