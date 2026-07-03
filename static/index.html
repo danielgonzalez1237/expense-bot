@@ -1002,7 +1002,7 @@
       category · method (secondary) / amount USD · amount COP on the right.
     -->
     <div class="divide-y divide-slate-100 dark:divide-slate-800/80 -mx-1 px-1">
-      <template x-for="e in filteredExpenses" :key="e.id">
+      <template x-for="e in regularExpenses" :key="e.id">
         <div
           @click="openEdit(e)"
           class="py-3 flex items-start gap-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 -mx-2 px-2 rounded-md transition"
@@ -1043,8 +1043,61 @@
       </template>
     </div>
 
+    <!-- ── Grupo colapsable: cuotas de diferidos (2/12, 3/12…) al fondo ── -->
+    <div x-show="deferredExpenses.length" class="mt-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+      <button @click="showCuotas = !showCuotas"
+        class="w-full flex items-center justify-between gap-2 text-xs bg-amber-50 dark:bg-amber-950/20 hover:bg-amber-100 dark:hover:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 rounded-lg px-3 py-2 transition">
+        <span class="flex items-center gap-1.5 text-amber-800 dark:text-amber-300 font-medium">
+          <span class="text-[10px] inline-block w-2.5 transition-transform" :class="showCuotas ? 'rotate-90' : ''">▶</span>
+          📅 <span x-text="deferredExpenses.length"></span> <span x-text="deferredExpenses.length === 1 ? 'cuota de diferido' : 'cuotas de diferidos'"></span> este mes
+        </span>
+        <span class="text-amber-800 dark:text-amber-300 font-semibold whitespace-nowrap" x-text="fmtUsd(deferredTotal.usd)"></span>
+      </button>
+      <p x-show="!showCuotas" class="text-[10px] text-slate-400 dark:text-slate-600 mt-1 px-1 italic">
+        Compras en cuotas ya distribuidas por mes — no son gastos nuevos de una sola vez. Tocá la flecha para verlas.
+      </p>
+      <div x-show="showCuotas" x-transition class="divide-y divide-slate-100 dark:divide-slate-800/80 -mx-1 px-1 mt-1">
+        <template x-for="e in deferredExpenses" :key="e.id">
+          <div
+            @click="openEdit(e)"
+            class="py-3 flex items-start gap-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 -mx-2 px-2 rounded-md transition"
+          >
+            <div class="text-2xl leading-none pt-0.5 shrink-0" x-text="catIcon(e.categoria)"></div>
+            <div class="flex-1 min-w-0">
+              <div class="flex justify-between items-baseline gap-3">
+                <span class="font-medium truncate text-sm">
+                  <span x-text="e.nota || catLabel(e.categoria)"></span>
+                  <span x-show="e.clase_contable && e.clase_contable !== 'gasto'"
+                        :title="claseLabel(e.clase_contable)"
+                        class="ml-1 text-[11px]"
+                        x-text="claseIcon(e.clase_contable)"></span>
+                  <span x-show="e.deferred_total > 1"
+                        :title="'Cuota ' + e.deferred_index + ' de ' + e.deferred_total + ' · modo ' + (e.deferred_mode === 'credito' ? 'crédito' : 'completo')"
+                        class="ml-1 inline-flex items-center gap-0.5 text-[10px] bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded px-1 py-0.5 font-semibold align-middle">
+                    📅 <span x-text="e.deferred_index"></span>/<span x-text="e.deferred_total"></span>
+                  </span>
+                </span>
+                <span class="font-bold whitespace-nowrap text-sm" x-text="fmtUsd(e.monto_usd)"></span>
+              </div>
+              <div class="text-[11px] text-slate-500 dark:text-slate-400 flex justify-between gap-2 mt-0.5">
+                <span class="truncate">
+                  <span x-text="formatDate(e.fecha)"></span>
+                  · <span x-text="e.user_name"></span>
+                  · <span class="text-slate-600 dark:text-slate-300" x-text="catLabel(e.categoria)"></span>
+                </span>
+                <span class="text-[10px] text-slate-400 dark:text-slate-600 whitespace-nowrap" x-text="'$' + Math.round(e.monto_cop || 0).toLocaleString('de-DE') + ' COP'"></span>
+              </div>
+              <div class="text-[10px] text-slate-400 dark:text-slate-600 truncate mt-0.5" x-show="e.metodo_pago && e.metodo_pago !== 'Sin especificar'">
+                💳 <span x-text="e.metodo_pago"></span>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
     <div class="text-[11px] text-slate-400 dark:text-slate-600 mt-3 text-center" x-show="filteredExpenses.length">
-      <span x-text="filteredExpenses.length"></span> de <span x-text="expenses.length"></span> gastos · tap para editar
+      <span x-text="regularExpenses.length"></span> gastos<span x-show="deferredExpenses.length"> + <span x-text="deferredExpenses.length"></span> en cuotas</span> · tap para editar
     </div>
   </section>
 
@@ -4496,6 +4549,7 @@ function dashboard() {
       by_user: [],
     },
     expenses: [],
+    showCuotas: false,          // grupo colapsable de cuotas/diferidos en Movimientos
     budget: {},
     paymentMethods: {},
     rates: { TRM: 3700, BOB_RATE: 9.20, AED_RATE: 3.67, CLP_RATE: 923, ARS_RATE: 1553 },
@@ -5317,6 +5371,24 @@ function dashboard() {
         // Tiebreak by id desc so the most recently inserted wins within same timestamp
         return (b.id || 0) - (a.id || 0);
       });
+    },
+
+    // Movimientos: separa las cuotas de diferidos (deferred_total > 1) de los
+    // gastos de una sola vez. Las cuotas van a un grupo colapsable al fondo para
+    // no ensuciar la lista ni dar la sensación de "pagué todo esto este mes".
+    get regularExpenses() {
+      return this.filteredExpenses.filter(e => !(Number(e.deferred_total) > 1));
+    },
+    get deferredExpenses() {
+      return this.filteredExpenses.filter(e => Number(e.deferred_total) > 1);
+    },
+    get deferredTotal() {
+      let usd = 0, cop = 0;
+      for (const e of this.deferredExpenses) {
+        usd += Number(e.monto_usd || 0);
+        cop += Number(e.monto_cop || 0);
+      }
+      return { usd, cop };
     },
 
     // True when any filter is active. Drives the consolidated banner
