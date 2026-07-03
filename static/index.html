@@ -1056,41 +1056,50 @@
       <p x-show="!showCuotas" class="text-[10px] text-slate-400 dark:text-slate-600 mt-1 px-1 italic">
         Compras en cuotas ya distribuidas por mes — no son gastos nuevos de una sola vez. Tocá la flecha para verlas.
       </p>
-      <div x-show="showCuotas" x-transition class="divide-y divide-slate-100 dark:divide-slate-800/80 -mx-1 px-1 mt-1">
-        <template x-for="e in deferredExpenses" :key="e.id">
-          <div
-            @click="openEdit(e)"
-            class="py-3 flex items-start gap-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 -mx-2 px-2 rounded-md transition"
-          >
-            <div class="text-2xl leading-none pt-0.5 shrink-0" x-text="catIcon(e.categoria)"></div>
-            <div class="flex-1 min-w-0">
-              <div class="flex justify-between items-baseline gap-3">
-                <span class="font-medium truncate text-sm">
-                  <span x-text="e.nota || catLabel(e.categoria)"></span>
-                  <span x-show="e.clase_contable && e.clase_contable !== 'gasto'"
-                        :title="claseLabel(e.clase_contable)"
-                        class="ml-1 text-[11px]"
-                        x-text="claseIcon(e.clase_contable)"></span>
-                  <span x-show="e.deferred_total > 1"
-                        :title="'Cuota ' + e.deferred_index + ' de ' + e.deferred_total + ' · modo ' + (e.deferred_mode === 'credito' ? 'crédito' : 'completo')"
-                        class="ml-1 inline-flex items-center gap-0.5 text-[10px] bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded px-1 py-0.5 font-semibold align-middle">
-                    📅 <span x-text="e.deferred_index"></span>/<span x-text="e.deferred_total"></span>
+      <div x-show="showCuotas" x-transition class="mt-1 space-y-0.5">
+        <template x-for="g in deferredByCategory" :key="g.categoria">
+          <div>
+            <!-- 1 sola cuota en la categoría → fila compacta editable directa -->
+            <template x-if="g.items.length === 1">
+              <div @click="openEdit(g.items[0])"
+                class="py-2 flex items-center justify-between gap-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 rounded-md px-2 transition text-xs">
+                <span class="truncate flex items-center gap-1.5">
+                  <span x-text="catIcon(g.categoria)"></span>
+                  <span class="font-medium truncate" x-text="g.items[0].nota || catLabel(g.categoria)"></span>
+                  <span class="text-[10px] bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded px-1 font-semibold shrink-0">📅 <span x-text="g.items[0].deferred_index"></span>/<span x-text="g.items[0].deferred_total"></span></span>
+                </span>
+                <span class="font-semibold whitespace-nowrap" x-text="fmtUsd(g.items[0].monto_usd)"></span>
+              </div>
+            </template>
+            <!-- Varias cuotas de la misma categoría → UNA posición consolidada -->
+            <template x-if="g.items.length > 1">
+              <div>
+                <button @click="expandedCuotaCats[g.categoria] = !expandedCuotaCats[g.categoria]"
+                  class="w-full flex items-center justify-between gap-2 text-xs hover:bg-slate-50 dark:hover:bg-slate-800/40 rounded-md px-2 py-2 transition">
+                  <span class="flex items-center gap-1.5 truncate">
+                    <span class="text-[10px] inline-block w-2.5 transition-transform text-slate-400" :class="expandedCuotaCats[g.categoria] ? 'rotate-90' : ''">▶</span>
+                    <span x-text="catIcon(g.categoria)"></span>
+                    <span class="font-medium" x-text="catLabel(g.categoria)"></span>
+                    <span class="text-slate-400 dark:text-slate-600" x-text="'· ' + g.items.length + ' cuotas'"></span>
                   </span>
-                </span>
-                <span class="font-bold whitespace-nowrap text-sm" x-text="fmtUsd(e.monto_usd)"></span>
+                  <span class="font-semibold whitespace-nowrap" x-text="fmtUsd(g.usd)"></span>
+                </button>
+                <div x-show="expandedCuotaCats[g.categoria]" x-transition class="ml-5 border-l-2 border-slate-200 dark:border-slate-700 pl-2 divide-y divide-slate-100 dark:divide-slate-800/60">
+                  <template x-for="e in g.items" :key="e.id">
+                    <div @click="openEdit(e)" class="py-2 flex items-center justify-between gap-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 rounded px-1 transition text-[11px]">
+                      <span class="truncate flex items-center gap-1.5">
+                        <span class="text-[10px] bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded px-1 font-semibold shrink-0">📅 <span x-text="e.deferred_index"></span>/<span x-text="e.deferred_total"></span></span>
+                        <span class="truncate" x-text="e.nota || catLabel(e.categoria)"></span>
+                      </span>
+                      <span class="whitespace-nowrap text-right shrink-0">
+                        <span class="font-semibold" x-text="fmtUsd(e.monto_usd)"></span>
+                        <span class="text-[10px] text-slate-400 dark:text-slate-600 ml-1" x-text="'$' + Math.round(e.monto_cop||0).toLocaleString('de-DE')"></span>
+                      </span>
+                    </div>
+                  </template>
+                </div>
               </div>
-              <div class="text-[11px] text-slate-500 dark:text-slate-400 flex justify-between gap-2 mt-0.5">
-                <span class="truncate">
-                  <span x-text="formatDate(e.fecha)"></span>
-                  · <span x-text="e.user_name"></span>
-                  · <span class="text-slate-600 dark:text-slate-300" x-text="catLabel(e.categoria)"></span>
-                </span>
-                <span class="text-[10px] text-slate-400 dark:text-slate-600 whitespace-nowrap" x-text="'$' + Math.round(e.monto_cop || 0).toLocaleString('de-DE') + ' COP'"></span>
-              </div>
-              <div class="text-[10px] text-slate-400 dark:text-slate-600 truncate mt-0.5" x-show="e.metodo_pago && e.metodo_pago !== 'Sin especificar'">
-                💳 <span x-text="e.metodo_pago"></span>
-              </div>
-            </div>
+            </template>
           </div>
         </template>
       </div>
@@ -4550,6 +4559,7 @@ function dashboard() {
     },
     expenses: [],
     showCuotas: false,          // grupo colapsable de cuotas/diferidos en Movimientos
+    expandedCuotaCats: {},      // { categoria: true } — categorías de cuotas desplegadas
     budget: {},
     paymentMethods: {},
     rates: { TRM: 3700, BOB_RATE: 9.20, AED_RATE: 3.67, CLP_RATE: 923, ARS_RATE: 1553 },
@@ -5389,6 +5399,19 @@ function dashboard() {
         cop += Number(e.monto_cop || 0);
       }
       return { usd, cop };
+    },
+    // Cuotas consolidadas por categoría: los 7-8 prediales 2/12 se vuelven UNA
+    // posición "Prediales · N cuotas · $total", expandible para ver el detalle.
+    get deferredByCategory() {
+      const groups = {};
+      for (const e of this.deferredExpenses) {
+        const k = e.categoria || 'otro';
+        if (!groups[k]) groups[k] = { categoria: k, items: [], usd: 0, cop: 0 };
+        groups[k].items.push(e);
+        groups[k].usd += Number(e.monto_usd || 0);
+        groups[k].cop += Number(e.monto_cop || 0);
+      }
+      return Object.values(groups).sort((a, b) => b.usd - a.usd);
     },
 
     // True when any filter is active. Drives the consolidated banner
