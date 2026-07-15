@@ -72,6 +72,11 @@
         title="Análisis de gasto diario por categoría"
       >📊 Análisis</button>
       <button
+        @click="$store.fx.openFor(month)"
+        class="text-xs bg-teal-600 hover:bg-teal-700 text-white rounded-lg px-3 py-1.5 font-medium transition flex items-center gap-1"
+        title="Tasas de cambio por mes (COP/BOB/AED/CLP/ARS)"
+      >💱 Tasas</button>
+      <button
         @click="$store.guide.open = true"
         class="text-slate-500 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300 transition p-2"
         title="Guía de uso"
@@ -1477,6 +1482,109 @@
           class="px-4 py-2 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium disabled:opacity-40"
           x-text="$store.edit.busy ? 'Guardando…' : 'Guardar'"
         ></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ──────────────── Tasas de cambio por mes (módulo dedicado) ──────────────── -->
+<div
+  x-data
+  x-show="$store.fx.open"
+  x-cloak
+  class="fixed inset-0 z-50 flex items-stretch sm:items-center justify-center modal-backdrop bg-slate-900/40 dark:bg-slate-950/70"
+  @click.self="$store.fx.close()"
+  @keydown.escape.window="$store.fx.close()"
+>
+  <div
+    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full sm:max-w-lg sm:rounded-2xl sm:my-8 shadow-xl fade flex flex-col max-h-screen sm:max-h-[92vh]"
+    x-show="$store.fx.open"
+    x-transition
+  >
+    <div class="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-5 pt-5 pb-3 sm:rounded-t-2xl z-10">
+      <div class="flex items-start justify-between">
+        <div>
+          <div class="text-xs text-slate-500 uppercase tracking-wide">💱 Tasas de cambio</div>
+          <div class="text-lg font-bold">Tasas por mes</div>
+          <div class="text-[11px] text-slate-500">Unidades locales por 1 USD · editable por mes</div>
+        </div>
+        <button @click="$store.fx.close()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1" aria-label="Cerrar">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="p-5 overflow-y-auto space-y-4">
+      <!-- Selector de mes -->
+      <label class="block">
+        <span class="text-xs font-semibold text-slate-600 dark:text-slate-400">Mes</span>
+        <input type="month" x-model="$store.fx.month" @change="$store.fx.loadMonth($store.fx.month)"
+          class="mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-sm focus:ring-1 focus:ring-slate-400"/>
+        <span class="text-[10px] mt-1 block" :class="$store.fx.isHistorical ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-600'"
+          x-text="$store.fx.isHistorical ? '✓ Este mes ya tiene tasas propias guardadas' : 'Este mes usa las tasas vigentes (aún sin personalizar)'"></span>
+      </label>
+
+      <!-- Inputs por moneda -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <template x-for="d in $store.fx.defs" :key="d.key">
+          <label class="block">
+            <div class="flex items-baseline justify-between mb-1">
+              <span class="text-xs font-semibold text-slate-600 dark:text-slate-400" x-text="d.label"></span>
+              <span class="text-[10px] text-slate-400" x-text="d.hint"></span>
+            </div>
+            <input type="number" min="0" :step="d.step" :placeholder="d.ph"
+              x-model.number="$store.fx.form[d.key]"
+              class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-sm focus:ring-1 focus:ring-slate-400"/>
+          </label>
+        </template>
+      </div>
+
+      <label class="flex items-start gap-2 text-[11px] text-slate-600 dark:text-slate-400" x-show="$store.fx.month === $store.fx.realCurrentMonth">
+        <input type="checkbox" x-model="$store.fx.alsoGlobal" class="mt-0.5"/>
+        <span>Aplicar también como <strong>tasa vigente</strong> (para gastos nuevos que registres por Telegram este mes)</span>
+      </label>
+
+      <div x-show="$store.fx.error" class="text-xs text-rose-600 dark:text-rose-400" x-text="$store.fx.error"></div>
+      <div x-show="$store.fx.saved" class="text-xs text-emerald-600 dark:text-emerald-400">✓ Tasas guardadas · los ingresos del mes se recalcularon en USD.</div>
+
+      <button @click="$store.fx.save()" :disabled="$store.fx.busy"
+        class="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg px-3 py-2.5 text-sm font-medium"
+        x-text="$store.fx.busy ? 'Guardando…' : 'Guardar tasas del mes'"></button>
+
+      <p class="text-[10px] text-slate-400 dark:text-slate-600 italic">
+        Tip: podés poner la <strong>tasa promedio del mes</strong>. Editarla recalcula los ingresos de ese mes en USD.
+      </p>
+
+      <!-- Historial de tasas por mes -->
+      <div x-show="$store.fx.history.length">
+        <div class="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600 font-semibold mb-1.5">Historial (tap para cargar un mes)</div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-[11px]">
+            <thead>
+              <tr class="text-slate-400 dark:text-slate-600 border-b border-slate-100 dark:border-slate-800">
+                <th class="text-left py-1 font-semibold">Mes</th>
+                <th class="text-right py-1 font-semibold">COP</th>
+                <th class="text-right py-1 font-semibold">BOB</th>
+                <th class="text-right py-1 font-semibold">AED</th>
+                <th class="text-right py-1 font-semibold">CLP</th>
+                <th class="text-right py-1 font-semibold">ARS</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="h in $store.fx.history" :key="h.period">
+                <tr class="border-b border-slate-50 dark:border-slate-800/50 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                    @click="$store.fx.month = h.period; $store.fx.loadMonth(h.period)">
+                  <td class="py-1 font-medium" x-text="h.period"></td>
+                  <td class="text-right py-1" x-text="Math.round(h.TRM)"></td>
+                  <td class="text-right py-1" x-text="h.BOB_RATE"></td>
+                  <td class="text-right py-1" x-text="h.AED_RATE"></td>
+                  <td class="text-right py-1" x-text="h.CLP_RATE"></td>
+                  <td class="text-right py-1" x-text="h.ARS_RATE"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
@@ -3709,6 +3817,81 @@ document.addEventListener('alpine:init', () => {
       } finally {
         this.busy = false;
       }
+    },
+  });
+
+  // ──────────────── Tasas de cambio por mes (módulo dedicado) ────────────────
+  Alpine.store('fx', {
+    open: false, busy: false, error: null, saved: false,
+    month: '',
+    isHistorical: false,
+    alsoGlobal: true,          // si el mes editado es el mes actual, aplica también como tasa vigente
+    form: { TRM: 3700, BOB_RATE: 9.20, AED_RATE: 3.67, CLP_RATE: 923, ARS_RATE: 1553 },
+    history: [],
+    onSaved: null,
+    // Definición de monedas para render (label + step + placeholder)
+    defs: [
+      { key: 'TRM',      label: 'COP', hint: 'COP por 1 USD', step: '1',    ph: '3700' },
+      { key: 'BOB_RATE', label: 'BOB', hint: 'BOB por 1 USD', step: '0.001', ph: '9.20' },
+      { key: 'AED_RATE', label: 'AED', hint: 'AED por 1 USD', step: '0.001', ph: '3.67' },
+      { key: 'CLP_RATE', label: 'CLP', hint: 'CLP por 1 USD', step: '0.01',  ph: '923' },
+      { key: 'ARS_RATE', label: 'ARS', hint: 'ARS por 1 USD · USDT/El Dorado', step: '0.01', ph: '1553' },
+    ],
+    get realCurrentMonth() {
+      const d = new Date();
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    },
+    async openFor(month) {
+      this.month = month || this.realCurrentMonth;
+      this.open = true; this.error = null; this.saved = false;
+      await this.loadMonth(this.month);
+      this.loadHistory();
+    },
+    close() { this.open = false; },
+    async loadMonth(month) {
+      this.busy = true; this.error = null; this.saved = false;
+      try {
+        const r = await fetch('/api/rates/history/' + month);
+        if (r.ok) {
+          const d = await r.json();
+          this.form = { ...this.form, ...(d.rates || {}) };
+          this.isHistorical = !!d.is_historical;
+        }
+      } catch (e) { this.error = 'No se pudo cargar (' + (e.message || e) + ')'; }
+      finally { this.busy = false; }
+    },
+    async loadHistory() {
+      try {
+        const r = await fetch('/api/rates/history');
+        if (r.ok) this.history = (await r.json()).history || [];
+      } catch (e) { /* noop */ }
+    },
+    async save() {
+      // Validación mínima
+      for (const d of this.defs) {
+        const v = Number(this.form[d.key]);
+        if (!(v > 0)) { this.error = 'La tasa ' + d.label + ' debe ser mayor a 0'; return; }
+      }
+      this.busy = true; this.error = null; this.saved = false;
+      try {
+        const r = await fetch('/api/rates/history/' + this.month, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.form),
+        });
+        if (!r.ok) throw new Error('No se pudo guardar (' + r.status + ')');
+        // Si el mes editado es el mes calendario actual y el toggle está activo,
+        // aplica también como tasa GLOBAL vigente (para nuevos gastos/Telegram).
+        if (this.alsoGlobal && this.month === this.realCurrentMonth) {
+          await fetch('/api/rates', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(this.form),
+          });
+        }
+        this.isHistorical = true; this.saved = true;
+        await this.loadHistory();
+        if (this.onSaved) this.onSaved();
+      } catch (e) { this.error = e.message || String(e); }
+      finally { this.busy = false; }
     },
   });
 
