@@ -1267,6 +1267,20 @@ def init_db():
 
     _run_migration("012_add_clp_ars_rates", _migration_012_add_clp_ars_rates)
 
+    def _migration_013_add_active_currencies(conn):
+        """Columna active_currencies (JSON list) en exchange_rates_history:
+        qué divisas están activas cada mes. COP/AED van siempre; BOB/CLP/ARS
+        se activan por mes ('chulear'). Sirve para que el auto-promedio solo
+        traiga data de las divisas que Daniel opera ese mes.
+        Idempotente; no toca ninguna fila existente.
+        """
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(exchange_rates_history)").fetchall()]
+        if "active_currencies" not in cols:
+            conn.execute("ALTER TABLE exchange_rates_history ADD COLUMN active_currencies TEXT")
+        conn.commit()
+
+    _run_migration("013_add_active_currencies", _migration_013_add_active_currencies)
+
     conn.close()
 
 

@@ -405,6 +405,8 @@ class RatesHistoryUpdate(BaseModel):
     AED_RATE: float
     CLP_RATE: Optional[float] = None
     ARS_RATE: Optional[float] = None
+    # Divisas activas ese mes (códigos: COP/BOB/AED/CLP/ARS). None = no cambiar.
+    active_currencies: Optional[list] = None
 
 
 def _query_all(sql: str, params: tuple = ()) -> list[dict]:
@@ -947,6 +949,22 @@ def make_api_app() -> FastAPI:
     _VALID_KEY = _re.compile(r"^[a-z_][a-z0-9_]*$")
     _VALID_PERIOD = _re.compile(r"^\d{4}-\d{2}$")
     _SUPPORTED_CURRENCIES = ("COP", "USD", "BOB", "AED", "CLP", "ARS")
+    # Divisas que Daniel opera SIEMPRE (mensual automático) vs opcionales que
+    # activa por mes. USD es la base (=1, no lleva tasa).
+    _ALWAYS_ACTIVE_CURRENCIES = ["COP", "AED"]
+    _OPTIONAL_CURRENCIES = ["BOB", "CLP", "ARS"]
+
+    def _active_currencies_for(raw) -> list:
+        """Parsea el JSON de active_currencies; si viene vacío/None devuelve el
+        set 'siempre' (COP/AED). Garantiza que COP/AED siempre estén incluidas."""
+        act = []
+        if raw:
+            try:
+                act = [c for c in json.loads(raw) if c in _SUPPORTED_CURRENCIES]
+            except Exception:
+                act = []
+        merged = list(dict.fromkeys(_ALWAYS_ACTIVE_CURRENCIES + act))
+        return merged
 
     def _rates_for_period(conn, period: str) -> dict:
         """Return the rates applicable to a given YYYY-MM period.
@@ -1241,10 +1259,13 @@ def make_api_app() -> FastAPI:
         conn = sqlite3.connect(bot.DB_PATH)
         try:
             rates = _rates_for_period(conn, period)
-            has_row = conn.execute(
-                "SELECT 1 FROM exchange_rates_history WHERE period = ?", (period,)
-            ).fetchone() is not None
-            return {"period": period, "rates": rates, "is_historical": has_row}
+            row = conn.execute(
+                "SELECT active_currencies FROM exchange_rates_history WHERE period = ?", (period,)
+            ).fetchone()
+            has_row = row is not None
+            active = _active_currencies_for(row[0] if row else None)
+            return {"period": period, "rates": rates, "is_historical": has_row,
+                    "active_currencies": active}
         finally:
             conn.close()
 
@@ -1270,15 +1291,27 @@ def make_api_app() -> FastAPI:
             ars = float(rates.ARS_RATE) if rates.ARS_RATE is not None else float(cur_ars)
             if clp <= 0 or ars <= 0:
                 raise HTTPException(400, "las tasas CLP/ARS deben ser positivas")
+            # active_currencies: si viene en el body úsalo, si no conserva lo del
+            # período (o el set 'siempre' por defecto). COP/AED siempre incluidas.
+            existing_ac = conn.execute(
+                "SELECT active_currencies FROM exchange_rates_history WHERE period = ?", (period,)
+            ).fetchone()
+            if rates.active_currencies is not None:
+                ac_list = _active_currencies_for(
+                    json.dumps([str(c).upper() for c in rates.active_currencies]))
+            else:
+                ac_list = _active_currencies_for(existing_ac[0] if existing_ac else None)
+            ac_json = json.dumps(ac_list)
             conn.execute(
-                "INSERT INTO exchange_rates_history (period, trm, bob_rate, aed_rate, clp_rate, ars_rate, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "INSERT INTO exchange_rates_history (period, trm, bob_rate, aed_rate, clp_rate, ars_rate, active_currencies, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(period) DO UPDATE SET "
                 "  trm=excluded.trm, bob_rate=excluded.bob_rate, "
                 "  aed_rate=excluded.aed_rate, clp_rate=excluded.clp_rate, "
-                "  ars_rate=excluded.ars_rate, updated_at=excluded.updated_at",
+                "  ars_rate=excluded.ars_rate, active_currencies=excluded.active_currencies, "
+                "  updated_at=excluded.updated_at",
                 (period, float(rates.TRM), float(rates.BOB_RATE),
-                 float(rates.AED_RATE), clp, ars, now),
+                 float(rates.AED_RATE), clp, ars, ac_json, now),
             )
             conn.commit()
 

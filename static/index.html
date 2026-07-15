@@ -1524,20 +1524,38 @@
           x-text="$store.fx.isHistorical ? '✓ Este mes ya tiene tasas propias guardadas' : 'Este mes usa las tasas vigentes (aún sin personalizar)'"></span>
       </label>
 
-      <!-- Inputs por moneda -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <!-- Inputs por moneda + toggle de "activa este mes" -->
+      <div class="space-y-2">
         <template x-for="d in $store.fx.defs" :key="d.key">
-          <label class="block">
-            <div class="flex items-baseline justify-between mb-1">
-              <span class="text-xs font-semibold text-slate-600 dark:text-slate-400" x-text="d.label"></span>
-              <span class="text-[10px] text-slate-400" x-text="d.hint"></span>
+          <div class="rounded-lg border px-3 py-2 transition"
+            :class="$store.fx.isActive(d.code) ? 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900' : 'border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 opacity-70'">
+            <div class="flex items-center justify-between gap-2 mb-1.5">
+              <div class="flex items-center gap-2">
+                <button type="button"
+                  @click="$store.fx.toggle(d.code)"
+                  :disabled="d.always"
+                  :title="d.always ? 'Siempre activa (mensual)' : ($store.fx.isActive(d.code) ? 'Activa este mes — tap para desactivar' : 'Inactiva — tap para activar este mes')"
+                  class="w-9 h-5 rounded-full flex items-center px-0.5 transition shrink-0 disabled:cursor-default"
+                  :class="$store.fx.isActive(d.code) ? 'bg-emerald-500 justify-end' : 'bg-slate-300 dark:bg-slate-600 justify-start'">
+                  <span class="w-4 h-4 rounded-full bg-white shadow"></span>
+                </button>
+                <span class="text-sm font-semibold" x-text="d.label"></span>
+                <span class="text-[9px] uppercase tracking-wide rounded px-1 py-0.5"
+                  :class="d.always ? 'bg-sky-100 dark:bg-sky-900/40 text-sky-700 dark:text-sky-300' : ($store.fx.isActive(d.code) ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600')"
+                  x-text="d.always ? 'mensual' : ($store.fx.isActive(d.code) ? 'activa' : 'inactiva')"></span>
+              </div>
+              <span class="text-[10px] text-slate-400 dark:text-slate-600 truncate" x-text="d.hint"></span>
             </div>
             <input type="number" min="0" :step="d.step" :placeholder="d.ph"
               x-model.number="$store.fx.form[d.key]"
-              class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-sm focus:ring-1 focus:ring-slate-400"/>
-          </label>
+              :disabled="!$store.fx.isActive(d.code)"
+              class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-sm focus:ring-1 focus:ring-slate-400 disabled:opacity-50 disabled:cursor-not-allowed"/>
+          </div>
         </template>
       </div>
+      <p class="text-[10px] text-slate-400 dark:text-slate-600 -mt-1">
+        <strong class="text-sky-600 dark:text-sky-400">COP y AED</strong> van siempre (mensual). <strong>BOB, CLP y ARS</strong> las activás solo los meses que las operás — así el auto-promedio no trae data de divisas que no usás.
+      </p>
 
       <label class="flex items-start gap-2 text-[11px] text-slate-600 dark:text-slate-400" x-show="$store.fx.month === $store.fx.realCurrentMonth">
         <input type="checkbox" x-model="$store.fx.alsoGlobal" class="mt-0.5"/>
@@ -3829,14 +3847,23 @@ document.addEventListener('alpine:init', () => {
     form: { TRM: 3700, BOB_RATE: 9.20, AED_RATE: 3.67, CLP_RATE: 923, ARS_RATE: 1553 },
     history: [],
     onSaved: null,
-    // Definición de monedas para render (label + step + placeholder)
+    // Monedas: COP/AED = siempre activas (mensual). BOB/CLP/ARS = opcionales
+    // (Daniel las 'chulea' por mes). USD es la base (=1, no lleva tasa).
     defs: [
-      { key: 'TRM',      label: 'COP', hint: 'COP por 1 USD', step: '1',    ph: '3700' },
-      { key: 'BOB_RATE', label: 'BOB', hint: 'BOB por 1 USD', step: '0.001', ph: '9.20' },
-      { key: 'AED_RATE', label: 'AED', hint: 'AED por 1 USD', step: '0.001', ph: '3.67' },
-      { key: 'CLP_RATE', label: 'CLP', hint: 'CLP por 1 USD', step: '0.01',  ph: '923' },
-      { key: 'ARS_RATE', label: 'ARS', hint: 'ARS por 1 USD · USDT/El Dorado', step: '0.01', ph: '1553' },
+      { key: 'TRM',      code: 'COP', label: 'COP', hint: 'COP por 1 USD', step: '1',     ph: '3700', always: true },
+      { key: 'AED_RATE', code: 'AED', label: 'AED', hint: 'AED por 1 USD', step: '0.001', ph: '3.67', always: true },
+      { key: 'BOB_RATE', code: 'BOB', label: 'BOB', hint: 'BOB por 1 USD', step: '0.001', ph: '9.20', always: false },
+      { key: 'CLP_RATE', code: 'CLP', label: 'CLP', hint: 'CLP por 1 USD', step: '0.01',  ph: '923', always: false },
+      { key: 'ARS_RATE', code: 'ARS', label: 'ARS', hint: 'ARS por 1 USD · USDT/El Dorado', step: '0.01', ph: '1553', always: false },
     ],
+    activeCurrencies: ['COP', 'AED'],   // divisas activas este mes
+    isActive(code) { return this.activeCurrencies.includes(code); },
+    toggle(code) {
+      if (['COP', 'AED'].includes(code)) return;   // las 'siempre' no se desactivan
+      this.activeCurrencies = this.activeCurrencies.includes(code)
+        ? this.activeCurrencies.filter(c => c !== code)
+        : [...this.activeCurrencies, code];
+    },
     get realCurrentMonth() {
       const d = new Date();
       return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
@@ -3856,6 +3883,8 @@ document.addEventListener('alpine:init', () => {
           const d = await r.json();
           this.form = { ...this.form, ...(d.rates || {}) };
           this.isHistorical = !!d.is_historical;
+          this.activeCurrencies = (d.active_currencies && d.active_currencies.length)
+            ? d.active_currencies : ['COP', 'AED'];
         }
       } catch (e) { this.error = 'No se pudo cargar (' + (e.message || e) + ')'; }
       finally { this.busy = false; }
@@ -3876,7 +3905,7 @@ document.addEventListener('alpine:init', () => {
       try {
         const r = await fetch('/api/rates/history/' + this.month, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(this.form),
+          body: JSON.stringify({ ...this.form, active_currencies: this.activeCurrencies }),
         });
         if (!r.ok) throw new Error('No se pudo guardar (' + r.status + ')');
         // Si el mes editado es el mes calendario actual y el toggle está activo,
