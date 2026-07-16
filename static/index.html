@@ -1563,7 +1563,15 @@
       </label>
 
       <div x-show="$store.fx.error" class="text-xs text-rose-600 dark:text-rose-400" x-text="$store.fx.error"></div>
-      <div x-show="$store.fx.saved" class="text-xs text-emerald-600 dark:text-emerald-400">✓ Tasas guardadas · los ingresos del mes se recalcularon en USD.</div>
+      <div x-show="$store.fx.saved" class="text-xs text-emerald-600 dark:text-emerald-400">
+        ✓ Tasas guardadas · recalculados en USD:
+        <span class="font-semibold" x-text="($store.fx.lastResult && $store.fx.lastResult.recomputed_expenses) || 0"></span> egresos y
+        <span class="font-semibold" x-text="($store.fx.lastResult && $store.fx.lastResult.recomputed_income_entries) || 0"></span> ingresos.
+        <span x-show="$store.fx.lastResult && $store.fx.lastResult.skipped_expenses_non_cop"
+              class="block text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+          (<span x-text="$store.fx.lastResult && $store.fx.lastResult.skipped_expenses_non_cop"></span> gastos en Wio/USDT/Chase no se tocan — no se cobran en COP)
+        </span>
+      </div>
 
       <button @click="$store.fx.save()" :disabled="$store.fx.busy"
         class="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg px-3 py-2.5 text-sm font-medium"
@@ -3843,6 +3851,7 @@ document.addEventListener('alpine:init', () => {
     open: false, busy: false, error: null, saved: false,
     month: '',
     isHistorical: false,
+    lastResult: null,          // { recomputed_expenses, recomputed_income_entries, ... }
     alsoGlobal: true,          // si el mes editado es el mes actual, aplica también como tasa vigente
     form: { TRM: 3700, BOB_RATE: 9.20, AED_RATE: 3.67, CLP_RATE: 923, ARS_RATE: 1553 },
     history: [],
@@ -3908,6 +3917,7 @@ document.addEventListener('alpine:init', () => {
           body: JSON.stringify({ ...this.form, active_currencies: this.activeCurrencies }),
         });
         if (!r.ok) throw new Error('No se pudo guardar (' + r.status + ')');
+        this.lastResult = await r.json();
         // Si el mes editado es el mes calendario actual y el toggle está activo,
         // aplica también como tasa GLOBAL vigente (para nuevos gastos/Telegram).
         if (this.alsoGlobal && this.month === this.realCurrentMonth) {

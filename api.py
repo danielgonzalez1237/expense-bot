@@ -953,6 +953,11 @@ def make_api_app() -> FastAPI:
     # activa por mes. USD es la base (=1, no lleva tasa).
     _ALWAYS_ACTIVE_CURRENCIES = ["COP", "AED"]
     _OPTIONAL_CURRENCIES = ["BOB", "CLP", "ARS"]
+    # Métodos de pago que NO cobran en COP: su monto_cop es un valor derivado y
+    # su USD no depende de la TRM, así que NO se recalculan al editar la TRM del
+    # mes. El resto (BDB/BBVA/Bancolombia/Falabella/Efectivo/Transferencias
+    # locales/Sin especificar) sí cobra en COP → monto_usd = monto_cop / TRM.
+    _NON_COP_METHOD_HINTS = ("WIO", "ENBD", "USDT", "CHASE")
 
     def _active_currencies_for(raw) -> list:
         """Parsea el JSON de active_currencies; si viene vacío/None devuelve el
@@ -1330,12 +1335,41 @@ def make_api_app() -> FastAPI:
                     (monto_usd, rate_used, now, eid),
                 )
             conn.commit()
+
+            # Recompute monto_usd de los EGRESOS del período a la TRM del mes.
+            # Daniel registra la TRM promedio del mes a ojo y quiere que el mes
+            # entero quede valorado a esa tasa.
+            #
+            # Solo se recalculan los gastos que se COBRAN EN COP (tarjetas
+            # colombianas, efectivo, transferencias locales, sin especificar):
+            # ahí monto_cop es el cargo real y monto_usd = monto_cop / TRM.
+            # Los métodos que NO cobran en COP (Wio/AED, ENBD, USDT, Chase) se
+            # SALTAN: su monto_cop es un valor derivado y su USD no depende de
+            # la TRM colombiana — recalcularlos los corrompería.
+            trm_new = float(rates.TRM)
+            exp_rows = conn.execute(
+                "SELECT id, monto_cop, COALESCE(metodo_pago, '') FROM expenses WHERE fecha LIKE ?",
+                (period + "%",),
+            ).fetchall()
+            recomputed_expenses = 0
+            skipped_expenses = 0
+            for eid, monto_cop, metodo in exp_rows:
+                m = (metodo or "").upper()
+                if any(h in m for h in _NON_COP_METHOD_HINTS):
+                    skipped_expenses += 1
+                    continue
+                new_usd = round(float(monto_cop or 0) / trm_new, 2)
+                conn.execute("UPDATE expenses SET monto_usd = ? WHERE id = ?", (new_usd, eid))
+                recomputed_expenses += 1
+            conn.commit()
         finally:
             conn.close()
         return {
             "ok": True, "period": period,
             "rates": new_rates,
             "recomputed_income_entries": len(entries),
+            "recomputed_expenses": recomputed_expenses,
+            "skipped_expenses_non_cop": skipped_expenses,
         }
 
     # ──────────────── P&L — THE main view ────────────────
