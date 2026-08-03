@@ -409,6 +409,24 @@ class RatesHistoryUpdate(BaseModel):
     active_currencies: Optional[list] = None
 
 
+class RecurringCreate(BaseModel):
+    label: str
+    monto_cop: float
+    categoria: str
+    metodo_pago: Optional[str] = "Transferencia BBVA"
+    user_name: Optional[str] = "Daniel"
+    active: Optional[int] = 1
+
+
+class RecurringUpdate(BaseModel):
+    label: Optional[str] = None
+    monto_cop: Optional[float] = None
+    categoria: Optional[str] = None
+    metodo_pago: Optional[str] = None
+    user_name: Optional[str] = None
+    active: Optional[int] = None
+
+
 def _query_all(sql: str, params: tuple = ()) -> list[dict]:
     """Run a SELECT against the expenses DB and return list of dicts."""
     conn = sqlite3.connect(bot.DB_PATH)
@@ -3361,6 +3379,81 @@ def make_api_app() -> FastAPI:
             "stats_by_category": stats_by_category,
             "stats_by_payment": stats_by_payment,
         }
+
+    # ──────────────── Gastos fijos recurrentes ────────────────
+
+    @api.get("/api/recurring")
+    def list_recurring():
+        rows = _query_all(
+            "SELECT id, label, monto_cop, categoria, metodo_pago, user_name, active, "
+            "created_at, updated_at FROM recurring_expenses ORDER BY active DESC, id"
+        )
+        return {"recurring": rows}
+
+    @api.post("/api/recurring")
+    def create_recurring(body: RecurringCreate):
+        if not body.label.strip() or body.monto_cop <= 0 or not body.categoria.strip():
+            raise HTTPException(400, "label, monto_cop (>0) y categoria son requeridos")
+        now = datetime.now().isoformat()
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            cur = conn.execute(
+                "INSERT INTO recurring_expenses (label, monto_cop, categoria, metodo_pago, user_name, active, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (body.label.strip(), float(body.monto_cop), body.categoria.strip(),
+                 body.metodo_pago or "Transferencia BBVA", body.user_name or "Daniel",
+                 1 if body.active is None else int(body.active), now, now),
+            )
+            conn.commit()
+            rid = cur.lastrowid
+        finally:
+            conn.close()
+        return {"ok": True, "id": rid}
+
+    @api.patch("/api/recurring/{rec_id}")
+    def update_recurring(rec_id: int, body: RecurringUpdate):
+        fields, params = [], []
+        for col, val in [("label", body.label), ("monto_cop", body.monto_cop),
+                         ("categoria", body.categoria), ("metodo_pago", body.metodo_pago),
+                         ("user_name", body.user_name), ("active", body.active)]:
+            if val is not None:
+                fields.append(f"{col} = ?")
+                params.append(val)
+        if not fields:
+            raise HTTPException(400, "nada que actualizar")
+        fields.append("updated_at = ?")
+        params.append(datetime.now().isoformat())
+        params.append(rec_id)
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            r = conn.execute(f"UPDATE recurring_expenses SET {', '.join(fields)} WHERE id = ?", params)
+            conn.commit()
+            if r.rowcount == 0:
+                raise HTTPException(404, f"recurring {rec_id} no existe")
+        finally:
+            conn.close()
+        return {"ok": True, "id": rec_id}
+
+    @api.delete("/api/recurring/{rec_id}")
+    def delete_recurring(rec_id: int):
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            r = conn.execute("DELETE FROM recurring_expenses WHERE id = ?", (rec_id,))
+            conn.commit()
+            if r.rowcount == 0:
+                raise HTTPException(404, f"recurring {rec_id} no existe")
+        finally:
+            conn.close()
+        return {"ok": True, "deleted": rec_id}
+
+    @api.post("/api/recurring/run/{period}")
+    def run_recurring(period: str):
+        """Postea los recurrentes activos para el período dado (idempotente).
+        Sirve para backfill de un mes puntual (ej. agosto)."""
+        if not _VALID_PERIOD.match(period):
+            raise HTTPException(400, f"period inválido: {period!r}")
+        posted = bot.post_recurring_for_period(period)
+        return {"ok": True, "period": period, "posted": posted, "count": len(posted)}
 
     # ──────────────── Static frontend ────────────────
     # Serve index.html at / and any other static assets under /static/*.

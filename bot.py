@@ -1281,6 +1281,41 @@ def init_db():
 
     _run_migration("013_add_active_currencies", _migration_013_add_active_currencies)
 
+    def _migration_014_recurring_expenses(conn):
+        """Gastos fijos recurrentes (hipoteca, admin...). Tabla de plantillas +
+        columna recurring_id en expenses para trazar qué gasto vino de un
+        recurrente. Siembra hipoteca (5.460.000) y admin Nuvó (1.621.131).
+        Idempotente; no toca ninguna fila de expenses existente.
+        """
+        conn.execute("""CREATE TABLE IF NOT EXISTS recurring_expenses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            label TEXT NOT NULL,
+            monto_cop REAL NOT NULL,
+            categoria TEXT NOT NULL,
+            metodo_pago TEXT,
+            user_name TEXT,
+            active INTEGER DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT
+        )""")
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(expenses)").fetchall()]
+        if "recurring_id" not in cols:
+            conn.execute("ALTER TABLE expenses ADD COLUMN recurring_id INTEGER")
+        now = datetime.now().isoformat()
+        seeds = [
+            ("Hipoteca",   5460000, "hipoteca", "Transferencia BBVA", "Daniel"),
+            ("Admin Nuvó", 1621131, "admin",    "Transferencia BBVA", "Daniel"),
+        ]
+        for label, cop, cat, met, user in seeds:
+            if not conn.execute("SELECT 1 FROM recurring_expenses WHERE label = ?", (label,)).fetchone():
+                conn.execute(
+                    "INSERT INTO recurring_expenses (label, monto_cop, categoria, metodo_pago, user_name, active, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
+                    (label, cop, cat, met, user, now, now))
+        conn.commit()
+
+    _run_migration("014_recurring_expenses", _migration_014_recurring_expenses)
+
     conn.close()
 
 
@@ -1349,6 +1384,48 @@ def add_expense(user_id, user_name, monto_cop, categoria, nota=""):
     last_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     conn.close()
     return last_id, monto_usd
+
+def post_recurring_for_period(period=None):
+    """Postea los gastos fijos recurrentes activos para el período YYYY-MM.
+
+    Idempotente y seguro contra duplicados: solo crea el gasto si la categoría
+    del recurrente AÚN NO tiene ningún gasto ese mes (así respeta registros
+    manuales previos y no duplica si ya corrió). fecha = día 01 del mes.
+    Devuelve la lista de labels posteados.
+    """
+    if period is None:
+        period = datetime.now().strftime("%Y-%m")
+    conn = sqlite3.connect(DB_PATH)
+    now = datetime.now().isoformat()
+    fecha = period + "-01"
+    posted = []
+    try:
+        recs = conn.execute(
+            "SELECT id, label, monto_cop, categoria, metodo_pago, user_name "
+            "FROM recurring_expenses WHERE active = 1 ORDER BY id"
+        ).fetchall()
+        for rid, label, cop, cat, met, user in recs:
+            already = conn.execute(
+                "SELECT 1 FROM expenses WHERE fecha LIKE ? AND categoria = ? LIMIT 1",
+                (period + "%", cat),
+            ).fetchone()
+            if already:
+                continue
+            monto_usd = round(float(cop or 0) / TRM, 2)
+            conn.execute(
+                "INSERT INTO expenses (user_name, fecha, monto_cop, monto_usd, categoria, nota, "
+                "created_at, metodo_pago, clase_contable, recurring_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'gasto', ?)",
+                (user or "Daniel", fecha, float(cop or 0), monto_usd, cat,
+                 (label or cat) + " (fijo mensual)", now, met or "Sin especificar", rid),
+            )
+            posted.append(label)
+        conn.commit()
+    finally:
+        conn.close()
+    if posted:
+        print(f"[recurring] posteados en {period}: {posted}")
+    return posted
 
 def get_month_expenses(year=None, month=None):
     conn = sqlite3.connect(DB_PATH)
@@ -2388,9 +2465,16 @@ async def cmd_dashboard(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as ex:
         await update.message.reply_text(f"Error en /dashboard: {type(ex).__name__}: {ex}\n{traceback.format_exc()[-500:]}")
+async def recurring_poster(context: ContextTypes.DEFAULT_TYPE):
+    """Job diario: asegura que los gastos fijos del mes en curso estén posteados
+    (idempotente — no duplica). Self-healing si el bot estuvo caído el 1ro."""
+    post_recurring_for_period()
+
 def main():
     init_db()
     load_config()
+    # Postear los gastos fijos recurrentes del mes en curso si faltan.
+    post_recurring_for_period()
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
@@ -2418,6 +2502,10 @@ def main():
     # Monthly CSV report: 1st of each month at 08:00 COL (13:00 UTC)
     csv_time = dtime(hour=13, minute=0, second=0)
     job_queue.run_daily(send_monthly_csv, time=csv_time, name="monthly_csv")
+    # Gastos fijos recurrentes: chequea diario a las 00:10 COL (05:10 UTC) que
+    # el mes en curso tenga sus fijos posteados (idempotente).
+    recurring_time = dtime(hour=5, minute=10, second=0)
+    job_queue.run_daily(recurring_poster, time=recurring_time, name="recurring_poster")
 
     print(
         f"🤖 Bot v8 iniciado | TRM: {TRM} | BOB: {BOB_RATE} | AED: {AED_RATE} | "

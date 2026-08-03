@@ -67,6 +67,11 @@
         title="Tasas de cambio por mes (COP/BOB/AED/CLP/ARS)"
       >💱 Tasas</button>
       <button
+        @click="$store.recurring.openModal()"
+        class="text-xs bg-amber-600 hover:bg-amber-700 text-white rounded-lg px-3 py-1.5 font-medium transition flex items-center gap-1"
+        title="Gastos fijos recurrentes (hipoteca, admin...)"
+      >🔁 Fijos</button>
+      <button
         @click="$store.guide.open = true"
         class="text-slate-500 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300 transition p-2"
         title="Guía de uso"
@@ -1472,6 +1477,121 @@
           class="px-4 py-2 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium disabled:opacity-40"
           x-text="$store.edit.busy ? 'Guardando…' : 'Guardar'"
         ></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ──────────────── Gastos fijos recurrentes ──────────────── -->
+<div
+  x-data
+  x-show="$store.recurring.open"
+  x-cloak
+  class="fixed inset-0 z-50 flex items-stretch sm:items-center justify-center modal-backdrop bg-slate-900/40 dark:bg-slate-950/70"
+  @click.self="$store.recurring.close()"
+  @keydown.escape.window="$store.recurring.close()"
+>
+  <div
+    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full sm:max-w-lg sm:rounded-2xl sm:my-8 shadow-xl fade flex flex-col max-h-screen sm:max-h-[92vh]"
+    x-show="$store.recurring.open"
+    x-transition
+  >
+    <div class="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-5 pt-5 pb-3 sm:rounded-t-2xl z-10">
+      <div class="flex items-start justify-between">
+        <div>
+          <div class="text-xs text-slate-500 uppercase tracking-wide">🔁 Gastos fijos</div>
+          <div class="text-lg font-bold">Recurrentes mes a mes</div>
+          <div class="text-[11px] text-slate-500">Se postean solos cada 1ro. No los registres a mano para no duplicar.</div>
+        </div>
+        <button @click="$store.recurring.close()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1" aria-label="Cerrar">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="p-5 overflow-y-auto space-y-4">
+      <!-- Lista de recurrentes -->
+      <div class="space-y-2">
+        <template x-for="it in $store.recurring.items" :key="it.id">
+          <div class="flex items-center justify-between gap-2 rounded-lg border px-3 py-2"
+               :class="it.active ? 'border-slate-200 dark:border-slate-700' : 'border-slate-100 dark:border-slate-800 opacity-60'">
+            <div class="min-w-0">
+              <div class="text-sm font-medium truncate" x-text="it.label"></div>
+              <div class="text-[11px] text-slate-500 dark:text-slate-400 truncate">
+                <span class="font-semibold text-slate-700 dark:text-slate-300" x-text="$store.recurring.fmtCop(it.monto_cop) + ' COP'"></span>
+                · <span x-text="it.categoria"></span>
+                · <span x-text="it.metodo_pago"></span>
+                · <span x-text="it.user_name"></span>
+              </div>
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <button @click="$store.recurring.toggle(it)" :disabled="$store.recurring.busy"
+                :title="it.active ? 'Activo — tap para pausar' : 'Pausado — tap para activar'"
+                class="w-9 h-5 rounded-full flex items-center px-0.5 transition"
+                :class="it.active ? 'bg-emerald-500 justify-end' : 'bg-slate-300 dark:bg-slate-600 justify-start'">
+                <span class="w-4 h-4 rounded-full bg-white shadow"></span>
+              </button>
+              <button @click="$store.recurring.del(it)" :disabled="$store.recurring.busy"
+                class="text-slate-400 hover:text-rose-500 p-1" title="Borrar" aria-label="Borrar">
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              </button>
+            </div>
+          </div>
+        </template>
+        <div x-show="!$store.recurring.items.length" class="text-xs text-slate-400 italic text-center py-4">Sin recurrentes todavía.</div>
+      </div>
+
+      <!-- Agregar nuevo -->
+      <div class="border-t border-slate-100 dark:border-slate-800 pt-3">
+        <div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-2">+ Nuevo gasto fijo</div>
+        <div class="space-y-2">
+          <input type="text" x-model="$store.recurring.form.label" placeholder="Nombre (ej. Empleada, Servicios)"
+            class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-sm"/>
+          <div class="grid grid-cols-2 gap-2">
+            <input type="number" min="0" x-model.number="$store.recurring.form.monto_cop" placeholder="Monto en COP"
+              class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-sm"/>
+            <select x-model="$store.recurring.form.categoria"
+              class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-2 text-sm">
+              <option value="">— Categoría —</option>
+              <template x-for="c in $store.recurring.cats" :key="c.key">
+                <option :value="c.key" x-text="c.label"></option>
+              </template>
+            </select>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <select x-model="$store.recurring.form.metodo_pago"
+              class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-2 text-sm">
+              <template x-for="m in $store.recurring.methods" :key="m">
+                <option :value="m" x-text="m"></option>
+              </template>
+            </select>
+            <select x-model="$store.recurring.form.user_name"
+              class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-2 text-sm">
+              <option value="Daniel">Daniel</option>
+              <option value="Mado">Mado</option>
+            </select>
+          </div>
+          <button @click="$store.recurring.add()" :disabled="$store.recurring.busy"
+            class="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg px-3 py-2 text-sm font-medium">+ Agregar recurrente</button>
+        </div>
+      </div>
+
+      <div x-show="$store.recurring.error" class="text-xs text-rose-600 dark:text-rose-400" x-text="$store.recurring.error"></div>
+
+      <!-- Postear ahora -->
+      <div class="border-t border-slate-100 dark:border-slate-800 pt-3">
+        <button @click="$store.recurring.runNow()" :disabled="$store.recurring.busy"
+          class="w-full text-xs bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg px-3 py-2 font-medium">
+          ⚡ Postear los de este mes ahora
+        </button>
+        <div x-show="$store.recurring.lastRun" class="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1.5 text-center">
+          <template x-if="$store.recurring.lastRun && $store.recurring.lastRun.count">
+            <span>✓ Posteados: <span x-text="($store.recurring.lastRun.posted||[]).join(', ')"></span></span>
+          </template>
+          <template x-if="$store.recurring.lastRun && !$store.recurring.lastRun.count">
+            <span class="text-slate-500">Ya estaban todos posteados este mes (nada que hacer).</span>
+          </template>
+        </div>
       </div>
     </div>
   </div>
@@ -3922,6 +4042,71 @@ document.addEventListener('alpine:init', () => {
       } catch (e) { this.error = e.message || String(e); }
       finally { this.busy = false; }
     },
+  });
+
+  // ──────────────── Gastos fijos recurrentes ────────────────
+  Alpine.store('recurring', {
+    open: false, busy: false, error: null, lastRun: null,
+    items: [], cats: [], methods: [],
+    form: { label: '', monto_cop: null, categoria: '', metodo_pago: 'Transferencia BBVA', user_name: 'Daniel' },
+    async openModal() {
+      this.open = true; this.error = null; this.lastRun = null;
+      await Promise.all([this.load(), this.loadMeta()]);
+    },
+    close() { this.open = false; },
+    async load() {
+      try { const r = await fetch('/api/recurring'); if (r.ok) this.items = (await r.json()).recurring || []; }
+      catch (e) { this.error = 'No se pudo cargar'; }
+    },
+    async loadMeta() {
+      try {
+        const [b, p] = await Promise.all([fetch('/api/categories'), fetch('/api/payment-methods')]);
+        if (b.ok) {
+          const d = await b.json();
+          const items = Array.isArray(d) ? d : (d.categories || []);
+          this.cats = items.map(x => ({ key: x.categoria || x.key, label: (x.icon || '') + ' ' + (x.label || x.categoria || x.key) }));
+        }
+        if (p.ok) {
+          const m = (await p.json()).methods || {};
+          const list = [];
+          for (const bank in m) for (const c of m[bank]) list.push((bank === 'Efectivo' || c === bank) ? bank : bank + ' ' + c);
+          this.methods = list;
+        }
+      } catch (e) { /* noop */ }
+    },
+    async add() {
+      if (!this.form.label || !(this.form.monto_cop > 0) || !this.form.categoria) {
+        this.error = 'Completá nombre, monto (COP) y categoría'; return;
+      }
+      this.busy = true; this.error = null;
+      try {
+        const r = await fetch('/api/recurring', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.form) });
+        if (!r.ok) throw new Error('No se pudo crear (' + r.status + ')');
+        this.form = { label: '', monto_cop: null, categoria: '', metodo_pago: 'Transferencia BBVA', user_name: 'Daniel' };
+        await this.load();
+      } catch (e) { this.error = e.message || String(e); } finally { this.busy = false; }
+    },
+    async toggle(it) {
+      this.busy = true; this.error = null;
+      try { await fetch('/api/recurring/' + it.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: it.active ? 0 : 1 }) }); await this.load(); }
+      catch (e) { this.error = e.message; } finally { this.busy = false; }
+    },
+    async del(it) {
+      if (!confirm('¿Borrar el recurrente "' + it.label + '"?\n\nNo borra los gastos ya posteados, solo deja de crearlo a futuro.')) return;
+      this.busy = true; this.error = null;
+      try { await fetch('/api/recurring/' + it.id, { method: 'DELETE' }); await this.load(); }
+      catch (e) { this.error = e.message; } finally { this.busy = false; }
+    },
+    async runNow() {
+      const now = new Date();
+      const period = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+      this.busy = true; this.error = null; this.lastRun = null;
+      try {
+        const r = await fetch('/api/recurring/run/' + period, { method: 'POST' });
+        this.lastRun = await r.json();
+      } catch (e) { this.error = e.message; } finally { this.busy = false; }
+    },
+    fmtCop(v) { return '$' + Math.round(v || 0).toLocaleString('de-DE'); },
   });
 
   // ──────────────── Conciliación de extractos v2 store ────────────────
