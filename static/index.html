@@ -1515,13 +1515,18 @@
         <template x-for="it in $store.recurring.items" :key="it.id">
           <div class="flex items-center justify-between gap-2 rounded-lg border px-3 py-2"
                :class="it.active ? 'border-slate-200 dark:border-slate-700' : 'border-slate-100 dark:border-slate-800 opacity-60'">
-            <div class="min-w-0">
+            <div class="min-w-0 flex-1">
               <div class="text-sm font-medium truncate" x-text="it.label"></div>
-              <div class="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-                <span class="font-semibold text-slate-700 dark:text-slate-300" x-text="$store.recurring.fmtCop(it.monto_cop) + ' COP'"></span>
-                · <span x-text="it.categoria"></span>
-                · <span x-text="it.metodo_pago"></span>
-                · <span x-text="it.user_name"></span>
+              <div class="flex items-center gap-1 mt-0.5">
+                <input type="number" min="0" :value="it.monto_cop"
+                  @change="$store.recurring.saveAmount(it, $event.target.value)"
+                  :disabled="$store.recurring.busy"
+                  title="Editá el monto fijo (aplica de aquí en adelante)"
+                  class="w-28 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs font-semibold focus:ring-1 focus:ring-slate-400"/>
+                <span class="text-[10px] text-slate-400">COP</span>
+              </div>
+              <div class="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                <span x-text="it.categoria"></span> · <span x-text="it.metodo_pago"></span> · <span x-text="it.user_name"></span>
               </div>
             </div>
             <div class="flex items-center gap-1.5 shrink-0">
@@ -4090,6 +4095,16 @@ document.addEventListener('alpine:init', () => {
       this.busy = true; this.error = null;
       try { await fetch('/api/recurring/' + it.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ active: it.active ? 0 : 1 }) }); await this.load(); }
       catch (e) { this.error = e.message; } finally { this.busy = false; }
+    },
+    async saveAmount(it, val) {
+      const v = Number(val);
+      if (!(v > 0) || v === it.monto_cop) { await this.load(); return; }  // reset si inválido/igual
+      this.busy = true; this.error = null;
+      try {
+        const r = await fetch('/api/recurring/' + it.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ monto_cop: v }) });
+        if (!r.ok) throw new Error('No se pudo guardar el monto (' + r.status + ')');
+        await this.load();
+      } catch (e) { this.error = e.message; await this.load(); } finally { this.busy = false; }
     },
     async del(it) {
       if (!confirm('¿Borrar el recurrente "' + it.label + '"?\n\nNo borra los gastos ya posteados, solo deja de crearlo a futuro.')) return;
