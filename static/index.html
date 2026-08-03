@@ -18,19 +18,9 @@
   })();
 </script>
 
-<script src="https://cdn.tailwindcss.com"></script>
-<script>
-  tailwind.config = {
-    darkMode: 'class',
-    theme: {
-      extend: {
-        fontFamily: {
-          sans: ['system-ui', '-apple-system', 'Inter', 'sans-serif'],
-        },
-      },
-    },
-  };
-</script>
+<!-- Tailwind precompilado en el build (static/tw.css) — sin CDN runtime.
+     Config (darkMode:'class' + fontFamily) vive en tailwind.config.js. -->
+<link rel="stylesheet" href="/static/tw.css">
 <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
 <style>
   html, body { background: #f8fafc; }
