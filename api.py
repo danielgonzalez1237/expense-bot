@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Body
-from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -3528,9 +3528,11 @@ def make_api_app() -> FastAPI:
 
     # /favicon.ico is served inline as a data URI in index.html, but browsers
     # still hit this path — return 204 so we don't spam logs with 404s.
+    # Ojo: 204 debe ir SIN cuerpo. JSONResponse(None) manda b"null" y uvicorn
+    # lanza "Response content longer than Content-Length" en cada visita.
     @api.get("/favicon.ico", include_in_schema=False)
     def favicon():
-        return JSONResponse(content=None, status_code=204)
+        return Response(status_code=204)
 
     if STATIC_DIR.exists():
         api.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
