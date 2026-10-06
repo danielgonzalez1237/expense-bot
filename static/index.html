@@ -1574,15 +1574,17 @@
               class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-2 text-sm">
               <option value="">— Categoría —</option>
               <template x-for="c in $store.recurring.cats" :key="c.key">
-                <option :value="c.key" x-text="c.label"></option>
+                <option :value="c.key" x-text="c.label" :selected="c.key === $store.recurring.form.categoria"></option>
               </template>
             </select>
           </div>
           <div class="grid grid-cols-2 gap-2">
             <select x-model="$store.recurring.form.metodo_pago"
               class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-2 text-sm">
+              <!-- :selected → las opciones llegan async; sin esto el select muestra
+                   la 1ra opción mientras el modelo guarda otra (Transferencia BBVA) -->
               <template x-for="m in $store.recurring.methods" :key="m">
-                <option :value="m" x-text="m"></option>
+                <option :value="m" x-text="m" :selected="m === $store.recurring.form.metodo_pago"></option>
               </template>
             </select>
             <select x-model="$store.recurring.form.user_name"
