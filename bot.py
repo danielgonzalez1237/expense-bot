@@ -1316,6 +1316,60 @@ def init_db():
 
     _run_migration("014_recurring_expenses", _migration_014_recurring_expenses)
 
+    def _migration_015_recurring_currency_and_subs(conn):
+        """Recurrentes v2: soporte de monto fijo en USD + suscripciones.
+
+        1. Columnas currency ('COP'|'USD') y monto_usd en recurring_expenses.
+           Un template USD (ej. Claude Pro $100) postea monto_usd fijo y
+           deriva monto_cop = monto_usd * TRM al momento de postear.
+        2. Categoría 'hbo' (sub de suscripciones) si no existe.
+        3. Siembra las suscripciones confirmadas por Daniel (2026-10-06).
+        Idempotente; no toca ninguna fila de expenses.
+        """
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(recurring_expenses)").fetchall()]
+        if "currency" not in cols:
+            conn.execute("ALTER TABLE recurring_expenses ADD COLUMN currency TEXT DEFAULT 'COP'")
+        if "monto_usd" not in cols:
+            conn.execute("ALTER TABLE recurring_expenses ADD COLUMN monto_usd REAL")
+        conn.execute("UPDATE recurring_expenses SET currency = 'COP' WHERE currency IS NULL")
+
+        now = datetime.now().isoformat()
+        # Categoría HBO (las demás suscripciones ya tienen su sub-categoría)
+        row = conn.execute("SELECT value FROM config WHERE key = 'budget'").fetchone()
+        if row and row[0]:
+            budget = json.loads(row[0])
+            if "hbo" not in budget and "suscripciones" in budget:
+                budget["hbo"] = {"usd": 0.0, "annual_usd": 0.0, "tipo": "fijo",
+                                 "icon": "🎬", "label": "HBO Max", "parent": "suscripciones"}
+                conn.execute("UPDATE config SET value = ?, updated_at = ? WHERE key = 'budget'",
+                             (json.dumps(budget, ensure_ascii=False), now))
+
+        # TRM vigente (config) para el monto_cop informativo del template USD
+        rrow = conn.execute("SELECT value FROM config WHERE key = 'rates'").fetchone()
+        trm = float(json.loads(rrow[0]).get("TRM", _DEFAULT_RATES["TRM"])) if rrow and rrow[0] else float(_DEFAULT_RATES["TRM"])
+
+        # (label, monto_cop, categoria, metodo, user, currency, monto_usd)
+        seeds = [
+            ("Claude Pro",      None,  "claude",              "BDB Visa Latam Dani", "Daniel", "USD", 100.0),
+            ("iCloud",          44900, "apple_subscriptions", "BDB Visa Latam Dani", "Daniel", "COP", None),
+            ("Uber Pro",        19990, "uberpro",             "BDB MC Dani",         "Daniel", "COP", None),
+            ("Rappi Pro",       32990, "rappipro",            "BDB Visa Latam Dani", "Daniel", "COP", None),
+            ("YouTube Premium", 30900, "youtube",             "BDB Visa Latam Dani", "Daniel", "COP", None),
+            ("HBO Max",         29900, "hbo",                 "BDB Visa Latam Dani", "Daniel", "COP", None),
+        ]
+        for label, cop, cat, met, user, cur, usd in seeds:
+            if conn.execute("SELECT 1 FROM recurring_expenses WHERE label = ?", (label,)).fetchone():
+                continue
+            if cop is None:
+                cop = round((usd or 0) * trm)
+            conn.execute(
+                "INSERT INTO recurring_expenses (label, monto_cop, categoria, metodo_pago, user_name, "
+                "active, created_at, updated_at, currency, monto_usd) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)",
+                (label, cop, cat, met, user, now, now, cur, usd))
+        conn.commit()
+
+    _run_migration("015_recurring_currency_and_subs", _migration_015_recurring_currency_and_subs)
+
     conn.close()
 
 
@@ -1385,12 +1439,28 @@ def add_expense(user_id, user_name, monto_cop, categoria, nota=""):
     conn.close()
     return last_id, monto_usd
 
+def _trm_for_period(conn, period):
+    """TRM (COP por 1 USD) del mes si está cargada en exchange_rates_history;
+    si no, la TRM global vigente."""
+    row = conn.execute(
+        "SELECT trm FROM exchange_rates_history WHERE period = ?", (period,)
+    ).fetchone()
+    if row and row[0] and float(row[0]) > 0:
+        return float(row[0])
+    return float(TRM)
+
 def post_recurring_for_period(period=None):
     """Postea los gastos fijos recurrentes activos para el período YYYY-MM.
 
-    Idempotente y seguro contra duplicados: solo crea el gasto si la categoría
-    del recurrente AÚN NO tiene ningún gasto ese mes (así respeta registros
-    manuales previos y no duplica si ya corrió). fecha = día 01 del mes.
+    Idempotente y seguro contra duplicados (fecha = día 01 del mes):
+      1. Si ESTE template ya tiene su gasto ese mes (recurring_id) → no repite.
+      2. Si la categoría es exclusiva de este template y ese mes ya hay un
+         gasto MANUAL en ella (recurring_id NULL) → lo respeta, no postea.
+         (Con categoría compartida entre templates no se puede saber a cuál
+         corresponde un manual, así que solo aplica la regla 1.)
+    Moneda del template:
+      - 'COP' → monto_cop fijo; monto_usd = cop / TRM del mes.
+      - 'USD' → monto_usd fijo (p.ej. Claude $100); monto_cop = usd × TRM del mes.
     Devuelve la lista de labels posteados.
     """
     if period is None:
@@ -1401,22 +1471,37 @@ def post_recurring_for_period(period=None):
     posted = []
     try:
         recs = conn.execute(
-            "SELECT id, label, monto_cop, categoria, metodo_pago, user_name "
+            "SELECT id, label, monto_cop, categoria, metodo_pago, user_name, "
+            "COALESCE(currency, 'COP'), monto_usd "
             "FROM recurring_expenses WHERE active = 1 ORDER BY id"
         ).fetchall()
-        for rid, label, cop, cat, met, user in recs:
-            already = conn.execute(
-                "SELECT 1 FROM expenses WHERE fecha LIKE ? AND categoria = ? LIMIT 1",
-                (period + "%", cat),
-            ).fetchone()
-            if already:
+        cat_counts = {}
+        for r in recs:
+            cat_counts[r[3]] = cat_counts.get(r[3], 0) + 1
+        trm = _trm_for_period(conn, period)
+        for rid, label, cop, cat, met, user, cur, usd in recs:
+            if conn.execute(
+                "SELECT 1 FROM expenses WHERE fecha LIKE ? AND recurring_id = ? LIMIT 1",
+                (period + "%", rid),
+            ).fetchone():
                 continue
-            monto_usd = round(float(cop or 0) / TRM, 2)
+            if cat_counts.get(cat, 0) == 1 and conn.execute(
+                "SELECT 1 FROM expenses WHERE fecha LIKE ? AND categoria = ? "
+                "AND recurring_id IS NULL LIMIT 1",
+                (period + "%", cat),
+            ).fetchone():
+                continue
+            if cur == "USD" and usd:
+                monto_usd = round(float(usd), 2)
+                monto_cop = float(round(float(usd) * trm))
+            else:
+                monto_cop = float(cop or 0)
+                monto_usd = round(monto_cop / trm, 2)
             conn.execute(
                 "INSERT INTO expenses (user_name, fecha, monto_cop, monto_usd, categoria, nota, "
                 "created_at, metodo_pago, clase_contable, recurring_id) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'gasto', ?)",
-                (user or "Daniel", fecha, float(cop or 0), monto_usd, cat,
+                (user or "Daniel", fecha, monto_cop, monto_usd, cat,
                  (label or cat) + " (fijo mensual)", now, met or "Sin especificar", rid),
             )
             posted.append(label)
