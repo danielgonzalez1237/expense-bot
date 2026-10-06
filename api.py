@@ -411,11 +411,15 @@ class RatesHistoryUpdate(BaseModel):
 
 class RecurringCreate(BaseModel):
     label: str
-    monto_cop: float
+    monto_cop: Optional[float] = None
     categoria: str
     metodo_pago: Optional[str] = "Transferencia BBVA"
     user_name: Optional[str] = "Daniel"
     active: Optional[int] = 1
+    # 'COP' → monto_cop fijo. 'USD' → monto_usd fijo (ej. Claude $100); el
+    # monto_cop del template es solo referencia (usd × TRM).
+    currency: Optional[str] = "COP"
+    monto_usd: Optional[float] = None
 
 
 class RecurringUpdate(BaseModel):
@@ -425,6 +429,8 @@ class RecurringUpdate(BaseModel):
     metodo_pago: Optional[str] = None
     user_name: Optional[str] = None
     active: Optional[int] = None
+    currency: Optional[str] = None
+    monto_usd: Optional[float] = None
 
 
 def _query_all(sql: str, params: tuple = ()) -> list[dict]:
@@ -734,7 +740,7 @@ def make_api_app() -> FastAPI:
             "COALESCE(clase_contable, 'gasto') AS clase_contable, "
             "COALESCE(deferred_total, 1) AS deferred_total, "
             "COALESCE(deferred_index, 1) AS deferred_index, "
-            "deferred_group_id, deferred_mode "
+            "deferred_group_id, deferred_mode, recurring_id "
             "FROM expenses WHERE fecha LIKE ? "
             "ORDER BY fecha DESC, id DESC LIMIT ?",
             (f"{prefix}%", limit),
@@ -1364,14 +1370,24 @@ def make_api_app() -> FastAPI:
             # Los métodos que NO cobran en COP (Wio/AED, ENBD, USDT, Chase) se
             # SALTAN: su monto_cop es un valor derivado y su USD no depende de
             # la TRM colombiana — recalcularlos los corrompería.
+            #
+            # También se SALTAN los gastos posteados por un fijo recurrente en
+            # USD (ej. Claude Pro $100): su valor real es el USD, no el COP.
             trm_new = float(rates.TRM)
             exp_rows = conn.execute(
-                "SELECT id, monto_cop, COALESCE(metodo_pago, '') FROM expenses WHERE fecha LIKE ?",
+                "SELECT e.id, e.monto_cop, COALESCE(e.metodo_pago, ''), "
+                "COALESCE(r.currency, 'COP') "
+                "FROM expenses e LEFT JOIN recurring_expenses r ON r.id = e.recurring_id "
+                "WHERE e.fecha LIKE ?",
                 (period + "%",),
             ).fetchall()
             recomputed_expenses = 0
             skipped_expenses = 0
-            for eid, monto_cop, metodo in exp_rows:
+            skipped_usd_fixed = 0
+            for eid, monto_cop, metodo, rec_currency in exp_rows:
+                if rec_currency == "USD":
+                    skipped_usd_fixed += 1
+                    continue
                 m = (metodo or "").upper()
                 if any(h in m for h in _NON_COP_METHOD_HINTS):
                     skipped_expenses += 1
@@ -1388,6 +1404,7 @@ def make_api_app() -> FastAPI:
             "recomputed_income_entries": len(entries),
             "recomputed_expenses": recomputed_expenses,
             "skipped_expenses_non_cop": skipped_expenses,
+            "skipped_expenses_usd_fixed": skipped_usd_fixed,
         }
 
     # ──────────────── P&L — THE main view ────────────────
@@ -3386,23 +3403,39 @@ def make_api_app() -> FastAPI:
     def list_recurring():
         rows = _query_all(
             "SELECT id, label, monto_cop, categoria, metodo_pago, user_name, active, "
+            "COALESCE(currency, 'COP') AS currency, monto_usd, "
             "created_at, updated_at FROM recurring_expenses ORDER BY active DESC, id"
         )
         return {"recurring": rows}
 
     @api.post("/api/recurring")
     def create_recurring(body: RecurringCreate):
-        if not body.label.strip() or body.monto_cop <= 0 or not body.categoria.strip():
-            raise HTTPException(400, "label, monto_cop (>0) y categoria son requeridos")
+        cur_code = (body.currency or "COP").upper()
+        if cur_code not in ("COP", "USD"):
+            raise HTTPException(400, "currency debe ser COP o USD")
+        if not body.label.strip() or not body.categoria.strip():
+            raise HTTPException(400, "label y categoria son requeridos")
+        if cur_code == "USD":
+            if not body.monto_usd or body.monto_usd <= 0:
+                raise HTTPException(400, "monto_usd (>0) es requerido para un fijo en USD")
+            monto_usd = round(float(body.monto_usd), 2)
+            monto_cop = float(round(monto_usd * bot.TRM))
+        else:
+            if not body.monto_cop or body.monto_cop <= 0:
+                raise HTTPException(400, "monto_cop (>0) es requerido")
+            monto_cop = float(body.monto_cop)
+            monto_usd = None
         now = datetime.now().isoformat()
         conn = sqlite3.connect(bot.DB_PATH)
         try:
             cur = conn.execute(
-                "INSERT INTO recurring_expenses (label, monto_cop, categoria, metodo_pago, user_name, active, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (body.label.strip(), float(body.monto_cop), body.categoria.strip(),
+                "INSERT INTO recurring_expenses (label, monto_cop, categoria, metodo_pago, user_name, active, "
+                "created_at, updated_at, currency, monto_usd) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (body.label.strip(), monto_cop, body.categoria.strip(),
                  body.metodo_pago or "Transferencia BBVA", body.user_name or "Daniel",
-                 1 if body.active is None else int(body.active), now, now),
+                 1 if body.active is None else int(body.active), now, now,
+                 cur_code, monto_usd),
             )
             conn.commit()
             rid = cur.lastrowid
@@ -3412,24 +3445,50 @@ def make_api_app() -> FastAPI:
 
     @api.patch("/api/recurring/{rec_id}")
     def update_recurring(rec_id: int, body: RecurringUpdate):
-        fields, params = [], []
-        for col, val in [("label", body.label), ("monto_cop", body.monto_cop),
-                         ("categoria", body.categoria), ("metodo_pago", body.metodo_pago),
-                         ("user_name", body.user_name), ("active", body.active)]:
-            if val is not None:
-                fields.append(f"{col} = ?")
-                params.append(val)
-        if not fields:
-            raise HTTPException(400, "nada que actualizar")
-        fields.append("updated_at = ?")
-        params.append(datetime.now().isoformat())
-        params.append(rec_id)
         conn = sqlite3.connect(bot.DB_PATH)
         try:
-            r = conn.execute(f"UPDATE recurring_expenses SET {', '.join(fields)} WHERE id = ?", params)
-            conn.commit()
-            if r.rowcount == 0:
+            row = conn.execute(
+                "SELECT COALESCE(currency, 'COP'), monto_usd FROM recurring_expenses WHERE id = ?",
+                (rec_id,),
+            ).fetchone()
+            if not row:
                 raise HTTPException(404, f"recurring {rec_id} no existe")
+            new_cur = (body.currency or row[0]).upper()
+            if new_cur not in ("COP", "USD"):
+                raise HTTPException(400, "currency debe ser COP o USD")
+            if body.monto_cop is not None and body.monto_cop <= 0:
+                raise HTTPException(400, "monto_cop debe ser > 0")
+            if body.monto_usd is not None and body.monto_usd <= 0:
+                raise HTTPException(400, "monto_usd debe ser > 0")
+            if new_cur == "USD" and body.monto_cop is not None:
+                raise HTTPException(400, "este fijo es en USD: edita monto_usd, no monto_cop")
+            if new_cur == "COP" and body.monto_usd is not None:
+                raise HTTPException(400, "monto_usd solo aplica a fijos en USD")
+
+            fields, params = [], []
+            for col, val in [("label", body.label), ("monto_cop", body.monto_cop),
+                             ("categoria", body.categoria), ("metodo_pago", body.metodo_pago),
+                             ("user_name", body.user_name), ("active", body.active)]:
+                if val is not None:
+                    fields.append(f"{col} = ?")
+                    params.append(val)
+            if body.currency is not None:
+                fields.append("currency = ?")
+                params.append(new_cur)
+            if new_cur == "USD" and (body.monto_usd is not None or body.currency is not None):
+                usd = body.monto_usd if body.monto_usd is not None else row[1]
+                if not usd or usd <= 0:
+                    raise HTTPException(400, "monto_usd (>0) es requerido para un fijo en USD")
+                usd = round(float(usd), 2)
+                fields += ["monto_usd = ?", "monto_cop = ?"]
+                params += [usd, float(round(usd * bot.TRM))]
+            if not fields:
+                raise HTTPException(400, "nada que actualizar")
+            fields.append("updated_at = ?")
+            params.append(datetime.now().isoformat())
+            params.append(rec_id)
+            conn.execute(f"UPDATE recurring_expenses SET {', '.join(fields)} WHERE id = ?", params)
+            conn.commit()
         finally:
             conn.close()
         return {"ok": True, "id": rec_id}
