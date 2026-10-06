@@ -1370,6 +1370,30 @@ def init_db():
 
     _run_migration("015_recurring_currency_and_subs", _migration_015_recurring_currency_and_subs)
 
+    def _migration_016_recurring_postings(conn):
+        """Bitácora de posteos de fijos: una fila por (template, mes) ya
+        posteado. Así, si Daniel BORRA el fijo de un mes (porque ese mes no
+        aplicó), el job diario no lo vuelve a crear. Backfill desde los
+        gastos que ya tienen recurring_id. Idempotente; no toca expenses.
+        """
+        conn.execute("""CREATE TABLE IF NOT EXISTS recurring_postings (
+            recurring_id INTEGER NOT NULL,
+            period TEXT NOT NULL,
+            expense_id INTEGER,
+            posted_at TEXT NOT NULL,
+            PRIMARY KEY (recurring_id, period)
+        )""")
+        conn.execute(
+            "INSERT OR IGNORE INTO recurring_postings (recurring_id, period, expense_id, posted_at) "
+            "SELECT recurring_id, substr(fecha, 1, 7), MIN(id), "
+            "COALESCE(MIN(created_at), ?) FROM expenses "
+            "WHERE recurring_id IS NOT NULL GROUP BY recurring_id, substr(fecha, 1, 7)",
+            (datetime.now().isoformat(),),
+        )
+        conn.commit()
+
+    _run_migration("016_recurring_postings", _migration_016_recurring_postings)
+
     conn.close()
 
 
@@ -1449,15 +1473,21 @@ def _trm_for_period(conn, period):
         return float(row[0])
     return float(TRM)
 
+# Un gasto manual cuenta como "el mismo cobro" del fijo si es de la misma
+# categoría y su monto está a ±15% (el precio puede moverse un poco).
+_RECURRING_MATCH_TOL = 0.15
+
 def post_recurring_for_period(period=None):
     """Postea los gastos fijos recurrentes activos para el período YYYY-MM.
 
     Idempotente y seguro contra duplicados (fecha = día 01 del mes):
-      1. Si ESTE template ya tiene su gasto ese mes (recurring_id) → no repite.
-      2. Si la categoría es exclusiva de este template y ese mes ya hay un
-         gasto MANUAL en ella (recurring_id NULL) → lo respeta, no postea.
-         (Con categoría compartida entre templates no se puede saber a cuál
-         corresponde un manual, así que solo aplica la regla 1.)
+      1. Si ESTE template ya se posteó ese mes (bitácora recurring_postings,
+         o un gasto con su recurring_id) → no repite. Si Daniel BORRÓ ese
+         gasto a propósito, NO se vuelve a crear.
+      2. Si ese mes ya hay un gasto MANUAL del mismo cobro (misma categoría
+         y monto parecido, ±15%) → lo respeta y no postea. Un manual distinto
+         en la misma categoría (p.ej. otra suscripción de IA en 'claude') no
+         bloquea el fijo.
     Moneda del template:
       - 'COP' → monto_cop fijo; monto_usd = cop / TRM del mes.
       - 'USD' → monto_usd fijo (p.ej. Claude $100); monto_cop = usd × TRM del mes.
@@ -1475,34 +1505,54 @@ def post_recurring_for_period(period=None):
             "COALESCE(currency, 'COP'), monto_usd "
             "FROM recurring_expenses WHERE active = 1 ORDER BY id"
         ).fetchall()
-        cat_counts = {}
-        for r in recs:
-            cat_counts[r[3]] = cat_counts.get(r[3], 0) + 1
         trm = _trm_for_period(conn, period)
         for rid, label, cop, cat, met, user, cur, usd in recs:
             if conn.execute(
-                "SELECT 1 FROM expenses WHERE fecha LIKE ? AND recurring_id = ? LIMIT 1",
+                "SELECT 1 FROM recurring_postings WHERE recurring_id = ? AND period = ?",
+                (rid, period),
+            ).fetchone():
+                continue
+            existing = conn.execute(
+                "SELECT id FROM expenses WHERE fecha LIKE ? AND recurring_id = ? LIMIT 1",
                 (period + "%", rid),
-            ).fetchone():
+            ).fetchone()
+            if existing:
+                # Ya posteado pero sin bitácora (defensivo): registrarlo y seguir.
+                conn.execute(
+                    "INSERT OR IGNORE INTO recurring_postings (recurring_id, period, expense_id, posted_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    (rid, period, existing[0], now),
+                )
                 continue
-            if cat_counts.get(cat, 0) == 1 and conn.execute(
-                "SELECT 1 FROM expenses WHERE fecha LIKE ? AND categoria = ? "
-                "AND recurring_id IS NULL LIMIT 1",
-                (period + "%", cat),
-            ).fetchone():
-                continue
-            if cur == "USD" and usd:
+            is_usd = bool(cur == "USD" and usd)
+            if is_usd:
                 monto_usd = round(float(usd), 2)
                 monto_cop = float(round(float(usd) * trm))
             else:
                 monto_cop = float(cop or 0)
                 monto_usd = round(monto_cop / trm, 2)
-            conn.execute(
+            ref = monto_usd if is_usd else monto_cop
+            manual = conn.execute(
+                "SELECT monto_cop, monto_usd FROM expenses WHERE fecha LIKE ? AND categoria = ? "
+                "AND recurring_id IS NULL",
+                (period + "%", cat),
+            ).fetchall()
+            if ref > 0 and any(
+                abs(float((m_usd if is_usd else m_cop) or 0) - ref) <= _RECURRING_MATCH_TOL * ref
+                for m_cop, m_usd in manual
+            ):
+                continue
+            ins = conn.execute(
                 "INSERT INTO expenses (user_name, fecha, monto_cop, monto_usd, categoria, nota, "
                 "created_at, metodo_pago, clase_contable, recurring_id) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'gasto', ?)",
                 (user or "Daniel", fecha, monto_cop, monto_usd, cat,
                  (label or cat) + " (fijo mensual)", now, met or "Sin especificar", rid),
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO recurring_postings (recurring_id, period, expense_id, posted_at) "
+                "VALUES (?, ?, ?, ?)",
+                (rid, period, ins.lastrowid, now),
             )
             posted.append(label)
         conn.commit()
@@ -2558,8 +2608,12 @@ async def recurring_poster(context: ContextTypes.DEFAULT_TYPE):
 def main():
     init_db()
     load_config()
-    # Postear los gastos fijos recurrentes del mes en curso si faltan.
-    post_recurring_for_period()
+    # Postear los gastos fijos recurrentes del mes en curso si faltan. Un
+    # fallo aquí no debe tumbar el bot ni el dashboard (el job diario reintenta).
+    try:
+        post_recurring_for_period()
+    except Exception as e:
+        print(f"[recurring] ⚠️ no se pudieron postear los fijos al arrancar: {e!r}")
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
