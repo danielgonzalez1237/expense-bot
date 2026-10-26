@@ -152,9 +152,9 @@
           <div class="text-[12px] font-semibold truncate">
             <span x-text="$store.reminders.icon(c.kind)"></span> <span x-text="c.label"></span>
           </div>
-          <div class="flex items-center gap-1.5 min-w-0">
+          <div class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0">
             <span class="text-[10px] font-bold rounded-full px-2 py-0.5 whitespace-nowrap" :class="c.tone.pill" x-text="c.badge"></span>
-            <span class="text-[10px] text-slate-500 dark:text-slate-400 truncate" x-text="c.subline"></span>
+            <span class="text-[10px] text-slate-500 dark:text-slate-400 whitespace-nowrap" x-text="c.subline"></span>
           </div>
           <div class="flex items-end justify-between gap-1 min-w-0">
             <span class="text-sm font-bold truncate" x-text="$store.reminders.fmtAmount(c)"></span>
@@ -165,7 +165,9 @@
                       ? 'border-slate-300 dark:border-slate-600 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
                       : 'border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 bg-white/70 dark:bg-slate-900/60 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'"
                     :title="c.st.state === 'paid' ? 'Marcar como NO pagado' : 'Marcar este pago como hecho'"
-                    x-text="c.st.state === 'paid' ? 'Deshacer' : '✓ Pagado'"></button>
+                    :aria-label="c.st.state === 'paid' ? 'Deshacer pagado' : 'Marcar pagado'"><span
+                    x-text="c.st.state === 'paid' ? '↺' : '✓'"></span><span class="hidden sm:inline"
+                    x-text="c.st.state === 'paid' ? ' Deshacer' : ' Pagado'"></span></button>
           </div>
           <div class="h-1 rounded-full bg-slate-200/70 dark:bg-slate-700/60 overflow-hidden">
             <div class="h-1 rounded-full transition-all" :class="c.tone.bar" :style="'width:' + c.progress + '%'"></div>
@@ -1732,8 +1734,8 @@
               </button>
             </div>
             <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <label class="flex items-center gap-1 text-[11px] text-slate-500">
-                Paga el día
+              <label class="flex items-center gap-1 text-[11px] text-slate-500" title="Día del mes en que vence">
+                Día
                 <input type="number" min="1" max="31" :value="it.due_day" placeholder="—"
                   @change="$store.reminders.save(it, { due_day: $event.target.value })"
                   class="w-14 bg-white dark:bg-slate-900 border rounded px-1.5 py-1 text-xs font-semibold"
@@ -1743,7 +1745,7 @@
                 Valor
                 <input type="number" min="0" step="any" :value="it.amount" placeholder="opcional"
                   @change="$store.reminders.save(it, { amount: $event.target.value })"
-                  class="w-28 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-1 text-xs font-semibold"/>
+                  class="w-24 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-1 text-xs font-semibold"/>
               </label>
               <select :value="it.currency" @change="$store.reminders.save(it, { currency: $event.target.value })"
                 class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-1 text-[11px]">
@@ -4397,8 +4399,10 @@ document.addEventListener('alpine:init', () => {
     _clamp(y, m, day) { const last = new Date(y, m + 1, 0).getDate(); return new Date(y, m, Math.min(day, last)); },
     _ym(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); },
     _days(a, b) { return Math.round((b - a) / 86400000); },
-    _fmtDate(d) {
-      return d.toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\./g, '');
+    // "vie 23 oct" (es-CO trae "vie, 23 de oct." — muy largo para la tarjeta)
+    _fmtDate(d, withWeekday = true) {
+      const opts = withWeekday ? { weekday: 'short', day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short' };
+      return d.toLocaleDateString('es-CO', opts).replace(/\./g, '').replace(/,/g, '').replace(/ de /g, ' ');
     },
     status(r) {
       if (!r.due_day) return { state: 'nodate', days: null, due: null, period: null, order: 3000 };  // antes de los pagados: piden acción
@@ -4440,8 +4444,8 @@ document.addEventListener('alpine:init', () => {
       return 'En ' + st.days + ' días';
     },
     _subline(st) {
-      if (st.state === 'nodate') return 'Toca para poner el día';
-      if (st.state === 'paid') return 'Próximo ' + this._fmtDate(st.due);
+      if (st.state === 'nodate') return 'Falta el día';
+      if (st.state === 'paid') return 'Próx. ' + this._fmtDate(st.due, false);
       return this._fmtDate(st.due);
     },
     _toCop(amount, cur) {
