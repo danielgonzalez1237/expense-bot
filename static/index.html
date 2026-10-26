@@ -119,6 +119,66 @@
     </div>
   </header>
 
+  <!-- ──────────────── Próximos pagos (recordatorios de fechas de pago) ────────────────
+       Tarjetas de crédito, créditos, hipoteca… El color dice qué tan cerca está
+       la fecha (lo calcula el navegador con la fecha local). -->
+  <section x-data x-init="$store.reminders.load()" class="mb-4">
+    <div class="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 mb-2">
+      <div class="flex flex-wrap items-baseline gap-x-2">
+        <div class="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 font-semibold">📅 Próximos pagos</div>
+        <span x-show="$store.reminders.urgentCount" class="text-[10px] font-semibold text-rose-600 dark:text-rose-400"
+              x-text="$store.reminders.urgentCount + ($store.reminders.urgentCount === 1 ? ' vence esta semana' : ' vencen esta semana')"></span>
+        <span x-show="$store.reminders.summary" class="text-[10px] text-slate-400 dark:text-slate-500" x-text="$store.reminders.summary"></span>
+      </div>
+      <div class="flex items-center gap-1">
+        <button @click="$store.reminders.openModal()"
+          class="text-[11px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg px-2.5 py-1 font-medium transition">+ Agregar</button>
+        <button @click="$store.reminders.openModal()"
+          class="text-[11px] text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 px-1.5 py-1" title="Gestionar fechas de pago">Gestionar</button>
+      </div>
+    </div>
+
+    <div x-show="$store.reminders.loaded && !$store.reminders.cards.length"
+         class="text-xs text-slate-500 dark:text-slate-400 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl p-3 text-center">
+      Agrega tus tarjetas y créditos para ver aquí cuánto falta para cada pago.
+    </div>
+
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+      <template x-for="c in $store.reminders.visible()" :key="c.id">
+        <div @click="$store.reminders.openModal(c.id)"
+             class="rounded-xl border p-2.5 cursor-pointer transition hover:shadow-sm flex flex-col gap-1 min-w-0"
+             :class="c.tone.card"
+             :title="'Toca para editar ' + c.label">
+          <div class="text-[12px] font-semibold truncate">
+            <span x-text="$store.reminders.icon(c.kind)"></span> <span x-text="c.label"></span>
+          </div>
+          <div class="flex items-center gap-1.5 min-w-0">
+            <span class="text-[10px] font-bold rounded-full px-2 py-0.5 whitespace-nowrap" :class="c.tone.pill" x-text="c.badge"></span>
+            <span class="text-[10px] text-slate-500 dark:text-slate-400 truncate" x-text="c.subline"></span>
+          </div>
+          <div class="flex items-end justify-between gap-1 min-w-0">
+            <span class="text-sm font-bold truncate" x-text="$store.reminders.fmtAmount(c)"></span>
+            <button x-show="c.st.state !== 'nodate'"
+                    @click.stop="$store.reminders.togglePaid(c)" :disabled="$store.reminders.busy"
+                    class="text-[10px] font-semibold rounded-md px-1.5 py-0.5 border whitespace-nowrap transition"
+                    :class="c.st.state === 'paid'
+                      ? 'border-slate-300 dark:border-slate-600 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                      : 'border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 bg-white/70 dark:bg-slate-900/60 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'"
+                    :title="c.st.state === 'paid' ? 'Marcar como NO pagado' : 'Marcar este pago como hecho'"
+                    x-text="c.st.state === 'paid' ? 'Deshacer' : '✓ Pagado'"></button>
+          </div>
+          <div class="h-1 rounded-full bg-slate-200/70 dark:bg-slate-700/60 overflow-hidden">
+            <div class="h-1 rounded-full transition-all" :class="c.tone.bar" :style="'width:' + c.progress + '%'"></div>
+          </div>
+        </div>
+      </template>
+    </div>
+    <button x-show="$store.reminders.cards.length > $store.reminders.LIMIT"
+            @click="$store.reminders.expanded = !$store.reminders.expanded"
+            class="mt-1.5 text-[11px] text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+            x-text="$store.reminders.expanded ? 'Ver menos' : 'Ver todos (' + $store.reminders.cards.length + ')'"></button>
+  </section>
+
   <!-- ──────────────── Month + window selectors ──────────────── -->
   <section class="mb-4 sticky top-0 bg-slate-50 dark:bg-slate-950 z-20 py-2 border-b border-slate-100 dark:border-slate-900">
     <div class="flex items-center justify-between mb-1.5">
@@ -1617,6 +1677,131 @@
             <span class="text-slate-500">Ya estaban todos posteados este mes (nada que hacer).</span>
           </template>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ──────────────── Próximos pagos: gestionar recordatorios ──────────────── -->
+<div
+  x-data
+  x-show="$store.reminders.open"
+  x-cloak
+  class="fixed inset-0 z-50 flex items-stretch sm:items-center justify-center modal-backdrop bg-slate-900/40 dark:bg-slate-950/70"
+  @click.self="$store.reminders.close()"
+  @keydown.escape.window="$store.reminders.close()"
+>
+  <div
+    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full sm:max-w-lg sm:rounded-2xl sm:my-8 shadow-xl fade flex flex-col max-h-screen sm:max-h-[92vh]"
+    x-show="$store.reminders.open"
+    x-transition
+  >
+    <div class="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-5 pt-5 pb-3 sm:rounded-t-2xl z-10">
+      <div class="flex items-start justify-between">
+        <div>
+          <div class="text-xs text-slate-500 uppercase tracking-wide">📅 Próximos pagos</div>
+          <div class="text-lg font-bold">Fechas de pago</div>
+          <div class="text-[11px] text-slate-500">El día de cada mes en que vence. El color de arriba se ajusta solo.</div>
+        </div>
+        <button @click="$store.reminders.close()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1" aria-label="Cerrar">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="p-5 overflow-y-auto space-y-4">
+      <div class="space-y-2">
+        <template x-for="it in $store.reminders.items" :key="it.id">
+          <div class="rounded-lg border px-3 py-2 space-y-1.5 transition"
+               :class="$store.reminders.focusId === it.id
+                 ? 'border-sky-400 ring-2 ring-sky-200 dark:ring-sky-900'
+                 : 'border-slate-200 dark:border-slate-700'"
+               :id="'reminder-row-' + it.id">
+            <div class="flex items-center gap-2">
+              <select :value="it.kind" @change="$store.reminders.save(it, { kind: $event.target.value })"
+                class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-1 text-xs">
+                <template x-for="k in $store.reminders.kinds" :key="k.value">
+                  <option :value="k.value" x-text="k.label" :selected="k.value === it.kind"></option>
+                </template>
+              </select>
+              <input type="text" :value="it.label" @change="$store.reminders.save(it, { label: $event.target.value })"
+                class="min-w-0 flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm font-medium"/>
+              <button @click="$store.reminders.del(it)" :disabled="$store.reminders.busy"
+                class="text-slate-400 hover:text-rose-500 p-1 shrink-0" title="Borrar" aria-label="Borrar">
+                <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              </button>
+            </div>
+            <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <label class="flex items-center gap-1 text-[11px] text-slate-500">
+                Paga el día
+                <input type="number" min="1" max="31" :value="it.due_day" placeholder="—"
+                  @change="$store.reminders.save(it, { due_day: $event.target.value })"
+                  class="w-14 bg-white dark:bg-slate-900 border rounded px-1.5 py-1 text-xs font-semibold"
+                  :class="it.due_day ? 'border-slate-200 dark:border-slate-700' : 'border-amber-400 dark:border-amber-700'"/>
+              </label>
+              <label class="flex items-center gap-1 text-[11px] text-slate-500">
+                Valor
+                <input type="number" min="0" step="any" :value="it.amount" placeholder="opcional"
+                  @change="$store.reminders.save(it, { amount: $event.target.value })"
+                  class="w-28 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-1 text-xs font-semibold"/>
+              </label>
+              <select :value="it.currency" @change="$store.reminders.save(it, { currency: $event.target.value })"
+                class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-1 text-[11px]">
+                <template x-for="cur in ['COP', 'USD', 'AED']" :key="cur">
+                  <option :value="cur" x-text="cur" :selected="cur === it.currency"></option>
+                </template>
+              </select>
+            </div>
+          </div>
+        </template>
+        <div x-show="!$store.reminders.items.length" class="text-xs text-slate-400 italic text-center py-4">Todavía no hay fechas de pago.</div>
+      </div>
+
+      <!-- Agregar nuevo -->
+      <div class="border-t border-slate-100 dark:border-slate-800 pt-3">
+        <div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-2">+ Nueva fecha de pago</div>
+        <div class="space-y-2">
+          <div class="flex gap-2">
+            <select x-model="$store.reminders.form.kind"
+              class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-2 text-sm">
+              <template x-for="k in $store.reminders.kinds" :key="k.value">
+                <option :value="k.value" x-text="k.label" :selected="k.value === $store.reminders.form.kind"></option>
+              </template>
+            </select>
+            <input type="text" x-model="$store.reminders.form.label" list="reminder-card-options"
+              placeholder="Nombre (ej. BdB Visa Latam Dani)"
+              class="min-w-0 flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-sm"/>
+            <datalist id="reminder-card-options">
+              <template x-for="o in $store.reminders.cardOptions" :key="o">
+                <option :value="o"></option>
+              </template>
+            </datalist>
+          </div>
+          <div class="grid grid-cols-3 gap-2">
+            <input type="number" min="1" max="31" x-model.number="$store.reminders.form.due_day" placeholder="Día (1–31)"
+              class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-2 text-sm"/>
+            <input type="number" min="0" step="any" x-model.number="$store.reminders.form.amount" placeholder="Valor (opcional)"
+              class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-2 text-sm"/>
+            <select x-model="$store.reminders.form.currency"
+              class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-2 text-sm">
+              <option value="COP">COP</option>
+              <option value="USD">USD</option>
+              <option value="AED">AED</option>
+            </select>
+          </div>
+          <button @click="$store.reminders.add()" :disabled="$store.reminders.busy"
+            class="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg px-3 py-2 text-sm font-medium">+ Agregar fecha de pago</button>
+        </div>
+      </div>
+
+      <div x-show="$store.reminders.error" class="text-xs text-rose-600 dark:text-rose-400" x-text="$store.reminders.error"></div>
+
+      <div class="text-[10px] text-slate-400 dark:text-slate-500 leading-relaxed border-t border-slate-100 dark:border-slate-800 pt-3">
+        Colores: <span class="text-rose-600 dark:text-rose-400 font-semibold">rojo</span> vencido o ≤ 3 días ·
+        <span class="text-orange-600 dark:text-orange-400 font-semibold">naranja</span> 4–7 ·
+        <span class="text-amber-600 dark:text-amber-400 font-semibold">ámbar</span> 8–14 ·
+        <span class="text-emerald-600 dark:text-emerald-400 font-semibold">verde</span> 15+ ·
+        gris = ya pagado este mes. Si el día no existe en un mes (ej. 31), se usa el último día.
       </div>
     </div>
   </div>
@@ -4146,6 +4331,227 @@ document.addEventListener('alpine:init', () => {
       } catch (e) { this.error = e.message; } finally { this.busy = false; }
     },
     fmtCop(v) { return '$' + Math.round(v || 0).toLocaleString('de-DE'); },
+  });
+
+  // ──────────────── Próximos pagos (recordatorios de fechas de pago) ────────────────
+  // Clases completas (no armadas por partes) para que Tailwind las compile.
+  const REMINDER_TONES = {
+    red:    { card: 'bg-rose-50 border-rose-300 dark:bg-rose-950/40 dark:border-rose-800',
+              pill: 'bg-rose-600 text-white', bar: 'bg-rose-500' },
+    orange: { card: 'bg-orange-50 border-orange-300 dark:bg-orange-950/40 dark:border-orange-800',
+              pill: 'bg-orange-500 text-white', bar: 'bg-orange-500' },
+    amber:  { card: 'bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800',
+              pill: 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300', bar: 'bg-amber-400' },
+    green:  { card: 'bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800',
+              pill: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300', bar: 'bg-emerald-400' },
+    paid:   { card: 'bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800 opacity-75',
+              pill: 'bg-emerald-600 text-white', bar: 'bg-emerald-500' },
+    nodate: { card: 'bg-white border-dashed border-slate-300 dark:bg-slate-900 dark:border-slate-700',
+              pill: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400', bar: 'bg-slate-300' },
+  };
+  Alpine.store('reminders', {
+    loaded: false, open: false, busy: false, error: null, expanded: false, focusId: null,
+    items: [], cards: [], cardOptions: [], rates: { TRM: 3300, AED_RATE: 3.67 },
+    urgentCount: 0, summary: '', LIMIT: 6,
+    kinds: [
+      { value: 'tarjeta', label: '💳 Tarjeta' }, { value: 'credito', label: '🏦 Crédito' },
+      { value: 'hipoteca', label: '🏠 Hipoteca' }, { value: 'otro', label: '📌 Otro' },
+    ],
+    form: { label: '', kind: 'tarjeta', due_day: null, amount: null, currency: 'COP' },
+    icon(kind) { return { tarjeta: '💳', credito: '🏦', hipoteca: '🏠' }[kind] || '📌'; },
+    async load() {
+      for (let i = 0; i < 3; i++) {
+        try {
+          const [r, rt] = await Promise.all([fetch('/api/reminders'), fetch('/api/rates')]);
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          this.items = (await r.json()).reminders || [];
+          if (rt.ok) this.rates = await rt.json();
+          this.error = null;
+          this.refresh();
+          this.loaded = true;
+          // Si el dashboard queda abierto de un día para otro, que los días se recalculen.
+          if (!this._tick) this._tick = setInterval(() => this.refresh(), 10 * 60 * 1000);
+          return;
+        } catch (e) {
+          this.error = 'No se pudieron cargar las fechas de pago';
+          await new Promise(res => setTimeout(res, 700 * (i + 1)));
+        }
+      }
+      this.loaded = true;
+    },
+    async loadMeta() {
+      if (this.cardOptions.length) return;
+      try {
+        const p = await fetch('/api/payment-methods');
+        if (!p.ok) return;
+        const m = (await p.json()).methods || {};
+        const list = [];
+        for (const bank in m) for (const c of m[bank]) {
+          const name = (bank === 'Efectivo' || c === bank) ? bank : bank + ' ' + c;
+          if (!/^(Transferencia|Efectivo|USDT|Sin especificar)/i.test(name)) list.push(name);
+        }
+        this.cardOptions = list;
+      } catch (e) { /* noop */ }
+    },
+    // ── fechas (hora local del navegador) ──
+    _clamp(y, m, day) { const last = new Date(y, m + 1, 0).getDate(); return new Date(y, m, Math.min(day, last)); },
+    _ym(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); },
+    _days(a, b) { return Math.round((b - a) / 86400000); },
+    _fmtDate(d) {
+      return d.toLocaleDateString('es-CO', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\./g, '');
+    },
+    status(r) {
+      if (!r.due_day) return { state: 'nodate', days: null, due: null, period: null, order: 3000 };  // antes de los pagados: piden acción
+      const t = new Date();
+      const today = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+      const y = today.getFullYear(), m = today.getMonth();
+      const paid = r.paid_periods || [];
+      const dueThis = this._clamp(y, m, r.due_day), perThis = this._ym(dueThis);
+      const dueNext = this._clamp(y, m + 1, r.due_day), perNext = this._ym(dueNext);
+      const dThis = this._days(today, dueThis);
+      if (paid.includes(perThis)) {
+        const dN = this._days(today, dueNext);
+        return { state: 'paid', due: dueNext, period: perNext, paidPeriod: perThis, days: dN, order: 4000 + dN };
+      }
+      if (dThis >= 0) return { state: 'due', due: dueThis, period: perThis, days: dThis, order: dThis };
+      // Venció hace poco y no está marcado: avisar unos días ("¿ya pagaste?")
+      if (dThis >= -5) return { state: 'overdue', due: dueThis, period: perThis, days: dThis, order: -100 + dThis };
+      const dN = this._days(today, dueNext);
+      if (paid.includes(perNext)) {   // pagado por adelantado
+        const after = this._clamp(y, m + 2, r.due_day);
+        return { state: 'paid', due: after, period: this._ym(after), paidPeriod: perNext, days: this._days(today, after), order: 4000 + dN };
+      }
+      return { state: 'due', due: dueNext, period: perNext, days: dN, order: dN };
+    },
+    tone(st) {
+      if (st.state === 'nodate') return REMINDER_TONES.nodate;
+      if (st.state === 'paid') return REMINDER_TONES.paid;
+      if (st.state === 'overdue' || st.days <= 3) return REMINDER_TONES.red;
+      if (st.days <= 7) return REMINDER_TONES.orange;
+      if (st.days <= 14) return REMINDER_TONES.amber;
+      return REMINDER_TONES.green;
+    },
+    _badge(st) {
+      if (st.state === 'nodate') return 'Sin fecha';
+      if (st.state === 'paid') return 'Pagado ✓';
+      if (st.state === 'overdue') return 'Venció hace ' + (-st.days) + (st.days === -1 ? ' día' : ' días');
+      if (st.days === 0) return '¡Hoy!';
+      if (st.days === 1) return 'Mañana';
+      return 'En ' + st.days + ' días';
+    },
+    _subline(st) {
+      if (st.state === 'nodate') return 'Toca para poner el día';
+      if (st.state === 'paid') return 'Próximo ' + this._fmtDate(st.due);
+      return this._fmtDate(st.due);
+    },
+    _toCop(amount, cur) {
+      const v = Number(amount) || 0;
+      if (cur === 'USD') return v * (this.rates.TRM || 0);
+      if (cur === 'AED') return v * (this.rates.TRM || 0) / (this.rates.AED_RATE || 1);
+      return v;
+    },
+    refresh() {
+      const cards = this.items.filter(r => r.active).map(r => {
+        const st = this.status(r);
+        const progress = st.state === 'nodate' ? 0
+          : (st.state === 'paid' || st.state === 'overdue') ? 100
+          : Math.max(4, Math.min(100, Math.round((30 - st.days) / 30 * 100)));
+        return { ...r, st, tone: this.tone(st), badge: this._badge(st), subline: this._subline(st), progress };
+      });
+      cards.sort((a, b) => a.st.order - b.st.order || a.label.localeCompare(b.label));
+      this.cards = cards;
+      const pending = cards.filter(c => (c.st.state === 'due' && c.st.days <= 30) || c.st.state === 'overdue');
+      this.urgentCount = pending.filter(c => c.st.state === 'overdue' || c.st.days <= 7).length;
+      const total = pending.reduce((s, c) => s + (c.amount ? this._toCop(c.amount, c.currency) : 0), 0);
+      this.summary = pending.length
+        ? pending.length + (pending.length === 1 ? ' pago' : ' pagos') + ' en 30 días'
+          + (total ? ' · ≈ $' + Math.round(total).toLocaleString('de-DE') + ' COP' : '')
+        : '';
+    },
+    visible() { return this.expanded ? this.cards : this.cards.slice(0, this.LIMIT); },
+    fmtAmount(c) {
+      if (c.amount === null || c.amount === undefined || c.amount === '') return '—';
+      const v = Number(c.amount);
+      if (c.currency === 'USD') return 'US$' + v.toLocaleString('en-US', { maximumFractionDigits: 2 });
+      if (c.currency === 'AED') return 'AED ' + v.toLocaleString('en-US', { maximumFractionDigits: 2 });
+      return '$' + Math.round(v).toLocaleString('de-DE');
+    },
+    // ── acciones ──
+    async openModal(id) {
+      this.open = true; this.error = null; this.focusId = id || null;
+      await this.loadMeta();
+      if (id) this._scrollTo(id);
+    },
+    _scrollTo(id) {
+      setTimeout(() => { const el = document.getElementById('reminder-row-' + id); if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }, 120);
+    },
+    close() { this.open = false; this.focusId = null; },
+    async _send(url, method, body) {
+      const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+      if (!r.ok) {
+        let msg = 'Error ' + r.status;
+        try { msg = (await r.json()).detail || msg; } catch (e) { /* noop */ }
+        throw new Error(msg);
+      }
+      return r.json();
+    },
+    async save(it, patch) {
+      const body = {};
+      if ('label' in patch) {
+        if (!patch.label.trim()) { this.error = 'El nombre no puede quedar vacío'; await this.load(); return; }
+        body.label = patch.label.trim();
+      }
+      if ('kind' in patch) body.kind = patch.kind;
+      if ('currency' in patch) body.currency = patch.currency;
+      if ('due_day' in patch) {
+        if (patch.due_day === '' || patch.due_day === null) body.clear_due_day = true;
+        else {
+          const d = parseInt(patch.due_day, 10);
+          if (!(d >= 1 && d <= 31)) { this.error = 'El día debe estar entre 1 y 31'; await this.load(); return; }
+          body.due_day = d;
+        }
+      }
+      if ('amount' in patch) {
+        if (patch.amount === '' || patch.amount === null) body.clear_amount = true;
+        else {
+          const v = Number(patch.amount);
+          if (!(v >= 0)) { this.error = 'El valor debe ser un número'; await this.load(); return; }
+          body.amount = v;
+        }
+      }
+      this.busy = true; this.error = null;
+      try { await this._send('/api/reminders/' + it.id, 'PATCH', body); }
+      catch (e) { this.error = e.message; }
+      finally { await this.load(); this.busy = false; }
+    },
+    async add() {
+      const f = this.form;
+      if (!f.label || !f.label.trim()) { this.error = 'Ponle un nombre'; return; }
+      const d = f.due_day === '' || f.due_day === null ? null : parseInt(f.due_day, 10);
+      if (d !== null && !(d >= 1 && d <= 31)) { this.error = 'El día debe estar entre 1 y 31'; return; }
+      const amount = f.amount === '' || f.amount === null || f.amount === undefined ? null : Number(f.amount);
+      this.busy = true; this.error = null;
+      try {
+        await this._send('/api/reminders', 'POST', { label: f.label.trim(), kind: f.kind, due_day: d, amount, currency: f.currency });
+        this.form = { label: '', kind: f.kind, due_day: null, amount: null, currency: 'COP' };
+      } catch (e) { this.error = e.message; }
+      finally { await this.load(); this.busy = false; }
+    },
+    async del(it) {
+      if (!confirm('¿Borrar la fecha de pago "' + it.label + '"?')) return;
+      this.busy = true; this.error = null;
+      try { await this._send('/api/reminders/' + it.id, 'DELETE'); }
+      catch (e) { this.error = e.message; }
+      finally { await this.load(); this.busy = false; }
+    },
+    async togglePaid(c) {
+      const undo = c.st.state === 'paid';
+      const period = undo ? c.st.paidPeriod : c.st.period;
+      this.busy = true; this.error = null;
+      try { await this._send('/api/reminders/' + c.id + '/paid', 'POST', { period, paid: !undo }); }
+      catch (e) { this.error = e.message; }
+      finally { await this.load(); this.busy = false; }
+    },
   });
 
   // ──────────────── Conciliación de extractos v2 store ────────────────
