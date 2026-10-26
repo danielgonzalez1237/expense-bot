@@ -16,7 +16,7 @@ import re
 import json
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -431,6 +431,37 @@ class RecurringUpdate(BaseModel):
     active: Optional[int] = None
     currency: Optional[str] = None
     monto_usd: Optional[float] = None
+
+
+_REMINDER_KINDS = ("tarjeta", "credito", "hipoteca", "otro")
+_REMINDER_CURRENCIES = ("COP", "USD", "AED")
+
+
+class ReminderCreate(BaseModel):
+    label: str
+    kind: Optional[str] = "tarjeta"
+    due_day: Optional[int] = None      # día del mes 1–31 (None = sin fecha aún)
+    amount: Optional[float] = None
+    currency: Optional[str] = "COP"
+    notes: Optional[str] = None
+
+
+class ReminderUpdate(BaseModel):
+    label: Optional[str] = None
+    kind: Optional[str] = None
+    due_day: Optional[int] = None
+    amount: Optional[float] = None
+    currency: Optional[str] = None
+    notes: Optional[str] = None
+    active: Optional[int] = None
+    # Para poder BORRAR la fecha o el valor (None no se distingue de "no enviado")
+    clear_due_day: Optional[bool] = False
+    clear_amount: Optional[bool] = False
+
+
+class ReminderPaid(BaseModel):
+    period: str          # YYYY-MM del vencimiento que se marca
+    paid: bool = True
 
 
 def _query_all(sql: str, params: tuple = ()) -> list[dict]:
@@ -3513,6 +3544,128 @@ def make_api_app() -> FastAPI:
             raise HTTPException(400, f"period inválido: {period!r}")
         posted = bot.post_recurring_for_period(period)
         return {"ok": True, "period": period, "posted": posted, "count": len(posted)}
+
+    # ──────────────── Recordatorios de pago (Próximos pagos) ────────────────
+    # El estado (días que faltan, color) lo calcula el navegador con la fecha
+    # local de Daniel; el servidor corre en UTC y no debe decidir "hoy".
+
+    def _validate_reminder(kind, due_day, amount, currency):
+        if kind is not None and kind not in _REMINDER_KINDS:
+            raise HTTPException(400, f"kind debe ser uno de {_REMINDER_KINDS}")
+        if due_day is not None and not (1 <= int(due_day) <= 31):
+            raise HTTPException(400, "due_day debe estar entre 1 y 31")
+        if amount is not None and amount < 0:
+            raise HTTPException(400, "amount debe ser ≥ 0")
+        if currency is not None and currency.upper() not in _REMINDER_CURRENCIES:
+            raise HTTPException(400, f"currency debe ser una de {_REMINDER_CURRENCIES}")
+
+    @api.get("/api/reminders")
+    def list_reminders():
+        rows = _query_all(
+            "SELECT id, label, kind, due_day, amount, currency, notes, active, created_at, updated_at "
+            "FROM payment_reminders ORDER BY active DESC, (due_day IS NULL), due_day, id"
+        )
+        paid = _query_all(
+            "SELECT reminder_id, period, paid_at FROM payment_reminder_paid "
+            "WHERE period >= ? ORDER BY period",
+            ((datetime.now() - timedelta(days=100)).strftime("%Y-%m"),),
+        )
+        by_id = {}
+        for p in paid:
+            by_id.setdefault(p["reminder_id"], []).append(p["period"])
+        for r in rows:
+            r["paid_periods"] = by_id.get(r["id"], [])
+        return {"reminders": rows}
+
+    @api.post("/api/reminders")
+    def create_reminder(body: ReminderCreate):
+        label = (body.label or "").strip()
+        if not label:
+            raise HTTPException(400, "label es requerido")
+        _validate_reminder(body.kind, body.due_day, body.amount, body.currency)
+        now = datetime.now().isoformat()
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            cur = conn.execute(
+                "INSERT INTO payment_reminders (label, kind, due_day, amount, currency, notes, active, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)",
+                (label, body.kind or "tarjeta", body.due_day, body.amount,
+                 (body.currency or "COP").upper(), body.notes, now, now),
+            )
+            conn.commit()
+            rid = cur.lastrowid
+        finally:
+            conn.close()
+        return {"ok": True, "id": rid}
+
+    @api.patch("/api/reminders/{rid}")
+    def update_reminder(rid: int, body: ReminderUpdate):
+        _validate_reminder(body.kind, body.due_day, body.amount, body.currency)
+        fields, params = [], []
+        if body.label is not None:
+            if not body.label.strip():
+                raise HTTPException(400, "label no puede quedar vacío")
+            fields.append("label = ?"); params.append(body.label.strip())
+        for col, val in [("kind", body.kind), ("notes", body.notes), ("active", body.active)]:
+            if val is not None:
+                fields.append(f"{col} = ?"); params.append(val)
+        if body.currency is not None:
+            fields.append("currency = ?"); params.append(body.currency.upper())
+        if body.clear_due_day:
+            fields.append("due_day = NULL")
+        elif body.due_day is not None:
+            fields.append("due_day = ?"); params.append(int(body.due_day))
+        if body.clear_amount:
+            fields.append("amount = NULL")
+        elif body.amount is not None:
+            fields.append("amount = ?"); params.append(float(body.amount))
+        if not fields:
+            raise HTTPException(400, "nada que actualizar")
+        fields.append("updated_at = ?"); params.append(datetime.now().isoformat())
+        params.append(rid)
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            r = conn.execute(f"UPDATE payment_reminders SET {', '.join(fields)} WHERE id = ?", params)
+            conn.commit()
+            if r.rowcount == 0:
+                raise HTTPException(404, f"recordatorio {rid} no existe")
+        finally:
+            conn.close()
+        return {"ok": True, "id": rid}
+
+    @api.delete("/api/reminders/{rid}")
+    def delete_reminder(rid: int):
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            r = conn.execute("DELETE FROM payment_reminders WHERE id = ?", (rid,))
+            conn.execute("DELETE FROM payment_reminder_paid WHERE reminder_id = ?", (rid,))
+            conn.commit()
+            if r.rowcount == 0:
+                raise HTTPException(404, f"recordatorio {rid} no existe")
+        finally:
+            conn.close()
+        return {"ok": True, "deleted": rid}
+
+    @api.post("/api/reminders/{rid}/paid")
+    def mark_reminder_paid(rid: int, body: ReminderPaid):
+        if not _VALID_PERIOD.match(body.period or ""):
+            raise HTTPException(400, f"period inválido: {body.period!r}")
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            if not conn.execute("SELECT 1 FROM payment_reminders WHERE id = ?", (rid,)).fetchone():
+                raise HTTPException(404, f"recordatorio {rid} no existe")
+            if body.paid:
+                conn.execute(
+                    "INSERT OR REPLACE INTO payment_reminder_paid (reminder_id, period, paid_at) VALUES (?, ?, ?)",
+                    (rid, body.period, datetime.now().isoformat()),
+                )
+            else:
+                conn.execute("DELETE FROM payment_reminder_paid WHERE reminder_id = ? AND period = ?",
+                             (rid, body.period))
+            conn.commit()
+        finally:
+            conn.close()
+        return {"ok": True, "id": rid, "period": body.period, "paid": body.paid}
 
     # ──────────────── Static frontend ────────────────
     # Serve index.html at / and any other static assets under /static/*.

@@ -1394,6 +1394,51 @@ def init_db():
 
     _run_migration("016_recurring_postings", _migration_016_recurring_postings)
 
+    def _migration_017_payment_reminders(conn):
+        """Recordatorios de fechas de pago (tarjetas de crédito, créditos,
+        hipoteca…) para la zona "Próximos pagos" del dashboard.
+
+        - payment_reminders: nombre, tipo, día del mes en que vence (1–31,
+          NULL = falta ponerla), valor opcional + moneda.
+        - payment_reminder_paid: marca "pagado" por (recordatorio, mes).
+        Siembra los compromisos que Daniel nombró el 2026-10-26 (sin fecha:
+        él la pone desde el dashboard). Idempotente; no toca expenses.
+        """
+        conn.execute("""CREATE TABLE IF NOT EXISTS payment_reminders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            label TEXT NOT NULL,
+            kind TEXT NOT NULL DEFAULT 'tarjeta',
+            due_day INTEGER,
+            amount REAL,
+            currency TEXT NOT NULL DEFAULT 'COP',
+            notes TEXT,
+            active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS payment_reminder_paid (
+            reminder_id INTEGER NOT NULL,
+            period TEXT NOT NULL,
+            paid_at TEXT NOT NULL,
+            PRIMARY KEY (reminder_id, period)
+        )""")
+        now = datetime.now().isoformat()
+        seeds = [
+            ("Hipoteca",      "hipoteca", 5060000.0),
+            ("Crédito BBVA",  "credito",  5151000.0),
+            ("Rappi crédito", "credito",  None),
+        ]
+        for label, kind, amount in seeds:
+            if not conn.execute("SELECT 1 FROM payment_reminders WHERE label = ?", (label,)).fetchone():
+                conn.execute(
+                    "INSERT INTO payment_reminders (label, kind, due_day, amount, currency, active, created_at, updated_at) "
+                    "VALUES (?, ?, NULL, ?, 'COP', 1, ?, ?)",
+                    (label, kind, amount, now, now),
+                )
+        conn.commit()
+
+    _run_migration("017_payment_reminders", _migration_017_payment_reminders)
+
     conn.close()
 
 
