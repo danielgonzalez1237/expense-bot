@@ -112,6 +112,131 @@ class DeferralRequest(BaseModel):
     mode: str    # 'upfront' or 'credito'
 
 
+# ──────────────── 📅 Diferidos: gestión por grupo ────────────────
+# Módulo al lado de 🔁 Fijos. Cada diferido es un grupo de cuotas (filas de
+# expenses con el mismo deferred_group_id) + una fila opcional en
+# deferred_meta (concepto y moneda). Se puede crear directo (sin gasto
+# previo), cambiar concepto/categoría/método/persona/modo de todas las
+# cuotas, cambiar el valor de la cuota (todas o desde la cuota K), el
+# número de cuotas, el mes de la primera cuota, y cancelar las pendientes.
+DEFERRED_CURRENCIES = {"COP", "USD"}
+DEFERRED_MAX_CUOTAS = 60
+
+
+class DeferredCreate(BaseModel):
+    concepto: str
+    categoria: str
+    monto: float
+    monto_tipo: Optional[str] = "total"   # 'total' (se reparte en N) | 'cuota' (valor de cada cuota)
+    currency: Optional[str] = "COP"       # 'COP' | 'USD'
+    cuotas: int                           # 2..60
+    fecha_inicio: str                     # YYYY-MM-DD de la cuota 1
+    metodo_pago: Optional[str] = "Sin especificar"
+    user_name: Optional[str] = "Daniel"
+    mode: Optional[str] = "credito"
+    clase_contable: Optional[str] = "gasto"
+
+
+class DeferredUpdate(BaseModel):
+    concepto: Optional[str] = None
+    categoria: Optional[str] = None
+    metodo_pago: Optional[str] = None
+    user_name: Optional[str] = None
+    mode: Optional[str] = None
+    cuota: Optional[float] = None         # nuevo valor de cuota, en la moneda del grupo
+    currency: Optional[str] = None        # cambiar moneda (exige cuota)
+    desde: Optional[int] = None           # la nueva cuota aplica desde la cuota K (default 1 = todas)
+    cuotas: Optional[int] = None          # nuevo número total de cuotas
+    fecha_inicio: Optional[str] = None    # YYYY-MM-DD: re-fecha todas las cuotas desde aquí
+
+
+def _month_offset(fecha: str, k: int) -> str:
+    """YYYY-MM-DD movido k meses (k puede ser negativo), ajustando el día
+    al último del mes destino si hace falta (31-ene + 1 → 28/29-feb)."""
+    import calendar
+    y, m, d = (int(x) for x in fecha[:10].split("-"))
+    tot = m - 1 + k
+    ny, nm = y + tot // 12, tot % 12 + 1
+    return f"{ny:04d}-{nm:02d}-{min(d, calendar.monthrange(ny, nm)[1]):02d}"
+
+
+def _split_cuotas(total: float, n: int, currency: str) -> list[float]:
+    """Reparte un total en n cuotas: COP en pesos enteros, USD en centavos.
+    El residuo del redondeo va en la última cuota para que la suma cuadre."""
+    q = 0 if currency == "COP" else 2
+    base = round(total / n, q)
+    cuotas = [base] * n
+    cuotas[-1] = round(total - base * (n - 1), q)
+    return cuotas
+
+
+def _amounts_for(conn, fecha: str, cuota: float, currency: str) -> tuple[float, float]:
+    """(monto_cop, monto_usd) de una cuota con la TRM del mes de su fecha."""
+    trm = bot._trm_for_period(conn, fecha[:7])
+    if currency == "USD":
+        return float(round(cuota * trm)), round(cuota, 2)
+    return float(cuota), round(cuota / trm, 2)
+
+
+def _deferred_today() -> str:
+    return datetime.now(bot.COL_TZ).strftime("%Y-%m-%d")
+
+
+_DEFERRED_COLS = ("id, fecha, monto_cop, monto_usd, categoria, nota, user_name, metodo_pago, "
+                  "clase_contable, COALESCE(deferred_index, 1), COALESCE(deferred_total, 1), "
+                  "deferred_group_id, deferred_mode")
+
+
+def _deferred_rows(conn, gid: int) -> list[dict]:
+    rows = conn.execute(
+        f"SELECT {_DEFERRED_COLS} FROM expenses WHERE COALESCE(deferred_group_id, id) = ? "
+        "AND (deferred_group_id IS NOT NULL OR COALESCE(deferred_total, 1) > 1) "
+        "ORDER BY COALESCE(deferred_index, 1), fecha, id",
+        (gid,),
+    ).fetchall()
+    keys = ["id", "fecha", "monto_cop", "monto_usd", "categoria", "nota", "user_name", "metodo_pago",
+            "clase_contable", "index", "total", "group_id", "mode"]
+    return [dict(zip(keys, r)) for r in rows]
+
+
+def _deferred_summary(rows: list[dict], meta: Optional[tuple], today: str) -> dict:
+    """Arma la vista de un grupo a partir de sus cuotas (ya ordenadas)."""
+    gid = rows[0]["group_id"] or rows[0]["id"]
+    currency = (meta[1] if meta and meta[1] else "COP")
+    concepto = (meta[0] if meta and meta[0] else "") or next(
+        (r["nota"].strip() for r in rows if (r["nota"] or "").strip()), "") or rows[0]["categoria"]
+    key = "monto_usd" if currency == "USD" else "monto_cop"
+    pend = [r for r in rows if r["fecha"][:10] > today]
+    pag = [r for r in rows if r["fecha"][:10] <= today]
+    ref = (pend[0] if pend else rows[-1])
+    n = max(max(r["total"] for r in rows), len(rows))
+    return {
+        "group_id": gid,
+        "concepto": concepto,
+        "currency": currency,
+        "categoria": rows[0]["categoria"],
+        "metodo_pago": rows[0]["metodo_pago"],
+        "user_name": rows[0]["user_name"],
+        "mode": rows[0]["mode"],
+        "cuotas_total": n,
+        "cuotas_registradas": len(rows),
+        "incompleto": len(rows) != n,
+        "pagadas": len(pag),
+        "pendientes": len(pend),
+        "cuota": round(ref[key] or 0, 2),
+        "total": round(sum(r[key] or 0 for r in rows), 2),
+        "total_cop": round(sum(r["monto_cop"] or 0 for r in rows)),
+        "saldo": round(sum(r[key] or 0 for r in pend), 2),
+        "saldo_cop": round(sum(r["monto_cop"] or 0 for r in pend)),
+        "desde": rows[0]["fecha"][:10],
+        "hasta": rows[-1]["fecha"][:10],
+        "estado": "activo" if pend else "terminado",
+        "cuotas": [{"id": r["id"], "index": r["index"], "fecha": r["fecha"][:10],
+                    "monto_cop": r["monto_cop"], "monto_usd": r["monto_usd"],
+                    "pagada": r["fecha"][:10] <= today} for r in rows],
+    }
+
+
 # ──────────────── Reconciliación de extractos bancarios v2 ────────────────
 # Daniel sube un JSON extraído con Claude chat de uno o varios extractos
 # bancarios consolidados. El backend clasifica cada movimiento, lo matchea
@@ -3666,6 +3791,254 @@ def make_api_app() -> FastAPI:
         finally:
             conn.close()
         return {"ok": True, "id": rid, "period": body.period, "paid": body.paid}
+
+    # ──────────────── 📅 Diferidos ────────────────
+    def _deferred_view(conn, gid: int) -> dict:
+        rows = _deferred_rows(conn, gid)
+        if not rows:
+            raise HTTPException(404, f"diferido {gid} no existe")
+        meta = conn.execute("SELECT concepto, currency FROM deferred_meta WHERE group_id = ?", (gid,)).fetchone()
+        return _deferred_summary(rows, meta, _deferred_today())
+
+    @api.get("/api/deferred")
+    def list_deferred():
+        """Todos los grupos diferidos: activos primero, luego terminados."""
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            gids = [r[0] for r in conn.execute(
+                "SELECT DISTINCT COALESCE(deferred_group_id, id) FROM expenses "
+                "WHERE deferred_group_id IS NOT NULL OR COALESCE(deferred_total, 1) > 1"
+            ).fetchall()]
+            metas = {r[0]: (r[1], r[2]) for r in conn.execute(
+                "SELECT group_id, concepto, currency FROM deferred_meta").fetchall()}
+            today = _deferred_today()
+            groups = []
+            for gid in gids:
+                rows = _deferred_rows(conn, gid)
+                if rows:
+                    groups.append(_deferred_summary(rows, metas.get(gid), today))
+        finally:
+            conn.close()
+        activos = sorted([g for g in groups if g["estado"] == "activo"], key=lambda g: (g["hasta"], g["concepto"].lower()))
+        terminados = sorted([g for g in groups if g["estado"] != "activo"], key=lambda g: g["hasta"], reverse=True)
+        return {"groups": activos + terminados, "today": _deferred_today()}
+
+    @api.post("/api/deferred")
+    def create_deferred(body: DeferredCreate):
+        """Crea un diferido nuevo: N cuotas mensuales desde fecha_inicio."""
+        cur_code = (body.currency or "COP").upper()
+        if cur_code not in DEFERRED_CURRENCIES:
+            raise HTTPException(400, "currency debe ser COP o USD")
+        if not body.concepto.strip() or not body.categoria.strip():
+            raise HTTPException(400, "concepto y categoría son requeridos")
+        n = int(body.cuotas)
+        if n < 2 or n > DEFERRED_MAX_CUOTAS:
+            raise HTTPException(400, f"cuotas debe estar entre 2 y {DEFERRED_MAX_CUOTAS}")
+        if not body.monto or body.monto <= 0:
+            raise HTTPException(400, "monto debe ser > 0")
+        tipo = (body.monto_tipo or "total").lower()
+        if tipo not in ("total", "cuota"):
+            raise HTTPException(400, "monto_tipo debe ser 'total' o 'cuota'")
+        mode = body.mode or "credito"
+        if mode not in DEFERRAL_MODES_PERMITIDOS:
+            raise HTTPException(400, f"mode debe ser uno de {sorted(DEFERRAL_MODES_PERMITIDOS)}")
+        clase = body.clase_contable or "gasto"
+        if clase not in CLASES_CONTABLES_PERMITIDAS:
+            raise HTTPException(400, f"clase_contable debe ser una de {sorted(CLASES_CONTABLES_PERMITIDAS)}")
+        try:
+            datetime.strptime(body.fecha_inicio[:10], "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(400, f"fecha_inicio inválida {body.fecha_inicio!r}, se espera YYYY-MM-DD")
+        valores = (_split_cuotas(float(body.monto), n, cur_code) if tipo == "total"
+                   else [round(float(body.monto), 0 if cur_code == "COP" else 2)] * n)
+        concepto = body.concepto.strip()
+        now = datetime.now().isoformat()
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            conn.execute("BEGIN")
+            gid = None
+            for k in range(1, n + 1):
+                fecha = _month_offset(body.fecha_inicio[:10], k - 1)
+                cop, usd = _amounts_for(conn, fecha, valores[k - 1], cur_code)
+                cur = conn.execute(
+                    "INSERT INTO expenses (user_id, user_name, fecha, monto_cop, monto_usd, categoria, nota, "
+                    "created_at, metodo_pago, clase_contable, deferred_total, deferred_index, "
+                    "deferred_group_id, deferred_mode) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (body.user_name or "Daniel", fecha, cop, usd, body.categoria.strip(), concepto, now,
+                     body.metodo_pago or "Sin especificar", clase, n, k, gid, mode),
+                )
+                if gid is None:
+                    gid = cur.lastrowid
+                    conn.execute("UPDATE expenses SET deferred_group_id = ? WHERE id = ?", (gid, gid))
+            conn.execute(
+                "INSERT OR REPLACE INTO deferred_meta (group_id, concepto, currency, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?)", (gid, concepto, cur_code, now, now))
+            conn.execute("COMMIT")
+            return {"ok": True, "group": _deferred_view(conn, gid)}
+        except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            raise
+        finally:
+            conn.close()
+
+    @api.patch("/api/deferred/{gid}")
+    def update_deferred(gid: int, body: DeferredUpdate):
+        """Edita un diferido. Campos que no vienen no se tocan.
+
+        Orden: datos de todas las cuotas → re-fechar (fecha_inicio) → número
+        de cuotas (agrega al final o quita las últimas) → valor de la cuota
+        (todas, o desde la cuota `desde`). Los montos se recalculan con la
+        TRM del mes de cada cuota según la moneda del grupo.
+        """
+        data = body.dict(exclude_unset=True)
+        if not data:
+            raise HTTPException(400, "nada que cambiar")
+        if "mode" in data and data["mode"] not in DEFERRAL_MODES_PERMITIDOS:
+            raise HTTPException(400, f"mode debe ser uno de {sorted(DEFERRAL_MODES_PERMITIDOS)}")
+        if "currency" in data:
+            data["currency"] = (data["currency"] or "").upper()
+            if data["currency"] not in DEFERRED_CURRENCIES:
+                raise HTTPException(400, "currency debe ser COP o USD")
+        if "cuota" in data and not (data["cuota"] and data["cuota"] > 0):
+            raise HTTPException(400, "cuota debe ser > 0")
+        if "cuotas" in data and not (2 <= int(data["cuotas"]) <= DEFERRED_MAX_CUOTAS):
+            raise HTTPException(400, f"cuotas debe estar entre 2 y {DEFERRED_MAX_CUOTAS}")
+        if "fecha_inicio" in data:
+            try:
+                datetime.strptime((data["fecha_inicio"] or "")[:10], "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(400, "fecha_inicio inválida, se espera YYYY-MM-DD")
+        for f in ("concepto", "categoria"):
+            if f in data and not (data[f] or "").strip():
+                raise HTTPException(400, f"{f} no puede quedar vacío")
+        now = datetime.now().isoformat()
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            rows = _deferred_rows(conn, gid)
+            if not rows:
+                raise HTTPException(404, f"diferido {gid} no existe")
+            meta = conn.execute("SELECT concepto, currency FROM deferred_meta WHERE group_id = ?", (gid,)).fetchone()
+            old_cur = (meta[1] if meta and meta[1] else "COP")
+            new_cur = data.get("currency", old_cur)
+            if new_cur != old_cur and "cuota" not in data:
+                raise HTTPException(400, "para cambiar la moneda manda también el valor de la cuota")
+            conn.execute("BEGIN")
+            ids = [r["id"] for r in rows]
+            qmarks = ",".join("?" * len(ids))
+            # 1) campos de todas las cuotas
+            sets, params = [], []
+            for f, col in (("concepto", "nota"), ("categoria", "categoria"), ("metodo_pago", "metodo_pago"),
+                           ("user_name", "user_name"), ("mode", "deferred_mode")):
+                if f in data:
+                    sets.append(f"{col} = ?")
+                    params.append(data[f].strip() if isinstance(data[f], str) else data[f])
+            if sets:
+                conn.execute(f"UPDATE expenses SET {', '.join(sets)} WHERE id IN ({qmarks})", (*params, *ids))
+            # meta (concepto/moneda); los grupos viejos la estrenan aquí
+            concepto = data.get("concepto", (meta[0] if meta else None) or _deferred_summary(rows, meta, _deferred_today())["concepto"])
+            conn.execute(
+                "INSERT INTO deferred_meta (group_id, concepto, currency, created_at, updated_at) VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(group_id) DO UPDATE SET concepto = excluded.concepto, currency = excluded.currency, "
+                "updated_at = excluded.updated_at",
+                (gid, concepto.strip() if concepto else None, new_cur, now, now))
+            # fecha de la cuota 1 (aunque falte la fila 1, se deduce de la primera que exista)
+            first = rows[0]
+            start = _month_offset(first["fecha"][:10], -(first["index"] - 1))
+            # 2) re-fechar
+            if "fecha_inicio" in data:
+                start = data["fecha_inicio"][:10]
+                for r in rows:
+                    conn.execute("UPDATE expenses SET fecha = ? WHERE id = ?", (_month_offset(start, r["index"] - 1), r["id"]))
+            # 3) número de cuotas
+            if "cuotas" in data:
+                n_new = int(data["cuotas"])
+                max_idx = max(r["index"] for r in rows)
+                if n_new < max_idx:
+                    conn.execute(f"DELETE FROM expenses WHERE id IN ({qmarks}) AND COALESCE(deferred_index, 1) > ?",
+                                 (*ids, n_new))
+                elif n_new > max_idx:
+                    last = rows[-1]
+                    key = "monto_usd" if old_cur == "USD" else "monto_cop"
+                    val = data.get("cuota") or last[key]
+                    for k in range(max_idx + 1, n_new + 1):
+                        fecha = _month_offset(start, k - 1)
+                        cop, usd = _amounts_for(conn, fecha, val, new_cur)
+                        conn.execute(
+                            "INSERT INTO expenses (user_id, user_name, fecha, monto_cop, monto_usd, categoria, nota, "
+                            "created_at, metodo_pago, clase_contable, deferred_total, deferred_index, "
+                            "deferred_group_id, deferred_mode) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (data.get("user_name", last["user_name"]), fecha, cop, usd,
+                             data.get("categoria", last["categoria"]), concepto or last["nota"], now,
+                             data.get("metodo_pago", last["metodo_pago"]), last["clase_contable"] or "gasto",
+                             n_new, k, gid, data.get("mode", last["mode"])))
+                conn.execute("UPDATE expenses SET deferred_total = ?, deferred_group_id = ? "
+                             "WHERE COALESCE(deferred_group_id, id) = ? AND (deferred_group_id IS NOT NULL "
+                             "OR COALESCE(deferred_total, 1) > 1)", (n_new, gid, gid))
+            # 4) valor de la cuota (y/o moneda) desde la cuota `desde`
+            rows = _deferred_rows(conn, gid)
+            if "cuota" in data:
+                desde = int(data.get("desde") or 1)
+                for r in rows:
+                    if r["index"] >= desde:
+                        cop, usd = _amounts_for(conn, r["fecha"], data["cuota"], new_cur)
+                        conn.execute("UPDATE expenses SET monto_cop = ?, monto_usd = ? WHERE id = ?", (cop, usd, r["id"]))
+            elif "fecha_inicio" in data:
+                # misma cuota, otro mes → recalcular la moneda derivada con la TRM nueva
+                for r in rows:
+                    val = r["monto_usd"] if new_cur == "USD" else r["monto_cop"]
+                    cop, usd = _amounts_for(conn, r["fecha"], val, new_cur)
+                    conn.execute("UPDATE expenses SET monto_cop = ?, monto_usd = ? WHERE id = ?", (cop, usd, r["id"]))
+            conn.execute("COMMIT")
+            return {"ok": True, "group": _deferred_view(conn, gid)}
+        except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            raise
+        finally:
+            conn.close()
+
+    @api.delete("/api/deferred/{gid}")
+    def delete_deferred(gid: int, solo_pendientes: int = 0):
+        """Borra el diferido completo, o con ?solo_pendientes=1 solo las
+        cuotas que aún no llegan (las de fecha posterior a hoy); las ya
+        pasadas se quedan y el total de cuotas pasa a ser las que quedan."""
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            rows = _deferred_rows(conn, gid)
+            if not rows:
+                raise HTTPException(404, f"diferido {gid} no existe")
+            ids = [r["id"] for r in rows]
+            qmarks = ",".join("?" * len(ids))
+            conn.execute("BEGIN")
+            if solo_pendientes:
+                today = _deferred_today()
+                borrar = [r["id"] for r in rows if r["fecha"][:10] > today]
+                quedan = [i for i in ids if i not in borrar]
+                if not quedan:
+                    raise HTTPException(400, "todas las cuotas son futuras; para eso borra el diferido completo")
+                if borrar:
+                    conn.execute(f"DELETE FROM expenses WHERE id IN ({','.join('?' * len(borrar))})", borrar)
+                    conn.execute(f"UPDATE expenses SET deferred_total = ? WHERE id IN ({','.join('?' * len(quedan))})",
+                                 (len(quedan), *quedan))
+                conn.execute("COMMIT")
+                return {"ok": True, "group_id": gid, "deleted_count": len(borrar), "kept": len(quedan)}
+            conn.execute(f"DELETE FROM expenses WHERE id IN ({qmarks})", ids)
+            conn.execute("DELETE FROM deferred_meta WHERE group_id = ?", (gid,))
+            conn.execute("COMMIT")
+            return {"ok": True, "group_id": gid, "deleted_count": len(ids)}
+        except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            raise
+        finally:
+            conn.close()
 
     # ──────────────── Static frontend ────────────────
     # Serve index.html at / and any other static assets under /static/*.

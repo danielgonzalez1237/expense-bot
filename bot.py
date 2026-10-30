@@ -1439,6 +1439,29 @@ def init_db():
 
     _run_migration("017_payment_reminders", _migration_017_payment_reminders)
 
+    def _migration_018_deferred_meta(conn):
+        """Datos de grupo para el módulo 📅 Diferidos (al lado de 🔁 Fijos).
+
+        Las cuotas siguen siendo filas normales de expenses ligadas por
+        deferred_group_id (migración 009). Esta tabla solo guarda lo que es
+        del grupo y no cabe en cada fila:
+          - concepto: nombre del diferido (si falta, se usa la nota de la cuota 1)
+          - currency: 'COP' o 'USD'. En USD la cuota en dólares es fija y el
+            COP de cada cuota se calcula con la TRM de su mes.
+        Los grupos que ya existían no tienen fila aquí → se leen como COP.
+        Idempotente; no toca expenses.
+        """
+        conn.execute("""CREATE TABLE IF NOT EXISTS deferred_meta (
+            group_id INTEGER PRIMARY KEY,
+            concepto TEXT,
+            currency TEXT NOT NULL DEFAULT 'COP',
+            created_at TEXT NOT NULL,
+            updated_at TEXT
+        )""")
+        conn.commit()
+
+    _run_migration("018_deferred_meta", _migration_018_deferred_meta)
+
     conn.close()
 
 
