@@ -46,6 +46,7 @@
 <div
   x-data="dashboard()"
   x-cloak
+  @expenses-changed.window="reload()"
   class="max-w-xl md:max-w-5xl lg:max-w-6xl xl:max-w-7xl mx-auto px-4 pt-6 pb-16"
 >
 
@@ -1567,18 +1568,36 @@
   >
     <div class="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-5 pt-5 pb-3 sm:rounded-t-2xl z-10">
       <div class="flex items-start justify-between">
-        <div>
+        <div x-show="$store.recurring.tab === 'fijos'">
           <div class="text-xs text-slate-500 uppercase tracking-wide">🔁 Gastos fijos</div>
           <div class="text-lg font-bold">Recurrentes mes a mes</div>
           <div class="text-[11px] text-slate-500">Se postean solos cada 1ro. No los registres a mano para no duplicar. Si borras el de un mes, ese mes no se vuelve a crear.</div>
+        </div>
+        <div x-show="$store.recurring.tab === 'diferidos'">
+          <div class="text-xs text-slate-500 uppercase tracking-wide">📅 Gastos diferidos</div>
+          <div class="text-lg font-bold">Compras en cuotas</div>
+          <div class="text-[11px] text-slate-500">Cada cuota aparece en su mes como un gasto normal. Aquí cambias valor, moneda, cuotas, fechas o concepto de todas a la vez.</div>
         </div>
         <button @click="$store.recurring.close()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1" aria-label="Cerrar">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
+      <!-- Pestañas: Fijos | Diferidos -->
+      <div class="flex gap-1 mt-3 bg-slate-100 dark:bg-slate-800 rounded-lg p-1" role="tablist">
+        <button role="tab" @click="$store.recurring.tab = 'fijos'" :aria-selected="$store.recurring.tab === 'fijos'"
+          class="flex-1 text-xs font-medium rounded-md px-3 py-1.5 transition"
+          :class="$store.recurring.tab === 'fijos' ? 'bg-white dark:bg-slate-900 shadow text-slate-900 dark:text-slate-100' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'">
+          🔁 Fijos <span class="text-slate-400" x-text="'(' + $store.recurring.items.filter(i => i.active).length + ')'"></span>
+        </button>
+        <button role="tab" @click="$store.recurring.tab = 'diferidos'" :aria-selected="$store.recurring.tab === 'diferidos'"
+          class="flex-1 text-xs font-medium rounded-md px-3 py-1.5 transition"
+          :class="$store.recurring.tab === 'diferidos' ? 'bg-white dark:bg-slate-900 shadow text-slate-900 dark:text-slate-100' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'">
+          📅 Diferidos <span class="text-slate-400" x-text="'(' + $store.deferred.activos().length + ')'"></span>
+        </button>
+      </div>
     </div>
 
-    <div class="p-5 overflow-y-auto space-y-4">
+    <div x-show="$store.recurring.tab === 'fijos'" class="p-5 overflow-y-auto space-y-4">
       <!-- Lista de recurrentes -->
       <div class="space-y-2">
         <template x-for="it in $store.recurring.items" :key="it.id">
@@ -1656,6 +1675,7 @@
               class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-2 text-sm">
               <option value="Daniel">Daniel</option>
               <option value="Mado">Mado</option>
+              <option value="Tuo">Tuo</option>
             </select>
           </div>
           <button @click="$store.recurring.add()" :disabled="$store.recurring.busy"
@@ -1680,6 +1700,235 @@
           </template>
         </div>
       </div>
+    </div>
+
+    <!-- ──────────────── 📅 Diferidos ──────────────── -->
+    <div x-show="$store.recurring.tab === 'diferidos'" class="p-5 overflow-y-auto space-y-4">
+      <!-- Resumen -->
+      <div class="grid grid-cols-3 gap-2 text-center" x-show="$store.deferred.items.length">
+        <div class="rounded-lg bg-slate-50 dark:bg-slate-800/60 px-2 py-2">
+          <div class="text-[10px] uppercase tracking-wide text-slate-400">Activos</div>
+          <div class="text-sm font-bold" x-text="$store.deferred.activos().length"></div>
+        </div>
+        <div class="rounded-lg bg-slate-50 dark:bg-slate-800/60 px-2 py-2">
+          <div class="text-[10px] uppercase tracking-wide text-slate-400">Cuotas este mes</div>
+          <div class="text-sm font-bold" x-text="$store.deferred.fmtCop($store.deferred.esteMes())"></div>
+        </div>
+        <div class="rounded-lg bg-slate-50 dark:bg-slate-800/60 px-2 py-2">
+          <div class="text-[10px] uppercase tracking-wide text-slate-400">Falta pagar</div>
+          <div class="text-sm font-bold" x-text="$store.deferred.fmtCop($store.deferred.activos().reduce((s, g) => s + g.saldo_cop, 0))"></div>
+        </div>
+      </div>
+
+      <!-- Lista de diferidos -->
+      <div class="space-y-2">
+        <template x-for="g in $store.deferred.visibles()" :key="g.group_id">
+          <div class="rounded-lg border px-3 py-2"
+               :class="g.estado === 'activo' ? 'border-slate-200 dark:border-slate-700' : 'border-slate-100 dark:border-slate-800 opacity-70'">
+            <div class="flex items-start justify-between gap-2">
+              <div class="min-w-0 flex-1">
+                <div class="text-sm font-medium truncate" x-text="g.concepto"></div>
+                <div class="text-xs mt-0.5">
+                  <span class="font-semibold" x-text="$store.deferred.money(g.cuota, g.currency)"></span><span class="text-slate-500">/mes</span>
+                  <span class="text-slate-400">·</span>
+                  <span class="text-slate-600 dark:text-slate-300" x-text="g.estado === 'activo' ? (g.pagadas + ' de ' + g.cuotas_total + ' pagadas') : ('terminado · ' + g.cuotas_total + ' cuotas')"></span>
+                </div>
+                <div class="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  <span x-text="$store.deferred.mes(g.desde) + ' → ' + $store.deferred.mes(g.hasta)"></span>
+                  <template x-if="g.estado === 'activo'">
+                    <span> · falta <span class="font-semibold" x-text="$store.deferred.money(g.saldo, g.currency)"></span> (<span x-text="g.pendientes"></span>)</span>
+                  </template>
+                  <span> · total <span x-text="$store.deferred.money(g.total, g.currency)"></span></span>
+                </div>
+                <div class="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                  <span x-text="$store.deferred.catLabel(g.categoria)"></span> · <span x-text="g.metodo_pago"></span> · <span x-text="g.user_name"></span> · <span x-text="$store.deferred.modoLabel(g.mode)"></span>
+                </div>
+                <div x-show="g.incompleto" class="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5"
+                     x-text="'Tiene ' + g.cuotas_registradas + ' de ' + g.cuotas_total + ' cuotas registradas'"></div>
+              </div>
+              <div class="flex items-center gap-1 shrink-0">
+                <button @click="$store.deferred.startEdit(g)" :disabled="$store.deferred.busy"
+                  class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1" title="Editar" aria-label="Editar">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                </button>
+                <button @click="$store.deferred.del(g)" :disabled="$store.deferred.busy"
+                  class="text-slate-400 hover:text-rose-500 p-1" title="Borrar el diferido completo" aria-label="Borrar">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+              </div>
+            </div>
+            <!-- Avance -->
+            <div class="mt-2 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+              <div class="h-full rounded-full" :class="g.estado === 'activo' ? 'bg-amber-500' : 'bg-emerald-500'"
+                   :style="'width:' + Math.round(100 * g.pagadas / Math.max(g.cuotas_total, 1)) + '%'"></div>
+            </div>
+            <button @click="$store.deferred.toggleCuotas(g.group_id)"
+              class="text-[11px] text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 mt-1.5"
+              x-text="($store.deferred.abiertos[g.group_id] ? '▾ Ocultar cuotas' : '▸ Ver las ' + g.cuotas_registradas + ' cuotas')"></button>
+            <div x-show="$store.deferred.abiertos[g.group_id]" class="mt-1 divide-y divide-slate-100 dark:divide-slate-800">
+              <template x-for="q in g.cuotas" :key="q.id">
+                <div class="flex items-center justify-between text-[11px] py-1">
+                  <span :class="q.pagada ? 'text-slate-400' : 'text-slate-700 dark:text-slate-200'">
+                    <span x-text="q.index + '/' + g.cuotas_total"></span> · <span x-text="$store.deferred.mes(q.fecha)"></span>
+                  </span>
+                  <span class="flex items-center gap-2">
+                    <span class="font-medium" x-text="g.currency === 'USD' ? ($store.deferred.money(q.monto_usd, 'USD') + ' · ' + $store.deferred.fmtCop(q.monto_cop)) : $store.deferred.fmtCop(q.monto_cop)"></span>
+                    <span x-text="q.pagada ? '✓' : '·'" :class="q.pagada ? 'text-emerald-500' : 'text-slate-300'"
+                          :title="q.pagada ? 'Ya pasó' : 'Pendiente'"></span>
+                  </span>
+                </div>
+              </template>
+            </div>
+
+            <!-- Editar (solo se arma el formulario del diferido que se está editando) -->
+            <template x-if="$store.deferred.edit === g.group_id">
+            <div class="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2">
+              <input type="text" x-model="$store.deferred.ef.concepto" placeholder="Concepto"
+                class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-sm"/>
+              <div class="grid grid-cols-2 gap-2">
+                <label class="text-[10px] text-slate-500 min-w-0">Valor de cada cuota
+                  <div class="flex gap-1 min-w-0 mt-0.5">
+                    <input type="number" min="0" :step="$store.deferred.ef.currency === 'USD' ? '0.01' : '1'" x-model.number="$store.deferred.ef.cuota"
+                      class="min-w-0 flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-sm text-slate-900 dark:text-slate-100"/>
+                    <select x-model="$store.deferred.ef.currency" title="Moneda de la cuota"
+                      class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-2 text-sm text-slate-900 dark:text-slate-100">
+                      <option value="COP">COP</option>
+                      <option value="USD">USD</option>
+                    </select>
+                  </div>
+                </label>
+                <label class="text-[10px] text-slate-500">Si cambias el valor, aplica a
+                  <select x-model="$store.deferred.ef.aplicar"
+                    class="mt-0.5 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-2 text-sm text-slate-900 dark:text-slate-100">
+                    <option value="todas">Todas las cuotas</option>
+                    <option value="faltan">Solo las que faltan</option>
+                  </select>
+                </label>
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <label class="text-[10px] text-slate-500">N.º de cuotas
+                  <input type="number" min="2" max="60" x-model.number="$store.deferred.ef.cuotas"
+                    class="mt-0.5 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-sm text-slate-900 dark:text-slate-100"/>
+                </label>
+                <label class="text-[10px] text-slate-500">Primera cuota
+                  <input type="date" x-model="$store.deferred.ef.fecha_inicio"
+                    class="mt-0.5 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-2 text-sm text-slate-900 dark:text-slate-100"/>
+                </label>
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <select x-model="$store.deferred.ef.categoria"
+                  class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-2 text-sm">
+                  <template x-for="c in $store.recurring.cats" :key="c.key">
+                    <option :value="c.key" x-text="c.label" :selected="c.key === $store.deferred.ef.categoria"></option>
+                  </template>
+                </select>
+                <select x-model="$store.deferred.ef.metodo_pago"
+                  class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-2 text-sm">
+                  <template x-for="m in $store.deferred.metodosCon($store.deferred.ef.metodo_pago)" :key="m">
+                    <option :value="m" x-text="m" :selected="m === $store.deferred.ef.metodo_pago"></option>
+                  </template>
+                </select>
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <select x-model="$store.deferred.ef.user_name"
+                  class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-2 text-sm">
+                  <template x-for="u in ['Daniel', 'Mado', 'Tuo']" :key="u">
+                    <option :value="u" x-text="u" :selected="u === $store.deferred.ef.user_name"></option>
+                  </template>
+                </select>
+                <select x-model="$store.deferred.ef.mode"
+                  class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-2 text-sm">
+                  <option value="credito" :selected="$store.deferred.ef.mode === 'credito'">📅 Tarjeta mes a mes</option>
+                  <option value="upfront" :selected="$store.deferred.ef.mode === 'upfront'">💳 Pagado de una</option>
+                </select>
+              </div>
+              <div class="flex gap-2">
+                <button @click="$store.deferred.save(g)" :disabled="$store.deferred.busy"
+                  class="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg px-3 py-2 text-sm font-medium">Guardar cambios</button>
+                <button @click="$store.deferred.edit = null" :disabled="$store.deferred.busy"
+                  class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg px-3 py-2 text-sm">Cancelar</button>
+              </div>
+              <button x-show="g.estado === 'activo' && g.pagadas > 0" @click="$store.deferred.cancelPending(g)" :disabled="$store.deferred.busy"
+                class="w-full text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg px-3 py-1.5"
+                x-text="'Cancelar las ' + g.pendientes + ' cuotas que faltan (prepagado o anulado)'"></button>
+            </div>
+            </template>
+          </div>
+        </template>
+        <div x-show="!$store.deferred.items.length" class="text-xs text-slate-400 italic text-center py-4">Sin diferidos todavía.</div>
+        <button x-show="$store.deferred.terminados().length" @click="$store.deferred.showDone = !$store.deferred.showDone"
+          class="w-full text-[11px] text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 py-1"
+          x-text="($store.deferred.showDone ? '▾ Ocultar terminados' : '▸ Ver terminados (' + $store.deferred.terminados().length + ')')"></button>
+      </div>
+
+      <!-- Nuevo diferido -->
+      <div class="border-t border-slate-100 dark:border-slate-800 pt-3">
+        <div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-2">+ Nuevo diferido</div>
+        <div class="space-y-2">
+          <input type="text" x-model="$store.deferred.form.concepto" placeholder="Concepto (ej. Seguro Tesla, Sofá, Predial)"
+            class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-sm"/>
+          <div class="grid grid-cols-2 gap-2">
+            <div class="flex gap-1 min-w-0">
+              <input type="number" min="0" x-model.number="$store.deferred.form.monto"
+                :placeholder="$store.deferred.form.monto_tipo === 'total' ? 'Valor total' : 'Valor cuota'"
+                class="min-w-0 flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-sm"/>
+              <select x-model="$store.deferred.form.currency" title="Moneda"
+                class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-2 text-sm">
+                <option value="COP">COP</option>
+                <option value="USD">USD</option>
+              </select>
+            </div>
+            <select x-model="$store.deferred.form.monto_tipo"
+              class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-2 text-sm">
+              <option value="total">Es el valor total</option>
+              <option value="cuota">Es el valor de cada cuota</option>
+            </select>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <label class="text-[10px] text-slate-500">N.º de cuotas
+              <input type="number" min="2" max="60" x-model.number="$store.deferred.form.cuotas"
+                class="mt-0.5 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-3 py-2 text-sm text-slate-900 dark:text-slate-100"/>
+            </label>
+            <label class="text-[10px] text-slate-500">Primera cuota
+              <input type="date" x-model="$store.deferred.form.fecha_inicio"
+                class="mt-0.5 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-2 text-sm text-slate-900 dark:text-slate-100"/>
+            </label>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <select x-model="$store.deferred.form.categoria"
+              class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-2 text-sm">
+              <option value="">— Categoría —</option>
+              <template x-for="c in $store.recurring.cats" :key="c.key">
+                <option :value="c.key" x-text="c.label" :selected="c.key === $store.deferred.form.categoria"></option>
+              </template>
+            </select>
+            <select x-model="$store.deferred.form.metodo_pago"
+              class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-2 text-sm">
+              <template x-for="m in $store.recurring.methods" :key="m">
+                <option :value="m" x-text="m" :selected="m === $store.deferred.form.metodo_pago"></option>
+              </template>
+            </select>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <select x-model="$store.deferred.form.user_name"
+              class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-2 text-sm">
+              <option value="Daniel">Daniel</option>
+              <option value="Mado">Mado</option>
+              <option value="Tuo">Tuo</option>
+            </select>
+            <select x-model="$store.deferred.form.mode"
+              class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-2 text-sm">
+              <option value="credito">📅 Tarjeta mes a mes</option>
+              <option value="upfront">💳 Pagado de una</option>
+            </select>
+          </div>
+          <div x-show="$store.deferred.preview()" class="text-[11px] text-slate-500 dark:text-slate-400" x-text="$store.deferred.preview()"></div>
+          <button @click="$store.deferred.create()" :disabled="$store.deferred.busy"
+            class="w-full bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg px-3 py-2 text-sm font-medium">+ Crear diferido</button>
+        </div>
+      </div>
+
+      <div x-show="$store.deferred.error" class="text-xs text-rose-600 dark:text-rose-400" x-text="$store.deferred.error"></div>
     </div>
   </div>
 </div>
@@ -4258,12 +4507,13 @@ document.addEventListener('alpine:init', () => {
 
   // ──────────────── Gastos fijos recurrentes ────────────────
   Alpine.store('recurring', {
-    open: false, busy: false, error: null, lastRun: null,
+    open: false, busy: false, error: null, lastRun: null, tab: 'fijos',
     items: [], cats: [], methods: [],
     form: { label: '', monto: null, currency: 'COP', categoria: '', metodo_pago: 'Transferencia BBVA', user_name: 'Daniel' },
-    async openModal() {
+    async openModal(tab) {
       this.open = true; this.error = null; this.lastRun = null;
-      await Promise.all([this.load(), this.loadMeta()]);
+      if (tab) this.tab = tab;
+      await Promise.all([this.load(), this.loadMeta(), Alpine.store('deferred').load()]);
     },
     close() { this.open = false; },
     async load() {
@@ -4333,6 +4583,143 @@ document.addEventListener('alpine:init', () => {
       } catch (e) { this.error = e.message; } finally { this.busy = false; }
     },
     fmtCop(v) { return '$' + Math.round(v || 0).toLocaleString('de-DE'); },
+  });
+
+  // ──────────────── 📅 Diferidos (compras en cuotas) ────────────────
+  // Vive en el mismo modal que 🔁 Fijos (pestaña). Cada diferido = grupo de
+  // cuotas en /api/deferred; editar aquí cambia todas las cuotas a la vez.
+  const DEF_MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  const defToday = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  const defNewForm = () => ({ concepto: '', monto: null, monto_tipo: 'total', currency: 'COP', cuotas: 12,
+    fecha_inicio: defToday(), categoria: '', metodo_pago: 'BDB Visa Latam Dani', user_name: 'Daniel', mode: 'credito' });
+  Alpine.store('deferred', {
+    busy: false, error: null, items: [], today: '', showDone: false, abiertos: {}, edit: null, ef: {},
+    form: defNewForm(),
+    async load() {
+      try {
+        const r = await fetch('/api/deferred');
+        if (!r.ok) throw new Error('No se pudieron cargar los diferidos (' + r.status + ')');
+        const d = await r.json();
+        this.items = d.groups || []; this.today = d.today || defToday();
+      } catch (e) { this.error = e.message || String(e); }
+    },
+    activos() { return this.items.filter(g => g.estado === 'activo'); },
+    terminados() { return this.items.filter(g => g.estado !== 'activo'); },
+    visibles() { return this.showDone ? this.items : this.activos(); },
+    // Suma en COP de las cuotas que caen en el mes actual
+    esteMes() {
+      const ym = (this.today || defToday()).slice(0, 7);
+      let s = 0;
+      for (const g of this.items) for (const q of g.cuotas) if (q.fecha.slice(0, 7) === ym) s += q.monto_cop || 0;
+      return s;
+    },
+    fmtCop(v) { return '$' + Math.round(v || 0).toLocaleString('de-DE'); },
+    money(v, cur) {
+      if (cur === 'USD') return 'US$' + Number(v || 0).toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+      return this.fmtCop(v);
+    },
+    mes(f) { if (!f) return ''; const [y, m] = f.split('-'); return DEF_MESES[Number(m) - 1] + ' ' + y; },
+    modoLabel(m) { return m === 'upfront' ? '💳 pagado de una' : (m === 'credito' ? '📅 tarjeta mes a mes' : 'sin modo'); },
+    catLabel(k) { const c = Alpine.store('recurring').cats.find(x => x.key === k); return c ? c.label.trim() : k; },
+    // La lista de métodos, más el del diferido si no está (p.ej. 'Sin especificar')
+    metodosCon(m) { const l = Alpine.store('recurring').methods; return (m && !l.includes(m)) ? [m, ...l] : l; },
+    toggleCuotas(gid) { this.abiertos = { ...this.abiertos, [gid]: !this.abiertos[gid] }; },
+    preview() {
+      const f = this.form;
+      if (!(f.monto > 0) || !(f.cuotas >= 2) || !f.fecha_inicio) return '';
+      const cuota = f.monto_tipo === 'total' ? f.monto / f.cuotas : f.monto;
+      const total = f.monto_tipo === 'total' ? f.monto : f.monto * f.cuotas;
+      const [y, m] = f.fecha_inicio.split('-').map(Number);
+      const fin = new Date(y, m - 1 + f.cuotas - 1, 1);
+      const hasta = DEF_MESES[fin.getMonth()] + ' ' + fin.getFullYear();
+      return f.cuotas + ' cuotas de ' + this.money(cuota, f.currency) + ' · ' + this.mes(f.fecha_inicio) + ' → ' + hasta
+        + ' · total ' + this.money(total, f.currency);
+    },
+    startEdit(g) {
+      if (this.edit === g.group_id) { this.edit = null; return; }
+      this.error = null;
+      const primera = g.cuotas.length ? g.cuotas[0] : null;
+      // fecha de la cuota 1 aunque falte esa fila (se deduce de la primera que hay)
+      let inicio = g.desde;
+      if (primera && primera.index > 1) {
+        const [y, m, d] = primera.fecha.split('-').map(Number);
+        const dt = new Date(y, m - 1 - (primera.index - 1), 1);
+        inicio = dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+      }
+      this.ef = { concepto: g.concepto, cuota: g.cuota, currency: g.currency, aplicar: 'todas',
+        cuotas: g.cuotas_total, fecha_inicio: inicio, categoria: g.categoria, metodo_pago: g.metodo_pago,
+        user_name: g.user_name, mode: g.mode || 'credito', _orig: { inicio } };
+      this.edit = g.group_id;
+    },
+    async save(g) {
+      const e = this.ef, body = {};
+      if ((e.concepto || '').trim() && e.concepto.trim() !== g.concepto) body.concepto = e.concepto.trim();
+      for (const k of ['categoria', 'metodo_pago', 'user_name', 'mode']) if (e[k] && e[k] !== g[k]) body[k] = e[k];
+      if (e.currency !== g.currency) body.currency = e.currency;
+      if (Number(e.cuota) > 0 && (Number(e.cuota) !== Number(g.cuota) || body.currency)) {
+        body.cuota = Number(e.cuota);
+        if (e.aplicar === 'faltan') {
+          const prox = g.cuotas.find(q => !q.pagada);
+          body.desde = prox ? prox.index : (g.cuotas_total + 1);
+        }
+      }
+      if (body.currency && !body.cuota) { this.error = 'Para cambiar la moneda pon el valor de la cuota'; return; }
+      if (Number(e.cuotas) !== Number(g.cuotas_total)) {
+        if (!(e.cuotas >= 2 && e.cuotas <= 60)) { this.error = 'Las cuotas van de 2 a 60'; return; }
+        if (e.cuotas < g.cuotas_registradas &&
+            !confirm('Vas a quitar ' + (g.cuotas_registradas - e.cuotas) + ' cuota(s) del final. ¿Seguro?')) return;
+        body.cuotas = Number(e.cuotas);
+      }
+      if (e.fecha_inicio && e.fecha_inicio !== e._orig.inicio) body.fecha_inicio = e.fecha_inicio;
+      if (!Object.keys(body).length) { this.edit = null; return; }
+      this.busy = true; this.error = null;
+      try {
+        const r = await fetch('/api/deferred/' + g.group_id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (!r.ok) { const t = await r.json().catch(() => ({})); throw new Error(t.detail || ('No se pudo guardar (' + r.status + ')')); }
+        this.edit = null;
+        await this.load();
+        window.dispatchEvent(new CustomEvent('expenses-changed'));
+      } catch (err) { this.error = err.message || String(err); } finally { this.busy = false; }
+    },
+    async cancelPending(g) {
+      if (!confirm('¿Cancelar las ' + g.pendientes + ' cuotas que faltan de "' + g.concepto + '"?\n\n'
+        + 'Se borran solo las cuotas futuras (' + this.money(g.saldo, g.currency) + '). Las que ya pasaron se quedan.')) return;
+      this.busy = true; this.error = null;
+      try {
+        const r = await fetch('/api/deferred/' + g.group_id + '?solo_pendientes=1', { method: 'DELETE' });
+        if (!r.ok) { const t = await r.json().catch(() => ({})); throw new Error(t.detail || ('No se pudo cancelar (' + r.status + ')')); }
+        this.edit = null;
+        await this.load();
+        window.dispatchEvent(new CustomEvent('expenses-changed'));
+      } catch (err) { this.error = err.message || String(err); } finally { this.busy = false; }
+    },
+    async del(g) {
+      if (!confirm('¿Borrar el diferido "' + g.concepto + '" completo?\n\n'
+        + 'Se borran sus ' + g.cuotas_registradas + ' cuotas (' + this.money(g.total, g.currency) + '), también las que ya pasaron.')) return;
+      this.busy = true; this.error = null;
+      try {
+        const r = await fetch('/api/deferred/' + g.group_id, { method: 'DELETE' });
+        if (!r.ok) throw new Error('No se pudo borrar (' + r.status + ')');
+        if (this.edit === g.group_id) this.edit = null;
+        await this.load();
+        window.dispatchEvent(new CustomEvent('expenses-changed'));
+      } catch (err) { this.error = err.message || String(err); } finally { this.busy = false; }
+    },
+    async create() {
+      const f = this.form;
+      if (!(f.concepto || '').trim() || !(f.monto > 0) || !f.categoria || !(f.cuotas >= 2 && f.cuotas <= 60) || !f.fecha_inicio) {
+        this.error = 'Completa concepto, valor, categoría, cuotas (2 a 60) y fecha de la primera cuota'; return;
+      }
+      this.busy = true; this.error = null;
+      try {
+        const r = await fetch('/api/deferred', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...f, concepto: f.concepto.trim(), cuotas: Number(f.cuotas), monto: Number(f.monto) }) });
+        if (!r.ok) { const t = await r.json().catch(() => ({})); throw new Error(t.detail || ('No se pudo crear (' + r.status + ')')); }
+        this.form = defNewForm();
+        await this.load();
+        window.dispatchEvent(new CustomEvent('expenses-changed'));
+      } catch (err) { this.error = err.message || String(err); } finally { this.busy = false; }
+    },
   });
 
   // ──────────────── Próximos pagos (recordatorios de fechas de pago) ────────────────
