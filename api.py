@@ -87,7 +87,7 @@ class QuickExpense(BaseModel):
 
 
 # Versión del recorrido guiado: al cambiarla, a todos les vuelve a salir.
-TOUR_VERSION = "2026-11-resumen"  # cambiarla vuelve a mostrar el recorrido a todos
+TOUR_VERSION = "2026-11-ingresos"  # cambiarla vuelve a mostrar el recorrido a todos
 
 
 # ──────────────── 🔎 Revisión ────────────────
@@ -1570,8 +1570,21 @@ def make_api_app() -> FastAPI:
     # ──────────────── Income entries ────────────────
 
     @api.get("/api/income/entries")
-    def list_income_entries(month: Optional[str] = Query(None)):
-        period = _month_prefix(month)
+    def list_income_entries(
+        month: Optional[str] = Query(None),
+        frm: Optional[str] = Query(None, alias="from", description="YYYY-MM (rango, con `to`)"),
+        to: Optional[str] = Query(None, description="YYYY-MM (rango, con `from`)"),
+    ):
+        if frm or to:
+            for v in (frm, to):
+                if not _VALID_PERIOD.match(v or ""):
+                    raise HTTPException(400, "from y to deben ser YYYY-MM")
+            if frm > to:
+                raise HTTPException(400, "from debe ser ≤ to")
+            where, params, resp = "e.period BETWEEN ? AND ?", (frm, to), {"from": frm, "to": to}
+        else:
+            period = _month_prefix(month)
+            where, params, resp = "e.period = ?", (period,), {"month": period}
         conn = sqlite3.connect(bot.DB_PATH)
         conn.row_factory = sqlite3.Row
         try:
@@ -1581,13 +1594,45 @@ def make_api_app() -> FastAPI:
                 "s.label AS source_label, s.icon AS source_icon "
                 "FROM income_entries e "
                 "LEFT JOIN income_sources s ON e.source_key = s.key "
-                "WHERE e.period = ? "
+                f"WHERE {where} "
                 "ORDER BY e.fecha DESC NULLS LAST, e.id DESC",
-                (period,),
+                params,
             ).fetchall()
-            return {"month": period, "entries": [dict(r) for r in rows]}
+            return {**resp, "entries": [dict(r) for r in rows]}
         finally:
             conn.close()
+
+    # ──────────────── P&G mes a mes (gráficas de Resumen e Ingresos) ────────────────
+    @api.get("/api/pnl/mensual")
+    def pnl_mensual(desde: str = Query(..., description="YYYY-MM"), hasta: str = Query(..., description="YYYY-MM")):
+        """Ingresos, gastos y neto de cada mes entre desde y hasta (máx. 36 meses)."""
+        for v in (desde, hasta):
+            if not _VALID_PERIOD.match(v or ""):
+                raise HTTPException(400, f"mes inválido {v!r}, se espera YYYY-MM")
+        if desde > hasta:
+            raise HTTPException(400, "desde debe ser ≤ hasta")
+        meses = list(_iter_months(desde, hasta))
+        if len(meses) > 36:
+            raise HTTPException(400, "máximo 36 meses")
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            inc = {m: (float(u or 0), n) for m, u, n in conn.execute(
+                "SELECT period, SUM(monto_usd), COUNT(*) FROM income_entries "
+                "WHERE period BETWEEN ? AND ? GROUP BY period", (desde, hasta))}
+            gas = {m: (float(u or 0), float(c or 0), n) for m, u, c, n in conn.execute(
+                "SELECT substr(fecha, 1, 7) AS m, SUM(monto_usd), SUM(monto_cop), COUNT(*) FROM expenses "
+                "WHERE substr(fecha, 1, 7) BETWEEN ? AND ? GROUP BY m", (desde, hasta))}
+            plan = _expected_income_monthly(conn)
+        finally:
+            conn.close()
+        out = []
+        for m in meses:
+            iu, ni = inc.get(m, (0.0, 0))
+            gu, gc, ng = gas.get(m, (0.0, 0.0, 0))
+            out.append({"mes": m, "ingresos_usd": round(iu, 2), "gastos_usd": round(gu, 2), "gastos_cop": round(gc),
+                        "neto_usd": round(iu - gu, 2), "n_ingresos": ni, "n_gastos": ng})
+        return {"desde": desde, "hasta": hasta, "meses": out,
+                "plan_ingresos_mensual_usd": round(plan, 2), "tope_mensual_usd": bot.BUDGET_LIMIT_USD}
 
     @api.post("/api/income/entries")
     def create_income_entry(entry: IncomeEntryCreate):
