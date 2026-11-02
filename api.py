@@ -71,6 +71,33 @@ class LoginBody(BaseModel):
     remember: Optional[bool] = True
 
 
+class NaturalezaBody(BaseModel):
+    naturaleza: str   # 'esencial' | 'estilo' | 'gusto'
+
+
+# ──────────────── 🔎 Revisión ────────────────
+REVIEW_MAX_MONTHS = 36
+_REVIEW_TAG_RE = re.compile(r"\s*·\s*conciliaci[oó]n.*$", re.IGNORECASE)
+
+
+def _review_note_key(nota: str) -> str:
+    """Agrupa notas parecidas ('Rappi McDonalds' y 'rappi mcdonalds ')."""
+    n = _REVIEW_TAG_RE.sub("", (nota or "").strip())
+    n = re.sub(r"\s+", " ", n).strip(" .,-").lower()
+    return n[:48] or "(sin nota)"
+
+
+def _review_prev_range(desde: str, hasta: str) -> tuple[str, str]:
+    """El período anterior de la misma cantidad de meses."""
+    months = list(_iter_months(desde, hasta))
+    y, m = int(desde[:4]), int(desde[5:7])
+    tot = (y * 12 + m - 1) - len(months)
+    py, pm = divmod(tot, 12)
+    p_from = f"{py:04d}-{pm + 1:02d}"
+    ey, em = divmod(y * 12 + m - 2, 12)
+    return p_from, f"{ey:04d}-{em + 1:02d}"
+
+
 def _auth_pin() -> str:
     return (os.environ.get("DASHBOARD_PIN") or "").strip()
 
@@ -2077,6 +2104,11 @@ def make_api_app() -> FastAPI:
                 "label": (info.get("label") or key.title()),
                 "parent": parent,
             }
+            # Tipo de gasto (🔎 Revisión): el editor de categorías no lo manda,
+            # así que se conserva el que ya tenía para no borrarlo al guardar.
+            nat = info.get("naturaleza") or (bot.BUDGET.get(key) or {}).get("naturaleza")
+            if nat in bot.NATURALEZA_TIPOS:
+                cleaned[key]["naturaleza"] = nat
 
         # Validate parent references and prevent circular references
         for key, info in cleaned.items():
@@ -4225,6 +4257,211 @@ def make_api_app() -> FastAPI:
             raise
         finally:
             conn.close()
+
+    # ──────────────── 🔎 Revisión: tipo de gasto por categoría ────────────────
+    @api.patch("/api/categories/{key}/naturaleza")
+    def set_naturaleza(key: str, body: NaturalezaBody):
+        nat = (body.naturaleza or "").strip().lower()
+        if nat not in bot.NATURALEZA_TIPOS:
+            raise HTTPException(400, f"naturaleza debe ser una de {list(bot.NATURALEZA_TIPOS)}")
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            row = conn.execute("SELECT value FROM config WHERE key = 'budget'").fetchone()
+            budget = json.loads(row[0]) if row else {}
+            if key not in budget:
+                raise HTTPException(404, f"categoría {key!r} no existe en el presupuesto")
+            budget[key]["naturaleza"] = nat
+            conn.execute("UPDATE config SET value = ?, updated_at = ? WHERE key = 'budget'",
+                         (json.dumps(budget, ensure_ascii=False), datetime.now().isoformat()))
+            conn.commit()
+        finally:
+            conn.close()
+        bot.load_config()
+        return {"ok": True, "key": key, "naturaleza": nat}
+
+    # ──────────────── 🔎 Revisión: análisis por categoría y tipo de gasto ────────────────
+    @api.get("/api/review")
+    def review(
+        desde: str = Query(..., description="YYYY-MM"),
+        hasta: str = Query(..., description="YYYY-MM"),
+        persona: str = Query("familia", description="familia | todos | Daniel | Mado | Tuo"),
+        sin_viajes: int = 0,
+        sin_grandes: int = 0,
+        umbral_usd: float = 600.0,
+    ):
+        """Gasto del período por tipo (esencial/estilo/gusto), por categoría y
+        por mes, comparado con el período anterior de igual duración.
+
+        - persona=familia deja por fuera lo de Tuo (persona o categoría).
+        - sin_viajes quita la categoría viaje; sin_grandes quita compras
+          sueltas ≥ umbral_usd (no cuenta fijos ni cuotas de diferidos).
+        Lo excluido se reporta aparte en `excluidos`.
+        """
+        for v in (desde, hasta):
+            if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", v or ""):
+                raise HTTPException(400, f"mes inválido {v!r}, se espera YYYY-MM")
+        if desde > hasta:
+            raise HTTPException(400, "desde debe ser ≤ hasta")
+        meses = list(_iter_months(desde, hasta))
+        if len(meses) > REVIEW_MAX_MONTHS:
+            raise HTTPException(400, f"máximo {REVIEW_MAX_MONTHS} meses")
+        p_from, p_to = _review_prev_range(desde, hasta)
+        bot.load_config()
+
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            rows = conn.execute(
+                "SELECT id, substr(fecha, 1, 10), COALESCE(monto_cop, 0), COALESCE(monto_usd, 0), categoria, "
+                "COALESCE(nota, ''), COALESCE(user_name, ''), COALESCE(metodo_pago, ''), recurring_id, deferred_group_id "
+                "FROM expenses WHERE substr(fecha, 1, 7) BETWEEN ? AND ?",
+                (p_from, hasta),
+            ).fetchall()
+            datos_desde = (conn.execute("SELECT MIN(substr(fecha, 1, 10)) FROM expenses").fetchone()[0] or "")
+        finally:
+            conn.close()
+        # Un mes cuenta como completo si el bot ya tenía datos desde antes de ese mes
+        primer_mes = datos_desde[:7]
+
+        def incluye_persona(user, cat):
+            if persona == "todos":
+                return True
+            if persona == "familia":
+                return user != "Tuo" and cat != "tuo"
+            return user == persona
+
+        tipos = list(bot.NATURALEZA_TIPOS) + ["sin_clasificar"]
+        excl = {"viajes": {"usd": 0.0, "cop": 0.0, "count": 0},
+                "grandes": {"usd": 0.0, "cop": 0.0, "count": 0, "items": []}}
+        cur, prev = [], []
+        for (eid, fecha, cop, usd, cat, nota, user, met, rec_id, grp_id) in rows:
+            if not incluye_persona(user, cat):
+                continue
+            en_periodo = fecha[:7] >= desde
+            if sin_viajes and cat == "viaje":
+                if en_periodo:
+                    excl["viajes"]["usd"] += usd; excl["viajes"]["cop"] += cop; excl["viajes"]["count"] += 1
+                continue
+            if sin_grandes and usd >= umbral_usd and not rec_id and not grp_id and bot.naturaleza_de(cat) != "esencial":
+                if en_periodo:
+                    g = excl["grandes"]
+                    g["usd"] += usd; g["cop"] += cop; g["count"] += 1
+                    g["items"].append({"id": eid, "fecha": fecha, "categoria": cat, "nota": nota,
+                                       "usd": round(usd, 2), "cop": round(cop)})
+                continue
+            (cur if en_periodo else prev).append((fecha, cop, usd, cat, nota))
+
+        def vacio():
+            return {"usd": 0.0, "cop": 0.0, "count": 0}
+
+        def sumar(acc, cop, usd):
+            acc["usd"] += usd; acc["cop"] += cop; acc["count"] += 1
+
+        totales = {"usd": 0.0, "cop": 0.0, "count": 0, "por_tipo": {t: vacio() for t in tipos}}
+        totales_prev = {"usd": 0.0, "cop": 0.0, "count": 0, "por_tipo": {t: vacio() for t in tipos}}
+        por_mes = {m: {"usd": 0.0, "cop": 0.0, "por_tipo": {t: {"usd": 0.0, "cop": 0.0} for t in tipos}} for m in meses}
+        cats: dict[str, dict] = {}
+
+        def cat_entry(cat):
+            if cat not in cats:
+                info = bot.BUDGET.get(cat) or {}
+                cats[cat] = {"key": cat, "label": info.get("label") or cat, "icon": info.get("icon") or "📦",
+                             "parent": info.get("parent"), "naturaleza": bot.naturaleza_de(cat),
+                             "usd": 0.0, "cop": 0.0, "count": 0, "prev_usd": 0.0, "prev_cop": 0.0, "prev_count": 0,
+                             "_dias": set(), "_montos": [], "_notas": {},
+                             "serie_usd": {m: 0.0 for m in meses}, "serie_cop": {m: 0.0 for m in meses}}
+            return cats[cat]
+
+        for (fecha, cop, usd, cat, nota) in cur:
+            t = bot.naturaleza_de(cat)
+            sumar(totales, cop, usd); sumar(totales["por_tipo"][t], cop, usd)
+            pm = por_mes[fecha[:7]]
+            pm["usd"] += usd; pm["cop"] += cop
+            pm["por_tipo"][t]["usd"] += usd; pm["por_tipo"][t]["cop"] += cop
+            c = cat_entry(cat)
+            sumar(c, cop, usd)
+            c["_dias"].add(fecha); c["_montos"].append(usd)
+            c["serie_usd"][fecha[:7]] += usd; c["serie_cop"][fecha[:7]] += cop
+            nk = _review_note_key(nota)
+            n = c["_notas"].setdefault(nk, {"nota": nk, "usd": 0.0, "cop": 0.0, "count": 0})
+            sumar(n, cop, usd)
+        for (fecha, cop, usd, cat, nota) in prev:
+            t = bot.naturaleza_de(cat)
+            sumar(totales_prev, cop, usd); sumar(totales_prev["por_tipo"][t], cop, usd)
+            c = cat_entry(cat)
+            c["prev_usd"] += usd; c["prev_cop"] += cop; c["prev_count"] += 1
+
+        hoy = datetime.now(bot.COL_TZ).date()
+        ini = datetime.strptime(desde + "-01", "%Y-%m-%d").date()
+        hy, hm = int(hasta[:4]), int(hasta[5:7])
+        fin = (datetime(hy + (hm == 12), hm % 12 + 1, 1).date() - timedelta(days=1))
+        dias_periodo = max(1, (min(fin, hoy) - ini).days + 1)
+
+        def r2(x):
+            return round(x, 2)
+
+        out_cats = []
+        for c in cats.values():
+            montos = sorted(c.pop("_montos"))
+            dias = c.pop("_dias")
+            notas = sorted(c.pop("_notas").values(), key=lambda x: -x["usd"])[:8]
+            mid = len(montos) // 2
+            mediana = (montos[mid] if len(montos) % 2 else (montos[mid - 1] + montos[mid]) / 2) if montos else 0.0
+            c.update({
+                "usd": r2(c["usd"]), "cop": round(c["cop"]), "prev_usd": r2(c["prev_usd"]), "prev_cop": round(c["prev_cop"]),
+                "dias": len(dias), "ticket_usd": r2(c["usd"] / c["count"]) if c["count"] else 0.0,
+                "mediana_usd": r2(mediana),
+                "pct": r2(100 * c["usd"] / totales["usd"]) if totales["usd"] else 0.0,
+                "serie_usd": [r2(c["serie_usd"][m]) for m in meses],
+                "serie_cop": [round(c["serie_cop"][m]) for m in meses],
+                "top_notas": [{**n, "usd": r2(n["usd"]), "cop": round(n["cop"])} for n in notas],
+            })
+            out_cats.append(c)
+        out_cats.sort(key=lambda c: -c["usd"])
+
+        # Rollup por categoría padre
+        padres: dict[str, dict] = {}
+        for c in out_cats:
+            pk = c["parent"] or c["key"]
+            info = bot.BUDGET.get(pk) or {}
+            p = padres.setdefault(pk, {"key": pk, "label": info.get("label") or pk, "icon": info.get("icon") or "📦",
+                                       "naturaleza": bot.naturaleza_de(pk), "usd": 0.0, "cop": 0.0, "count": 0,
+                                       "prev_usd": 0.0, "prev_cop": 0.0, "serie_usd": [0.0] * len(meses),
+                                       "serie_cop": [0] * len(meses), "hijos": []})
+            for f in ("usd", "cop", "count", "prev_usd", "prev_cop"):
+                p[f] += c[f]
+            p["serie_usd"] = [r2(a + b) for a, b in zip(p["serie_usd"], c["serie_usd"])]
+            p["serie_cop"] = [a + b for a, b in zip(p["serie_cop"], c["serie_cop"])]
+            p["hijos"].append(c["key"])
+        out_padres = sorted(padres.values(), key=lambda p: -p["usd"])
+        for p in out_padres:
+            p["usd"] = r2(p["usd"]); p["prev_usd"] = r2(p["prev_usd"])
+            p["pct"] = r2(100 * p["usd"] / totales["usd"]) if totales["usd"] else 0.0
+
+        def redondear_tot(t):
+            t["usd"] = r2(t["usd"]); t["cop"] = round(t["cop"])
+            for v in t["por_tipo"].values():
+                v["usd"] = r2(v["usd"]); v["cop"] = round(v["cop"])
+            return t
+
+        excl["grandes"]["items"].sort(key=lambda x: -x["usd"])
+        for k in ("viajes", "grandes"):
+            excl[k]["usd"] = r2(excl[k]["usd"]); excl[k]["cop"] = round(excl[k]["cop"])
+        return {
+            "periodo": {"desde": desde, "hasta": hasta, "meses": meses, "n_meses": len(meses), "dias": dias_periodo,
+                        "completo": bool(primer_mes) and desde > primer_mes},
+            "anterior": {"desde": p_from, "hasta": p_to, "completo": bool(primer_mes) and p_from > primer_mes},
+            "datos_desde": datos_desde,
+            "filtros": {"persona": persona, "sin_viajes": bool(sin_viajes), "sin_grandes": bool(sin_grandes),
+                        "umbral_usd": umbral_usd},
+            "totales": redondear_tot(totales),
+            "totales_anterior": redondear_tot(totales_prev),
+            "por_mes": [{"mes": m, "usd": r2(v["usd"]), "cop": round(v["cop"]),
+                         "por_tipo": {t: {"usd": r2(x["usd"]), "cop": round(x["cop"])} for t, x in v["por_tipo"].items()}}
+                        for m, v in por_mes.items()],
+            "categorias": out_cats,
+            "padres": out_padres,
+            "excluidos": excl,
+        }
 
     # ──────────────── Static frontend ────────────────
     # Serve index.html at / and any other static assets under /static/*.

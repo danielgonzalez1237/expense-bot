@@ -85,6 +85,40 @@ _DEFAULT_BUDGET = {
     "otro":           {"usd": 0,    "tipo": "variable",  "icon": "📌", "label": "Otro"},
 }
 
+# Tipo de gasto por categoría (sección 🔎 Revisión), aprobado por Daniel el
+# 2026-11-02. Vive en config.budget[cat]["naturaleza"] (migración 020) y se
+# edita desde el dashboard; esta tabla es el valor por defecto.
+NATURALEZA_TIPOS = ("esencial", "estilo", "gusto")
+NATURALEZA_DEFAULT = {
+    **{k: "esencial" for k in (
+        "hipoteca", "admin", "servicios", "prediales", "reparaciones", "empleada", "planilla", "mado", "hogar",
+        "supermercado", "d1", "macro", "pricemart", "super_otro", "verduras", "salud", "medicinas",
+        "seguros", "seguro_bubba", "seguro_carro_land", "seguro_tesla", "segurosalud", "telecom", "comisiones",
+        "carro", "gasolina", "peajes", "parqueadero", "mecanica", "mantenimiento", "multas",
+        "mascotas", "bubba", "mascotas_medicinas")},
+    **{k: "estilo" for k in (
+        "trainer", "educativo", "suscripciones", "netflix", "hbo", "youtube", "apple_subscriptions", "amazonprime",
+        "rappipro", "uberpro", "claude", "wispr", "hypero", "tuo", "cuidado_personal", "muebles", "accesorios", "uber")},
+    **{k: "gusto" for k in (
+        "restaurante", "cafe", "rappi", "ropa", "obsequio", "entretenimiento", "viaje", "tecnologia", "otro")},
+}
+
+
+def naturaleza_de(cat):
+    """Tipo de gasto de una categoría: lo guardado en BUDGET, si no la tabla
+    por defecto, si no el de su padre; si nada aplica, 'sin_clasificar'."""
+    seen = set()
+    while cat and cat not in seen:
+        seen.add(cat)
+        info = BUDGET.get(cat) or {}
+        if info.get("naturaleza") in NATURALEZA_TIPOS:
+            return info["naturaleza"]
+        if cat in NATURALEZA_DEFAULT:
+            return NATURALEZA_DEFAULT[cat]
+        cat = info.get("parent")
+    return "sin_clasificar"
+
+
 # Valores LIVE — se cargan desde la tabla `config` al arranque (load_config).
 # El resto del código usa estos nombres como siempre.
 BUDGET = {}
@@ -1477,6 +1511,28 @@ def init_db():
         conn.commit()
 
     _run_migration("019_session_secret", _migration_019_session_secret)
+
+    def _migration_020_naturaleza(conn):
+        """Escribe el tipo de gasto (esencial / estilo / gusto) en cada
+        categoría de config.budget según NATURALEZA_DEFAULT. Solo llena las
+        que no lo tienen; no toca montos ni nada más. Idempotente.
+        """
+        row = conn.execute("SELECT value FROM config WHERE key = 'budget'").fetchone()
+        if not row:
+            return
+        budget = json.loads(row[0])
+        n = 0
+        for key, info in budget.items():
+            if isinstance(info, dict) and info.get("naturaleza") not in NATURALEZA_TIPOS and key in NATURALEZA_DEFAULT:
+                info["naturaleza"] = NATURALEZA_DEFAULT[key]
+                n += 1
+        if n:
+            conn.execute("UPDATE config SET value = ?, updated_at = ? WHERE key = 'budget'",
+                         (json.dumps(budget, ensure_ascii=False), datetime.now().isoformat()))
+            conn.commit()
+        print(f"[migration 020] naturaleza puesta en {n} categorías")
+
+    _run_migration("020_naturaleza", _migration_020_naturaleza)
 
     conn.close()
 
