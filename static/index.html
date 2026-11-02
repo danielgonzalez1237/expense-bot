@@ -249,12 +249,31 @@
           <option value="Tuo">🏢 Tuo</option>
           <option value="todos">Todos</option>
         </select>
-        <label class="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
-          <input type="checkbox" class="accent-slate-900 dark:accent-slate-100" x-model="$store.review.sinViajes" @change="$store.review.load()"> Sin viajes</label>
-        <label class="flex items-center gap-1.5 text-slate-600 dark:text-slate-300" title="Quita compras sueltas de US$600 o más que no son esenciales (no quita fijos ni cuotas)">
-          <input type="checkbox" class="accent-slate-900 dark:accent-slate-100" x-model="$store.review.sinGrandes" @change="$store.review.load()"> Sin compras grandes</label>
         <span class="text-[11px] text-slate-400 sm:ml-auto" x-show="$store.review.data" x-text="$store.review.rangoLabel()"></span>
         <button type="button" class="info-i" @click.stop="$store.info.abrir('rev-controles', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button>
+      </div>
+      <!-- Dejar por fuera (personalizable) -->
+      <div class="flex flex-wrap items-center gap-1.5 text-xs" data-tour="rev-excluir">
+        <span class="text-slate-500 mr-0.5">Dejar por fuera:</span>
+        <button @click="$store.review.alternarExcluir('viaje')" class="rounded-full px-3 py-1 transition border"
+          :class="$store.review.excluir.includes('viaje') ? 'bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900 dark:border-slate-100' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-400'">✈️ Viajes</button>
+        <span class="inline-flex items-center rounded-full border transition"
+          :class="$store.review.sinGrandes ? 'bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900 dark:border-slate-100' : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-400'">
+          <button @click="$store.review.alternarGrandes()" class="pl-3 pr-1 py-1" title="Compras sueltas desde ese monto que no son esenciales (no quita fijos ni cuotas)">🛍️ Compras desde US$</button>
+          <input type="text" inputmode="numeric" :value="$store.review.umbral" @change="$store.review.cambiarUmbral($event.target.value)" @keydown.enter="$event.target.blur()"
+            class="w-14 bg-transparent py-1 pr-2 font-semibold focus:outline-none" aria-label="Monto desde el que una compra cuenta como grande">
+        </span>
+        <template x-for="k in $store.review.excluir.filter(k => k !== 'viaje')" :key="'ex' + k">
+          <button @click="$store.review.alternarExcluir(k)" class="rounded-full px-3 py-1 bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 border border-slate-900 dark:border-slate-100" :title="'Volver a incluir ' + $store.review.catInfo(k).label">
+            <span x-text="$store.review.catInfo(k).icon + ' ' + $store.review.catInfo(k).label"></span> <span class="opacity-70">✕</span></button>
+        </template>
+        <select x-model="$store.review.agregarCat" @change="if ($store.review.agregarCat) { $store.review.alternarExcluir($store.review.agregarCat); $store.review.agregarCat = ''; }"
+          class="rounded-full border border-dashed border-slate-300 dark:border-slate-600 bg-transparent px-3 py-1 text-slate-500" aria-label="Dejar por fuera otra categoría">
+          <option value="">+ Otra categoría…</option>
+          <template x-for="c in $store.review.catsTop.filter(c => !$store.review.excluir.includes(c.key))" :key="'opt' + c.key"><option :value="c.key" x-text="c.icon + ' ' + c.label"></option></template>
+        </select>
+        <button x-show="$store.review.excluir.length || $store.review.sinGrandes" @click="$store.review.excluir = []; $store.review.sinGrandes = false; $store.review._guardarFiltros(); $store.review.load(true)"
+          class="text-[11px] text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 underline ml-1">Incluir todo</button>
       </div>
       <div class="text-[11px] text-amber-700 dark:text-amber-400" x-show="$store.review.data && !$store.review.data.anterior.completo">
         El período anterior tiene datos incompletos (el bot registra desde el <span x-text="$store.review.fechaCorta($store.review.data && $store.review.data.datos_desde)"></span>): la comparación no es confiable.
@@ -271,7 +290,7 @@
       </div>
 
       <!-- KPIs -->
-      <div class="grid grid-cols-2 xl:grid-cols-5 gap-3 sm:gap-4" data-tour="rev-kpis">
+      <div class="grid grid-cols-2 xl:grid-cols-6 gap-3 sm:gap-4" data-tour="rev-kpis">
         <div class="col-span-2 bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 shadow-sm flex items-center gap-4">
           <div class="relative w-32 h-24 shrink-0" x-show="$store.review.presupuesto()">
             <canvas id="rev-gauge"></canvas>
@@ -292,12 +311,26 @@
           <div class="text-[11px] mt-0.5" x-html="$store.review.deltaHtml($store.review.data.totales, $store.review.data.totales_anterior)"></div>
           <div class="h-9 mt-1" x-show="$store.review.data.periodo.n_meses > 1"><canvas id="rev-spark"></canvas></div>
         </div>
+        <div class="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 shadow-sm min-w-0" data-tour="rev-ingresos">
+          <div class="text-xs text-slate-500 flex items-center gap-2">Contra lo que entró <button type="button" class="info-i" @click.stop="$store.info.abrir('rev-ingresos', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></div>
+          <template x-if="$store.review.pctIngreso() !== null">
+            <div>
+              <div class="num text-2xl 2xl:text-3xl font-semibold mt-1" :class="$store.review.pctIngreso() > 100 ? 'text-alerta-fuerte dark:text-alerta' : ($store.review.pctIngreso() > 85 ? 'text-gusto-fuerte dark:text-gusto' : 'text-ahorro dark:text-emerald-400')"
+                   x-text="$store.review.pctIngreso() + '%'"></div>
+              <div class="text-[11px] text-slate-400 mt-0.5" x-text="'gastado de ' + $store.review.fmt($store.review.v($store.review.data.ingresos)) + ' que entraron'"></div>
+              <div class="text-[11px] mt-0.5 font-medium" :class="$store.review.v($store.review.data.ingresos) >= $store.review.v($store.review.data.totales) ? 'text-ahorro dark:text-emerald-400' : 'text-alerta-fuerte dark:text-alerta'"
+                   x-text="($store.review.v($store.review.data.ingresos) >= $store.review.v($store.review.data.totales) ? 'Sobraron ' : 'Faltaron ') + $store.review.fmt(Math.abs($store.review.v($store.review.data.ingresos) - $store.review.v($store.review.data.totales)))"></div>
+            </div>
+          </template>
+          <div x-show="$store.review.pctIngreso() === null" class="text-[11px] text-slate-400 mt-2"
+               x-text="$store.review.ingresosAplican() ? 'No hay ingresos anotados en este período.' : 'Los ingresos son de la familia: elige Familia o Todos.'"></div>
+        </div>
         <div class="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 shadow-sm min-w-0">
           <div class="text-xs text-slate-500">En gustos</div>
           <div class="num text-2xl 2xl:text-3xl font-semibold mt-1 text-gusto-fuerte dark:text-gusto" x-text="$store.review.pctTipo('gusto').toLocaleString('es-CO') + '%'"></div>
           <div class="text-[11px] text-slate-400 mt-0.5" x-text="$store.review.fmt($store.review.v($store.review.data.totales.por_tipo.gusto)) + ' en el período'"></div>
         </div>
-        <div class="col-span-2 xl:col-span-1 bg-ahorro-suave dark:bg-emerald-950/40 rounded-2xl p-4 sm:p-5 shadow-sm min-w-0">
+        <div class="bg-ahorro-suave dark:bg-emerald-950/40 rounded-2xl p-4 sm:p-5 shadow-sm min-w-0">
           <div class="text-xs text-ahorro-medio dark:text-emerald-400">Si bajan los gustos 20%</div>
           <div class="num text-2xl 2xl:text-3xl font-semibold mt-1 text-ahorro dark:text-emerald-300" x-text="$store.review.fmt(0.2 * $store.review.v($store.review.data.totales.por_tipo.gusto) / $store.review.data.periodo.n_meses)"></div>
           <div class="text-[11px] text-ahorro-medio dark:text-emerald-400 mt-0.5" x-text="'ahorran al mes · ' + $store.review.fmt(12 * 0.2 * $store.review.v($store.review.data.totales.por_tipo.gusto) / $store.review.data.periodo.n_meses) + ' al año'"></div>
@@ -313,7 +346,8 @@
               <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-esencial"></span>Esencial</span>
               <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-estilo"></span>Estilo</span>
               <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-gusto"></span>Gusto</span>
-              <span class="flex items-center gap-1.5" x-show="$store.review.presupuesto() && $store.review.data.periodo.n_meses > 1"><span class="w-4 border-t-2 border-dashed border-alerta"></span>Presupuesto</span>
+              <span class="flex items-center gap-1.5" x-show="$store.review.presupuesto() && $store.review.data.periodo.n_meses > 1"><span class="w-4 border-t-2 border-dashed border-alerta"></span>Presupuesto ideal</span>
+              <span class="flex items-center gap-1.5" x-show="$store.review.pctIngreso() !== null && $store.review.data.periodo.n_meses > 1"><span class="w-4 border-t-[3px] border-ahorro dark:border-emerald-500 rounded"></span>Ingresos</span>
             </div>
           </div>
           <p class="text-[11px] text-slate-400 mt-1" x-show="$store.review.data.periodo.n_meses === 1">Gasto de cada día sin fijos ni cuotas (gustos en dorado).</p>
@@ -524,15 +558,24 @@
       </div>
 
       <!-- Lo que quedó por fuera -->
-      <div x-show="$store.review.data.filtros.sin_viajes || $store.review.data.filtros.sin_grandes"
-           class="bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm text-xs">
-        <h2 class="num text-lg font-semibold mb-2">Quedó por fuera de esta vista</h2>
-        <div x-show="$store.review.data.filtros.sin_viajes">✈️ Viajes: <span class="font-semibold" x-text="$store.review.fmt($store.review.v($store.review.data.excluidos.viajes))"></span>
-          (<span x-text="$store.review.data.excluidos.viajes.count"></span>)</div>
-        <div x-show="$store.review.data.filtros.sin_grandes" class="mt-1">🛍️ Compras grandes (US$600 o más, no esenciales): <span class="font-semibold" x-text="$store.review.fmt($store.review.v($store.review.data.excluidos.grandes))"></span>
-          (<span x-text="$store.review.data.excluidos.grandes.count"></span>)
-          <div class="mt-1 space-y-0.5">
-            <template x-for="g in $store.review.data.excluidos.grandes.items.slice(0, 12)" :key="g.id">
+      <div x-show="($store.review.data.excluidos.categorias || []).length || $store.review.data.filtros.sin_grandes"
+           class="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm text-xs">
+        <h2 class="num text-lg font-semibold mb-1">Quedó por fuera de esta vista</h2>
+        <p class="text-[11px] text-slate-500 mb-3" x-text="'En total ' + $store.review.fmt(($store.review.data.excluidos.categorias || []).reduce((s, e) => s + $store.review.v(e), 0) + $store.review.v($store.review.data.excluidos.grandes)) + ' que no cuentan en las gráficas de arriba.'"></p>
+        <div class="space-y-1.5">
+          <template x-for="e in ($store.review.data.excluidos.categorias || [])" :key="'qe' + e.key">
+            <div class="flex items-center justify-between gap-2">
+              <span><span x-text="e.icon + ' ' + e.label"></span> <span class="text-slate-400" x-text="'(' + e.count + ')'"></span></span>
+              <span class="flex items-center gap-3"><span class="font-semibold" x-text="$store.review.fmt($store.review.v(e))"></span>
+                <button @click="$store.review.alternarExcluir(e.key)" class="text-[11px] text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 underline">incluir</button></span>
+            </div>
+          </template>
+        </div>
+        <div x-show="$store.review.data.filtros.sin_grandes" class="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+          <div class="flex items-center justify-between gap-2"><span x-text="'🛍️ Compras desde US$' + Number($store.review.data.filtros.umbral_usd).toLocaleString('de-DE') + ' (no esenciales)'"></span>
+            <span><span class="font-semibold" x-text="$store.review.fmt($store.review.v($store.review.data.excluidos.grandes))"></span> <span class="text-slate-400" x-text="'(' + $store.review.data.excluidos.grandes.count + ')'"></span></span></div>
+          <div class="mt-2 space-y-0.5">
+            <template x-for="g in $store.review.data.excluidos.grandes.items.slice(0, 15)" :key="g.id">
               <div class="flex justify-between gap-2 text-[11px] text-slate-600 dark:text-slate-300">
                 <span class="truncate"><span x-text="$store.review.fechaCorta(g.fecha)"></span> · <span x-text="g.nota || $store.review.labelDe(g.categoria)"></span></span>
                 <span class="font-medium shrink-0" x-text="$store.review.fmt($store.review.v(g))"></span>
@@ -1116,19 +1159,50 @@
   <!-- END 💵 INGRESOS -->
 
   <!-- ──────────────── History (pestaña 🧾 Movimientos) ──────────────── -->
-  <div x-show="view === 'movimientos' && !loading && !expenses.length" x-cloak
+  <div x-show="view === 'movimientos' && !loading && !expenses.length && !busq.abierta" x-cloak
        class="bg-white dark:bg-slate-900 rounded-2xl p-8 text-center mb-4 shadow-sm text-sm text-slate-500">
     No hay movimientos en <span x-text="periodTitle()"></span>.
+    <button @click="busqAbrir()" class="block mx-auto mt-3 rounded-full bg-slate-100 dark:bg-slate-800 px-4 py-1.5 text-xs text-slate-700 dark:text-slate-200">🔎 Buscar en todo el historial</button>
   </div>
-  <section class="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 mb-4 fade shadow-sm" x-show="view === 'movimientos' && expenses.length">
-    <div class="flex items-center justify-between mb-3">
+  <section class="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 mb-4 fade shadow-sm" x-show="view === 'movimientos' && (expenses.length || busq.abierta)">
+    <div class="flex items-center justify-between gap-2 mb-3">
       <h2 class="num text-xl sm:text-2xl font-semibold movimientos-anchor flex items-center gap-2">Cada gasto <button type="button" class="info-i" @click.stop="$store.info.abrir('movimientos', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
+      <div class="flex items-center gap-2">
+      <button @click="busqAbrir()" data-tour="buscar" class="w-9 h-9 rounded-full grid place-items-center transition"
+        :class="busq.abierta ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'"
+        title="Buscar por palabra, monto o fecha" aria-label="Buscar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      </button>
       <a
         :href="'/api/export/csv_full?month=' + month"
         class="text-xs bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-full px-3 py-1.5 transition"
         download
         title="CSV completo del mes (gastos + ingresos detallados)"
       >📁 CSV completo</a>
+      </div>
+    </div>
+
+    <!-- 🔎 Búsqueda: palabra, monto o fechas, en todo el historial -->
+    <div x-show="busq.abierta" x-transition class="mb-4 rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-3 sm:p-4 space-y-2.5">
+      <div class="flex items-center gap-2 bg-white dark:bg-slate-900 rounded-full px-4 py-2 shadow-sm">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="text-slate-400 shrink-0"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input id="busq-q" type="search" x-model="busq.q" @input.debounce.350ms="busqBuscar()" @keydown.escape="busqCerrar()" autocomplete="off"
+          placeholder="Palabra (Chanel, Malevo…), categoría, método, persona o monto" class="flex-1 min-w-0 bg-transparent text-sm focus:outline-none">
+        <span x-show="busq.cargando" class="text-[11px] text-slate-400">buscando…</span>
+      </div>
+      <div class="flex flex-wrap items-center gap-2 text-xs">
+        <label class="flex items-center gap-1.5 text-slate-500">Desde <input type="date" x-model="busq.desde" @change="busqBuscar()" class="bg-white dark:bg-slate-900 rounded-full px-3 py-1 text-slate-800 dark:text-slate-100"></label>
+        <label class="flex items-center gap-1.5 text-slate-500">Hasta <input type="date" x-model="busq.hasta" @change="busqBuscar()" class="bg-white dark:bg-slate-900 rounded-full px-3 py-1 text-slate-800 dark:text-slate-100"></label>
+        <span class="text-[11px] text-slate-400" x-text="busq.desde || busq.hasta ? '' : 'Sin fechas busca en todo el historial.'"></span>
+        <button @click="busqCerrar()" class="ml-auto rounded-full bg-white dark:bg-slate-900 px-3 py-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">Cerrar búsqueda ✕</button>
+      </div>
+      <div x-show="busq.error" class="text-xs text-red-700 dark:text-red-300" x-text="busq.error"></div>
+      <div x-show="busq.res" class="text-xs text-slate-600 dark:text-slate-300">
+        <b x-text="busq.res && (busq.res.count + (busq.res.count === 1 ? ' resultado' : ' resultados'))"></b>
+        <span x-text="busq.res && (' · ' + fmtUsd(busq.res.total_usd) + ' · $' + Math.round(busq.res.total_cop).toLocaleString('de-DE') + ' COP')"></span>
+        <span class="text-slate-400" x-text="busq.res && (busq.res.desde || busq.res.hasta ? ' · entre ' + (busq.res.desde || 'el inicio') + ' y ' + (busq.res.hasta || 'hoy') : ' · en todo el historial')"></span>
+        <span class="text-slate-400" x-show="busq.res && busq.res.count > busq.res.expenses.length" x-text="busq.res && (' · se muestran los ' + busq.res.expenses.length + ' más recientes')"></span>
+      </div>
     </div>
 
     <!-- Filtros · Conciliación (3 filas) -->
@@ -5046,6 +5120,8 @@ document.addEventListener('alpine:init', () => {
       this.kill(id);
       const el = document.getElementById(id);
       if (!el || !window.Chart) return;
+      // Alpine reusa los elementos al reordenar listas: el lienzo puede traer una gráfica vieja
+      const vieja = Chart.getChart(el); if (vieja) { try { vieja.destroy(); } catch (e) {} }
       try { this.charts[id] = new Chart(el, cfg); } catch (e) { console.warn('gráfica', id, e); }
     },
     ymd(t) { return t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0'); },
@@ -5103,12 +5179,21 @@ document.addEventListener('alpine:init', () => {
       // Mes a mes (o día a día si el período es un solo mes)
       if (nm > 1) {
         const ds = tipos.map(([t, l, c]) => ({ label: l, data: tipoMes(t), backgroundColor: c, borderRadius: 6, stack: 's', borderSkipped: false, maxBarThickness: 46 }));
-        if (presu) ds.push({ label: 'Presupuesto', type: 'line', data: lab.map(() => presu), borderColor: C.bud, borderDash: [6, 5], borderWidth: 2, pointRadius: 0, pointHoverRadius: 0, order: -1 });
+        if (presu) ds.push({ label: 'Presupuesto ideal', type: 'line', stack: 'presu', data: lab.map(() => presu), borderColor: C.bud, borderDash: [6, 5], borderWidth: 2, pointRadius: 0, pointHoverRadius: 0, order: -1 });
+        if (R.ingresosAplican() && R.v(d.ingresos) > 0) {
+          const ingC = C.dark ? '#4fae7b' : '#2f6b47';
+          ds.push({ label: 'Ingresos', type: 'line', stack: 'ingresos', data: meses.map(m => R.v((d.ingresos.por_mes || []).find(x => x.mes === m))),
+            borderColor: ingC, backgroundColor: ingC, borderWidth: 2.5, tension: .3, pointRadius: 3.5, pointBackgroundColor: C.card, pointBorderColor: ingC, pointBorderWidth: 2, order: -2 });
+        }
         this.make('rev-mes', { type: 'bar', data: { labels: lab, datasets: ds },
           options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
             plugins: { legend: { display: false }, tooltip: { ...tip, callbacks: {
               label: c => ' ' + c.dataset.label + ': ' + money(c.parsed.y),
-              footer: items => { const tot = items.filter(i => i.dataset.type !== 'line').reduce((a, i) => a + i.parsed.y, 0); return 'Total: ' + money(tot); } } } },
+              footer: items => {
+                const tot = items.filter(i => i.dataset.type !== 'line').reduce((a, i) => a + i.parsed.y, 0);
+                const ing = items.find(i => i.dataset.label === 'Ingresos');
+                return 'Gasto: ' + money(tot) + (ing && ing.parsed.y > 0 ? ' · ' + Math.round(100 * tot / ing.parsed.y) + '% de lo que entró' : '');
+              } } } },
             scales: { x: { stacked: true, grid: { display: false }, border: { display: false } }, y: axisY } } });
       } else {
         const { ini, fin } = this.dias(d);
@@ -5293,6 +5378,7 @@ document.addEventListener('alpine:init', () => {
       if (this.charts[id]) { try { this.charts[id].destroy(); } catch (e) {} delete this.charts[id]; }
       const el = document.getElementById(id);
       if (!el || !window.Chart) return;
+      const vieja = Chart.getChart(el); if (vieja) { try { vieja.destroy(); } catch (e) {} }
       try { this.charts[id] = new Chart(el, cfg); } catch (e) { console.warn('gráfica', id, e); }
     },
     render(D) {
@@ -5381,7 +5467,37 @@ document.addEventListener('alpine:init', () => {
   const revYm = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
   Alpine.store('review', {
     loaded: false, loading: false, error: null, data: null,
-    preset: '6m', desde: '', hasta: '', persona: 'familia', sinViajes: false, sinGrandes: false, moneda: 'usd',
+    preset: '6m', desde: '', hasta: '', persona: 'familia', moneda: 'usd',
+    // Qué dejar por fuera: categorías (un padre incluye sus subcategorías) y compras grandes desde un monto
+    excluir: (() => { try { return JSON.parse(localStorage.getItem('rev_excluir') || '[]'); } catch (e) { return []; } })(),
+    sinGrandes: (() => { try { return localStorage.getItem('rev_sin_grandes') === '1'; } catch (e) { return false; } })(),
+    umbral: (() => { try { return Number(localStorage.getItem('rev_umbral')) || 600; } catch (e) { return 600; } })(),
+    catsTop: [], agregarCat: '',
+    get sinViajes() { return this.excluir.includes('viaje'); },
+    _guardarFiltros() { try { localStorage.setItem('rev_excluir', JSON.stringify(this.excluir)); localStorage.setItem('rev_sin_grandes', this.sinGrandes ? '1' : '0'); localStorage.setItem('rev_umbral', String(this.umbral)); } catch (e) {} },
+    alternarExcluir(k) {
+      this.excluir = this.excluir.includes(k) ? this.excluir.filter(x => x !== k) : [...this.excluir, k];
+      this._guardarFiltros(); this.load(true);
+    },
+    alternarGrandes() { this.sinGrandes = !this.sinGrandes; this._guardarFiltros(); this.load(true); },
+    cambiarUmbral(v) {
+      const n = Math.round(Number(String(v).replace(/[^0-9]/g, '')));
+      if (!(n > 0)) return;
+      this.umbral = n; this._guardarFiltros(); if (this.sinGrandes) this.load(true);
+    },
+    catInfo(k) { return this.catsTop.find(c => c.key === k) || { key: k, label: this.labelDe(k), icon: '📦' }; },
+    async cargarCats() {
+      if (this.catsTop.length) return;
+      try {
+        const r = await fetch('/api/budget'); if (!r.ok) return;
+        const cats = (await r.json()).categories || {};
+        this.catsTop = Object.entries(cats).filter(([k, v]) => v && !v.parent)
+          .map(([k, v]) => ({ key: k, label: v.label || k, icon: v.icon || '📦' })).sort((a, b) => a.label.localeCompare(b.label));
+      } catch (e) {}
+    },
+    // Comparación con lo que entró (solo para la familia o todos)
+    ingresosAplican() { const d = this.data; return !!(d && d.ingresos && d.ingresos.aplica); },
+    pctIngreso() { const d = this.data; if (!this.ingresosAplican() || !this.v(d.ingresos)) return null; return Math.round(100 * this.v(d.totales) / this.v(d.ingresos)); },
     nivel: 'sub', filtroTipo: 'todos', abiertos: {}, simCat: '__gustos', simPct: 20, verTodas: false, LIMITE: 15,
     openTipos: false, tiposBusy: false, tiposError: null, tiposCats: [],
     presets: [
@@ -5427,7 +5543,7 @@ document.addEventListener('alpine:init', () => {
       this.abiertos = { ...this.abiertos, [key]: true };
       setTimeout(() => document.getElementById('rev-row-' + key)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
     },
-    ensureLoaded() { if (!this.loaded && !this.loading) this.setPreset(this.preset); },
+    ensureLoaded() { this.cargarCats(); if (!this.loaded && !this.loading) this.setPreset(this.preset); },
     setPreset(k) {
       this.preset = k;
       // 3/6/12 meses = meses COMPLETOS (hasta el mes pasado) para que el
@@ -5449,7 +5565,7 @@ document.addEventListener('alpine:init', () => {
       if (this.desde > this.hasta) { this.error = 'El mes "desde" debe ser anterior o igual a "hasta"'; return; }
       this.loading = !this.data; this.error = null;
       const q = new URLSearchParams({ desde: this.desde, hasta: this.hasta, persona: this.persona,
-        sin_viajes: this.sinViajes ? 1 : 0, sin_grandes: this.sinGrandes ? 1 : 0 });
+        sin_grandes: this.sinGrandes ? 1 : 0, umbral_usd: this.umbral, excluir: this.excluir.join(',') });
       try {
         const r = await fetch('/api/review?' + q);
         if (!r.ok) { const t = await r.json().catch(() => ({})); throw new Error(t.detail || ('No se pudo cargar la revisión (' + r.status + ')')); }
@@ -5703,7 +5819,7 @@ document.addEventListener('alpine:init', () => {
   Alpine.store('info', {
     open: false, key: null, style: '',
     T: {
-      gastado: { t: 'Gastado', h: '<p>Todo lo gastado en el período que elegiste arriba.</p><p>La barra separa <b>fijos y cuotas</b> (oscuro: se anotan solos, como hipoteca, administración, suscripciones y cuotas de diferidos) del <b>día a día</b> (dorado: lo que anotan ustedes).</p><p><b>Comparar con</b> cambia la referencia: <b>Tope</b> (tope aspiracional del mes), <b>Plan</b> (ingreso esperado) o <b>Categorías</b> (suma del presupuesto de todas). Con 3, 6 o 12 meses la referencia se multiplica por los meses.</p><p>El <b>ritmo</b> solo mira el día a día: compara qué parte de lo disponible llevan contra qué parte del mes va.</p>' },
+      gastado: { t: 'Gastado', h: '<p>Todo lo gastado en el período que elegiste arriba.</p><p>La barra separa <b>fijos y cuotas</b> (oscuro: se anotan solos, como hipoteca, administración, suscripciones y cuotas de diferidos) del <b>día a día</b> (dorado: lo que anotan ustedes).</p><p><b>Comparar con</b> tiene dos referencias: el <b>presupuesto ideal</b> (la suma del ideal de cada categoría, que editas en Ajustes → Categorías y presupuesto) y el <b>ingreso percibido</b> (lo que de verdad entró, de la sección Ingresos). Con 3, 6 o 12 meses el presupuesto se multiplica por los meses.</p><p>Con el presupuesto ideal, el <b>ritmo</b> del mes en curso mira solo el día a día: qué parte de lo disponible llevan contra qué parte del mes va.</p>' },
       pagos: { t: 'Próximos pagos', h: '<p>Las fechas de pago de tarjetas y créditos. El color dice qué tan cerca está: <b>rojo</b> vencido o 3 días o menos, <b>naranja</b> hasta 7, <b>dorado</b> hasta 14 y <b>verde</b> más lejos.</p><p>Cuando paguen, toquen <b>Ya pagué</b>: sale de la lista y vuelve sola el mes siguiente con la nueva fecha. Si fue un error, en "pagados este mes" está <b>Deshacer</b>.</p><p>Tocar el nombre lo edita; <b>+ Agregar</b> y <b>Gestionar</b> crean, cambian o borran recordatorios. Solo avisa: no anota el gasto.</p>' },
       pyg: { t: 'P&G', h: '<p>Ingresos contra gastos del período. <b>Neto</b> = ingresos − gastos; si es positivo dice qué parte del ingreso ahorraron.</p><p>La gráfica muestra los últimos meses: barras verdes = ingresos, doradas = gastos, línea = neto (punto verde si sobró, rojo si faltó). Los meses fuera del período elegido se ven más claros.</p><p><b>De dónde vino</b> agrupa los ingresos (CLP, rentas, cripto…) y <b>En qué se fue</b> reparte el gasto en esencial, estilo de vida y gusto. <b>+ Anotar ingreso</b> lleva a la sección Ingresos; en <b>⋯</b> están las fuentes y los CSV.</p>' },
       'ing-recibido': { t: 'Recibido', h: '<p>Todo lo que entró en el período, en dólares (cada ingreso se convierte con la tasa de su mes).</p><p>La barra lo compara con el <b>plan</b>: la suma de lo que esperan de cada fuente al mes (con 3, 6 o 12 meses se multiplica). "Fuentes sin recibir" son las que tienen plan pero no han registrado nada.</p><p>Abajo, el neto del período: ingresos menos gastos.</p>' },
@@ -5716,9 +5832,10 @@ document.addEventListener('alpine:init', () => {
       persona: { t: 'Por persona', h: '<p>Cuánto anotó cada uno en el período. Tocar un nombre abre Movimientos solo con sus gastos.</p>' },
       metodo: { t: 'Por método de pago', h: '<p>Cuánto se pagó con cada tarjeta, cuenta o efectivo en el período. Tocar uno abre Movimientos filtrado por ese método, útil para cuadrar con el extracto.</p>' },
       analisis: { t: 'Análisis de gasto diario', h: '<p>El gasto de cada día por categoría en el rango de fechas que elijas (7, 30, 90 días o personalizado), en columnas o acumulado.</p><p>La tabla muestra por categoría el total, el promedio y la mediana por gasto (la mediana se mueve menos con compras grandes).</p>' },
-      'rev-controles': { t: 'Qué estás viendo', h: '<p><b>Período</b>: Mes (el actual), 3m, 6m o 12m (meses completos hasta el mes pasado, para que el mes en curso no baje el promedio), Año o Elegir meses.</p><p><b>Quién</b>: Familia (sin Tuo), Daniel, Mado, Tuo o Todos.</p><p><b>Sin viajes</b> y <b>Sin compras grandes</b> (US$600 o más que no sean esenciales) los quitan para ver el gasto normal; lo quitado se lista al final. <b>USD/COP</b> cambia la moneda.</p>' },
+      'rev-controles': { t: 'Qué estás viendo', h: '<p><b>Período</b>: Mes (el actual), 3m, 6m o 12m (meses completos hasta el mes pasado, para que el mes en curso no baje el promedio), Año o Elegir meses. <b>Quién</b>: Familia (sin Tuo), Daniel, Mado, Tuo o Todos. <b>USD/COP</b> cambia la moneda.</p><p><b>Dejar por fuera</b>: toca <b>Viajes</b>, activa <b>Compras desde US$</b> y escribe el monto desde el que una compra cuenta como grande (no quita fijos, cuotas ni esenciales), o agrega cualquier otra categoría con <b>+ Otra categoría</b> (incluye sus subcategorías). Lo que quites se lista al final y se recuerda en este dispositivo.</p>' },
+      'rev-ingresos': { t: 'Contra lo que entró', h: '<p>Qué parte de los ingresos del período se fue en gastos: <b>verde</b> hasta 85%, <b>dorado</b> hasta 100%, <b>rojo</b> si gastaron más de lo que entró. Abajo, cuánto sobró o faltó.</p><p>Los ingresos salen de la sección Ingresos y son de la familia: solo se compara con <b>Familia</b> o <b>Todos</b>. Si quitas viajes u otras categorías, se compara el gasto que queda.</p>' },
       'rev-kpis': { t: 'Lo clave', h: '<p><b>Por mes</b>: promedio mensual del período; el medidor lo compara con el presupuesto mensual (solo para Familia o Todos).</p><p><b>Gastaron</b>: total del período y el cambio contra el período anterior de igual duración.</p><p><b>En gustos</b>: qué parte del total fue gusto. <b>Si bajan los gustos 20%</b>: cuánto ahorrarían al mes y al año.</p>' },
-      'rev-mes': { t: 'Mes a mes', h: '<p>Cada barra es un mes, partida en esencial (azul), estilo de vida (lila) y gusto (dorado). La línea punteada es el presupuesto mensual.</p><p>Si el período es un solo mes, muestra el día a día (sin fijos ni cuotas). Pasa el dedo o el mouse por encima para ver los números.</p>' },
+      'rev-mes': { t: 'Mes a mes', h: '<p>Cada barra es un mes, partida en esencial (azul), estilo de vida (lila) y gusto (dorado). La línea punteada es el <b>presupuesto ideal</b> y la línea verde, lo que <b>entró</b> ese mes (Familia o Todos).</p><p>Si el período es un solo mes, muestra el día a día (sin fijos ni cuotas). Pasa el dedo o el mouse por encima para ver los números y qué parte del ingreso se gastó.</p>' },
       'rev-dona': { t: 'Necesario o gusto', h: '<p>Reparte el total en <b>esencial</b>, <b>estilo de vida</b> y <b>gusto</b>, con el cambio contra el período anterior.</p><p>Toca un tipo para que "En qué se fue" y el ranking muestren solo ese. Qué categoría es de qué tipo se cambia en <b>Editar tipos</b>.</p>' },
       'rev-top': { t: 'En qué se fue', h: '<p>Las 12 categorías más grandes del período (respeta el tipo elegido y si ves subcategorías o categorías en el ranking).</p><p>Toca una barra para abrir su detalle en el ranking.</p>' },
       'rev-dias': { t: 'Cada día', h: '<p>Un cuadrito por día: entre más oscuro, más gastaron. No cuenta fijos ni cuotas, para ver solo el día a día.</p><p>Pasa el mouse (o mantén el dedo) sobre un cuadrito para ver la fecha y el valor.</p>' },
@@ -5727,7 +5844,7 @@ document.addEventListener('alpine:init', () => {
       'rev-mini': { t: 'Cada categoría, mes a mes', h: '<p>Las 8 categorías más grandes con su curva de cada mes. Toca una para abrir su detalle en el ranking.</p>' },
       'rev-ranking': { t: 'Ranking de categorías', h: '<p>Todas las categorías de mayor a menor, con su % del total, su curva y el cambio contra el período anterior. Cambia entre <b>Subcategoría</b> y <b>Categoría</b> arriba a la derecha.</p><p>Toca una para ver promedio por mes, cuántas veces, ticket típico y los gastos que más pesan. Ahí mismo le puedes cambiar el tipo.</p>' },
       'rev-mejorar': { t: 'Dónde pueden mejorar', h: '<p>Los gustos y gastos de estilo de vida que más pesan, con lo que ahorrarían bajándolos.</p><p>El <b>simulador</b> calcula el ahorro al mes y al año si bajan una categoría (o todos los gustos) el porcentaje que elijas.</p><p class="text-slate-400">Es una guía general, no asesoría financiera.</p>' },
-      movimientos: { t: 'Cada gasto', h: '<p>Todos los gastos del período elegido arriba, del más nuevo al más viejo. Filtra por persona, tipo contable o categoría; con un filtro activo aparece el total filtrado.</p><p>Toca un gasto para editarlo o borrarlo. 🔁 = fijo que se anota solo · 📅 2/12 = cuota de un diferido (agrupadas al final). <b>CSV completo</b> baja el mes.</p>' },
+      movimientos: { t: 'Cada gasto', h: '<p>Todos los gastos del período elegido arriba, del más nuevo al más viejo. Filtra por persona, tipo contable o categoría; con un filtro activo aparece el total filtrado.</p><p>La <b>lupa</b> busca en todo el historial por palabra (sin importar tildes ni mayúsculas), categoría, método, persona o monto, y si quieres entre dos fechas.</p><p>Toca un gasto para editarlo o borrarlo. 🔁 = fijo que se anota solo · 📅 2/12 = cuota de un diferido (agrupadas al final). <b>CSV completo</b> baja el mes.</p>' },
       ajustes: { t: 'Ajustes', h: '<p>Todo lo que se configura: fijos y diferidos, categorías y presupuesto, tipos de gasto, fuentes de ingreso, tasas de cambio, fechas de pago, conciliación de extractos, el tema y la guía.</p><p>También puedes repetir el recorrido guiado.</p>' },
     },
     item() { return this.T[this.key] || { t: '', h: '' }; },
@@ -5780,12 +5897,18 @@ document.addEventListener('alpine:init', () => {
         text: 'Escoge el período (mes, 3, 6 o 12 meses, o el año), de quién (familia, Daniel, Mado o Tuo) y si lo ves en dólares o en pesos.' },
       { sel: ['[data-tour=rev-kpis]'], view: 'revision', title: 'Lo clave, arriba',
         text: 'Cuánto gastan por mes frente al presupuesto, el total del período, qué parte se va en gustos y cuánto ahorrarían bajando los gustos un 20%.' },
+      { sel: ['[data-tour=rev-excluir]'], view: 'revision', title: 'Dejar por fuera',
+        text: 'Quita viajes, las compras desde el monto que tú elijas o cualquier categoría, para ver el gasto normal. Lo que quites se lista al final.' },
+      { sel: ['[data-tour=rev-ingresos]'], view: 'revision', title: 'Contra lo que entró',
+        text: 'Qué parte de los ingresos se fue en gastos, y cuánto sobró o faltó. En "Mes a mes" la línea verde es lo que entró cada mes.' },
       { sel: ['[data-tour=rev-mes]'], view: 'revision', title: 'Mes a mes',
         text: 'Cada barra es un mes, partida en <b style="color:#4f8bb8">esencial</b>, <b style="color:#8a79c4">estilo de vida</b> y <b style="color:#c98a2e">gusto</b>. La línea punteada es el presupuesto. Pasa el dedo o el mouse por encima para ver los números.' },
       { sel: ['[data-tour=rev-dona]'], view: 'revision', title: 'Necesario o gusto',
         text: 'Toca un tipo y el ranking de abajo muestra solo ese. En <b>En qué se fue</b>, toca una barra y se abre el detalle de esa categoría.' },
       { sel: ['[data-tour=rev-dias]'], view: 'revision', title: 'Cada día',
         text: 'Cada cuadrito es un día: entre más oscuro, más gastaron (sin contar fijos ni cuotas). Al lado está qué día de la semana sale más caro.' },
+      { sel: ['[data-tour=buscar]'], view: 'movimientos', title: 'Buscar',
+        text: 'Con la <b>lupa</b> buscas cualquier gasto en todo el historial: por palabra, categoría, monto o entre dos fechas.' },
       { sel: ['[data-tour=ing-form]'], view: 'ingresos', title: 'Ingresos',
         text: 'Aquí anotan lo que entra: eligen la fuente, el monto y la moneda. Arriba ven lo recibido contra el plan, y abajo cada fuente, la gráfica mes a mes y cada ingreso (tócalo para editarlo).' },
       { sel: ['[data-tour=ajustes-grid]'], view: 'ajustes', title: 'Ajustes',
@@ -7168,14 +7291,14 @@ function dashboard() {
       await this.reload();
     },
     // ── Gastado: fijos y cuotas vs día a día, contra la referencia elegida ──
-    resumenRef: (() => { try { return localStorage.getItem('resumen_ref') || 'ideal'; } catch (e) { return 'ideal'; } })(),
+    resumenRef: (() => { try { const r = localStorage.getItem('resumen_ref'); return r === 'ingreso' ? 'ingreso' : 'config'; } catch (e) { return 'config'; } })(),
     verFuentes: false,
+    // Dos referencias: el presupuesto ideal (suma de las categorías) y lo que de verdad entró
     refOptions() {
       return [
-        { k: 'ideal',  label: 'Tope',       v: this.idealBudget,      title: 'Tope aspiracional fijo' },
-        { k: 'plan',   label: 'Plan',       v: this.planIncome,       title: 'Gasto vs ingreso esperado' },
-        { k: 'config', label: 'Categorías', v: this.configuredBudget, title: 'Suma del presupuesto de todas las categorías' },
-      ].filter(o => o.v > 0);
+        { k: 'config',  label: 'Presupuesto ideal', v: this.configuredBudget, title: 'Suma del presupuesto ideal de todas las categorías' },
+        { k: 'ingreso', label: 'Ingreso percibido', v: this.pygIngresos(),    title: 'Lo que entró en el período (sección Ingresos)' },
+      ].filter(o => o.v > 0 || o.k === 'ingreso');
     },
     refActual() { const o = this.refOptions(); return o.find(x => x.k === this.resumenRef) || o[0] || { k: '', v: 0, label: '' }; },
     setRef(k) { this.resumenRef = k; try { localStorage.setItem('resumen_ref', k); } catch (e) {} },
@@ -7191,10 +7314,12 @@ function dashboard() {
     },
     ritmo() {
       const ref = this.refActual(), total = Number(this.summary.total_usd) || 0;
+      if (ref.k === 'ingreso' && !ref.v) return { cls: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+        texto: '<b>Aún no hay ingresos anotados en ' + this.periodTitle() + '.</b> Anótalos en la sección Ingresos para comparar.' };
       if (!ref.v || !total) return { texto: '', cls: '' };
-      const del = { ideal: 'del tope', plan: 'del plan', config: 'del presupuesto por categoría' }[ref.k];
-      const al = { ideal: 'al tope', plan: 'al plan', config: 'al presupuesto por categoría' }[ref.k];
-      if (this.windowSize === 1 && this.daysLeft > 0) {   // mes en curso: el ritmo se mide solo con el día a día
+      const del = { config: 'del presupuesto ideal', ingreso: 'de lo que entró' }[ref.k];
+      const al = { config: 'al presupuesto ideal', ingreso: 'a lo que entró' }[ref.k];
+      if (ref.k === 'config' && this.windowSize === 1 && this.daysLeft > 0) {   // mes en curso: el ritmo se mide solo con el día a día
         const disp = ref.v - this.fijosUsd;
         if (disp <= 0) return { cls: 'bg-alerta-suave text-alerta-fuerte dark:bg-red-950/40 dark:text-red-300',
           texto: '<b>Los fijos y cuotas ya llegan ' + al + '.</b> El día a día no tiene margen este mes.' };
@@ -7214,6 +7339,30 @@ function dashboard() {
       const enCurso = this.month === this._hoyYm();
       return { cls, texto: '<b>' + (this.windowSize === 1 ? 'Cerró en ' : (enCurso ? 'Van en ' : 'Cerró en ')) + pct + '% ' + del + '.</b> '
         + (dentro ? 'Sobraron ' : 'Se pasaron ') + this.fmtUsd(Math.abs(ref.v - total)) + (n > 1 ? ' · promedio ' + this.fmtUsd(total / n) + ' por mes.' : '.') };
+    },
+    // ── 🔎 Búsqueda en Movimientos ──
+    busq: { abierta: false, q: '', desde: '', hasta: '', cargando: false, res: null, error: null, _n: 0 },
+    busqAbrir() {
+      if (this.busq.abierta) return this.busqCerrar();
+      this.busq.abierta = true;
+      setTimeout(() => document.getElementById('busq-q')?.focus(), 80);
+    },
+    busqCerrar() { this.busq = { abierta: false, q: '', desde: '', hasta: '', cargando: false, res: null, error: null, _n: this.busq._n + 1 }; },
+    async busqBuscar() {
+      const b = this.busq, q = (b.q || '').trim();
+      if (!q && !b.desde && !b.hasta) { b.res = null; b.error = null; return; }
+      if (b.desde && b.hasta && b.desde > b.hasta) { b.error = 'La fecha "desde" debe ser anterior a "hasta".'; return; }
+      const n = ++b._n; b.cargando = true; b.error = null;
+      try {
+        const qs = new URLSearchParams({ limit: '500' });
+        if (q) qs.set('q', q); if (b.desde) qs.set('desde', b.desde); if (b.hasta) qs.set('hasta', b.hasta);
+        const r = await fetch('/api/expenses/search?' + qs);
+        const d = await r.json().catch(() => ({}));
+        if (n !== this.busq._n) return;   // llegó una búsqueda más nueva
+        if (!r.ok) throw new Error(d.detail || ('No se pudo buscar (' + r.status + ')'));
+        this.busq.res = d;
+      } catch (e) { if (n === this.busq._n) this.busq.error = e.message || String(e); }
+      finally { if (n === this.busq._n) this.busq.cargando = false; }
     },
     // ── 💵 Ingresos y P&G ──
     incomeSources: [], pnlSerie: [], pnlPlanMensual: 0,
@@ -7758,8 +7907,8 @@ function dashboard() {
         trm: this.rates.TRM || 3700,
         categoryOptions: this.categoryOptions,
         paymentOptions: this.paymentOptions,
-        onSaved: async () => { await this.reload(); },
-        onDeleted: async () => { await this.reload(); },
+        onSaved: async () => { await this.reload(); if (this.busq.res) this.busqBuscar(); },
+        onDeleted: async () => { await this.reload(); if (this.busq.res) this.busqBuscar(); },
       });
     },
 
@@ -8303,7 +8452,7 @@ function dashboard() {
     },
 
     get filteredExpenses() {
-      let out = this.expenses;
+      let out = this.busq.res ? this.busq.res.expenses : this.expenses;
       if (this.userFilter) out = out.filter(e => e.user_name === this.userFilter);
       if (this.methodFilter) out = out.filter(e => e.metodo_pago === this.methodFilter);
       if (this.categoryFilter) {
