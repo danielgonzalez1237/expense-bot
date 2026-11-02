@@ -75,6 +75,21 @@ class NaturalezaBody(BaseModel):
     naturaleza: str   # 'esencial' | 'estilo' | 'gusto'
 
 
+class QuickExpense(BaseModel):
+    """➕ Gasto rápido desde el dashboard (en cualquier moneda del bot)."""
+    monto: float
+    moneda: Optional[str] = "COP"
+    categoria: str
+    nota: Optional[str] = ""
+    metodo_pago: Optional[str] = "Sin especificar"
+    user_name: Optional[str] = None      # si no viene, la persona que entró con su PIN
+    fecha: Optional[str] = None          # YYYY-MM-DD; si no viene, hoy (hora Colombia)
+
+
+# Versión del recorrido guiado: al cambiarla, a todos les vuelve a salir.
+TOUR_VERSION = "2026-11-rediseno"
+
+
 # ──────────────── 🔎 Revisión ────────────────
 REVIEW_MAX_MONTHS = 36
 REVIEW_MIN_MES = 20   # registros mínimos para que un mes cuente como inicio de los datos
@@ -4377,6 +4392,7 @@ def make_api_app() -> FastAPI:
         excl = {"viajes": {"usd": 0.0, "cop": 0.0, "count": 0},
                 "grandes": {"usd": 0.0, "cop": 0.0, "count": 0, "items": []}}
         cur, prev = [], []
+        por_dia: dict[str, dict] = {}
         for (eid, fecha, cop, usd, cat, nota, user, met, rec_id, grp_id) in rows:
             if not incluye_persona(user, cat):
                 continue
@@ -4393,6 +4409,13 @@ def make_api_app() -> FastAPI:
                                        "usd": round(usd, 2), "cop": round(cop)})
                 continue
             (cur if en_periodo else prev).append((fecha, cop, usd, cat, nota))
+            # Día a día (calendario y días de la semana): sin fijos ni cuotas,
+            # que caen siempre el mismo día y no dicen nada del hábito.
+            if en_periodo and not rec_id and not grp_id:
+                dd = por_dia.setdefault(fecha, {"usd": 0.0, "cop": 0.0, "gusto_usd": 0.0, "gusto_cop": 0.0, "n": 0})
+                dd["usd"] += usd; dd["cop"] += cop; dd["n"] += 1
+                if bot.naturaleza_de(cat) == "gusto":
+                    dd["gusto_usd"] += usd; dd["gusto_cop"] += cop
 
         def vacio():
             return {"usd": 0.0, "cop": 0.0, "count": 0}
@@ -4505,7 +4528,89 @@ def make_api_app() -> FastAPI:
             "categorias": out_cats,
             "padres": out_padres,
             "excluidos": excl,
+            "por_dia": {f: {"usd": r2(v["usd"]), "cop": round(v["cop"]), "gusto_usd": r2(v["gusto_usd"]),
+                            "gusto_cop": round(v["gusto_cop"]), "n": v["n"]} for f, v in sorted(por_dia.items())},
+            "presupuesto_mes": {"usd": r2(float(bot.TOTAL_BUDGET_USD or 0)),
+                                "cop": round(float(bot.TOTAL_BUDGET_USD or 0) * float(bot.TRM or 0))},
         }
+
+    # ──────────────── ➕ Gasto rápido desde el dashboard ────────────────
+    @api.post("/api/expenses/quick")
+    def quick_expense(body: QuickExpense, request: Request):
+        """Anota un gasto en cualquier moneda del bot (COP, USD, BOB, AED, CLP,
+        ARS). Convierte con las tasas del mes de la fecha (igual que Telegram).
+        Si no viene persona, usa la que entró con su PIN."""
+        moneda = (body.moneda or "COP").upper()
+        if moneda not in _SUPPORTED_CURRENCIES:
+            raise HTTPException(400, f"moneda debe ser una de {list(_SUPPORTED_CURRENCIES)}")
+        if not body.monto or body.monto <= 0:
+            raise HTTPException(400, "el monto debe ser mayor que 0")
+        if not (body.categoria or "").strip():
+            raise HTTPException(400, "elige una categoría")
+        fecha = (body.fecha or datetime.now(bot.COL_TZ).strftime("%Y-%m-%d"))[:10]
+        try:
+            datetime.strptime(fecha, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(400, f"fecha inválida {fecha!r}, se espera YYYY-MM-DD")
+        quien = (body.user_name or "").strip() or (_auth_request_user(request) or "Daniel")
+        if quien in ("api", "dashboard"):
+            quien = "Daniel"
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            rates = _rates_for_period(conn, fecha[:7])
+            monto_usd, _ = _to_usd(float(body.monto), moneda, rates)
+            monto_cop = float(body.monto) if moneda == "COP" else float(round(monto_usd * float(rates.get("TRM") or bot.TRM)))
+            nota = (body.nota or "").strip()
+            cur = conn.execute(
+                "INSERT INTO expenses (user_id, user_name, fecha, monto_cop, monto_usd, categoria, nota, created_at, "
+                "metodo_pago, clase_contable, deferred_total, deferred_index) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, 'gasto', 1, 1)",
+                (quien, fecha, monto_cop, monto_usd, body.categoria.strip(), nota, datetime.now().isoformat(),
+                 (body.metodo_pago or "Sin especificar").strip()),
+            )
+            conn.commit()
+            new_id = cur.lastrowid
+        finally:
+            conn.close()
+        print(f"[quick] gasto #{new_id} {quien} {body.monto} {moneda} {body.categoria}")
+        return {"ok": True, "id": new_id, "user_name": quien, "fecha": fecha, "monto_cop": monto_cop,
+                "monto_usd": monto_usd, "categoria": body.categoria.strip(), "nota": nota, "moneda": moneda}
+
+    # ──────────────── 🧭 Recorrido guiado: quién ya lo vio ────────────────
+    def _tour_user(request: Request) -> str:
+        u = _auth_request_user(request)
+        return u if u and u != "api" else "dashboard"
+
+    def _tour_state(conn) -> dict:
+        row = conn.execute("SELECT value FROM config WHERE key = 'tour_visto'").fetchone()
+        try:
+            return json.loads(row[0]) if row else {}
+        except Exception:
+            return {}
+
+    @api.get("/api/tour")
+    def tour_status(request: Request):
+        user = _tour_user(request)
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            visto = _tour_state(conn).get(user)
+        finally:
+            conn.close()
+        return {"user": user, "version": TOUR_VERSION, "visto": visto == TOUR_VERSION}
+
+    @api.post("/api/tour/visto")
+    def tour_seen(request: Request):
+        user = _tour_user(request)
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            st = _tour_state(conn)
+            st[user] = TOUR_VERSION
+            conn.execute("INSERT INTO config (key, value, updated_at) VALUES ('tour_visto', ?, ?) "
+                         "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+                         (json.dumps(st), datetime.now().isoformat()))
+            conn.commit()
+        finally:
+            conn.close()
+        return {"ok": True, "user": user, "version": TOUR_VERSION}
 
     # ──────────────── Static frontend ────────────────
     # Serve index.html at / and any other static assets under /static/*.
