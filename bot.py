@@ -1462,6 +1462,22 @@ def init_db():
 
     _run_migration("018_deferred_meta", _migration_018_deferred_meta)
 
+    def _migration_019_session_secret(conn):
+        """Clave aleatoria para firmar la cookie de sesión del dashboard
+        (acceso con PIN). Vive en config, no en una variable de Railway, para
+        que el PIN sea la única variable que hay que poner. Cambiar el PIN
+        invalida todas las sesiones (la firma mezcla clave + PIN).
+        Idempotente: si ya existe no la toca.
+        """
+        import secrets
+        conn.execute(
+            "INSERT OR IGNORE INTO config (key, value, updated_at) VALUES ('session_secret', ?, ?)",
+            (secrets.token_hex(32), datetime.now().isoformat()),
+        )
+        conn.commit()
+
+    _run_migration("019_session_secret", _migration_019_session_secret)
+
     conn.close()
 
 

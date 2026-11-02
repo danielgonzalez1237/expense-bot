@@ -5,23 +5,28 @@ Mounted into the same asyncio event loop as the bot (see bot.main() →
 run_bot_and_api). Serves the static frontend at / and all JSON endpoints
 under /api/*.
 
-Currently unauthenticated — auth (PIN + signed cookie) is a pending task.
-Keep the Railway URL private until that lands.
+Acceso con PIN: si la variable DASHBOARD_PIN está puesta, todo pide sesión
+(cookie firmada) salvo /api/health. Sin la variable el dashboard queda abierto
+como antes. Ver la sección "🔐 Acceso con PIN" más abajo.
 """
 from __future__ import annotations
 
 import csv
+import hashlib
+import hmac
 import io
 import re
 import json
 import os
+import secrets
 import sqlite3
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query, Body
-from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, Response
+from fastapi import FastAPI, HTTPException, Query, Body, Request
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, Response, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -35,6 +40,139 @@ STATIC_DIR = Path(os.environ.get("STATIC_DIR", "/app/static"))
 if not STATIC_DIR.exists():
     # Local dev fallback — api.py is in the repo root, static/ sibling.
     STATIC_DIR = Path(__file__).parent / "static"
+
+
+# ──────────────── 🔐 Acceso con PIN ────────────────
+# - DASHBOARD_PIN (variable de Railway): si está vacía, el dashboard queda
+#   abierto como antes; si está puesta, todo pide sesión salvo las rutas
+#   abiertas de abajo.
+# - Sesión = cookie httpOnly firmada con HMAC-SHA256. La clave mezcla
+#   config.session_secret (migración 019) con el PIN, así que cambiar el PIN
+#   cierra todas las sesiones abiertas.
+# - "Recordar este dispositivo" = 180 días; si no, cookie de sesión del
+#   navegador (y la firma vence en 1 día).
+# - Fuerza bruta: 5 PIN errados por IP → bloqueo 15 min; 30 errados en total
+#   en una hora → bloqueo general 1 h.
+# - DASHBOARD_API_TOKEN (opcional): header X-Api-Token para scripts.
+AUTH_COOKIE = "gg_session"
+AUTH_REMEMBER_DAYS = 180
+AUTH_IP_MAX_FAILS = 5
+AUTH_IP_LOCK_SECONDS = 15 * 60
+AUTH_GLOBAL_MAX_FAILS = 30
+AUTH_GLOBAL_WINDOW_SECONDS = 60 * 60
+_AUTH_OPEN_PATHS = {"/api/health", "/api/login", "/api/logout", "/api/auth/status", "/favicon.ico", "/static/tw.css"}
+_auth_fails_by_ip: dict[str, list[float]] = {}
+_auth_fails_global: list[float] = []
+_auth_secret_cache: dict[str, bytes] = {}
+
+
+class LoginBody(BaseModel):
+    pin: str
+    remember: Optional[bool] = True
+
+
+def _auth_pin() -> str:
+    return (os.environ.get("DASHBOARD_PIN") or "").strip()
+
+
+def _auth_api_token() -> str:
+    return (os.environ.get("DASHBOARD_API_TOKEN") or "").strip()
+
+
+def _auth_key() -> bytes:
+    pin = _auth_pin()
+    if pin not in _auth_secret_cache:
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            row = conn.execute("SELECT value FROM config WHERE key = 'session_secret'").fetchone()
+        finally:
+            conn.close()
+        if not row or not row[0]:
+            raise RuntimeError("falta config.session_secret (migración 019)")
+        _auth_secret_cache.clear()
+        _auth_secret_cache[pin] = hashlib.sha256((row[0] + "|" + pin).encode()).digest()
+    return _auth_secret_cache[pin]
+
+
+def _auth_make_token(days: int) -> str:
+    payload = f"v1.{int(time.time()) + days * 86400}.{secrets.token_hex(8)}"
+    return payload + "." + hmac.new(_auth_key(), payload.encode(), hashlib.sha256).hexdigest()
+
+
+def _auth_token_ok(token: str) -> bool:
+    try:
+        version, exp, nonce, sig = (token or "").split(".")
+    except ValueError:
+        return False
+    if version != "v1" or not exp.isdigit() or int(exp) < time.time():
+        return False
+    good = hmac.new(_auth_key(), f"{version}.{exp}.{nonce}".encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(sig, good)
+
+
+def _auth_client_ip(request: Request) -> str:
+    fwd = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    return fwd or (request.client.host if request.client else "?")
+
+
+def _auth_is_https(request: Request) -> bool:
+    return request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "") == "https"
+
+
+def _auth_request_ok(request: Request) -> bool:
+    """True si la petición trae sesión válida o el token de API."""
+    api_tok = _auth_api_token()
+    given = request.headers.get("x-api-token") or ""
+    if api_tok and given and hmac.compare_digest(given, api_tok):
+        return True
+    return _auth_token_ok(request.cookies.get(AUTH_COOKIE, ""))
+
+
+LOGIN_HTML = """<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>Gastos GG · Entrar</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>">
+<style>
+:root{--bg:#f8fafc;--card:#fff;--ink:#0f172a;--mute:#64748b;--line:#e2e8f0;--acc:#059669;--err:#e11d48}
+@media (prefers-color-scheme:dark){:root{--bg:#020617;--card:#0f172a;--ink:#f1f5f9;--mute:#94a3b8;--line:#1e293b;--acc:#10b981;--err:#fb7185}}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Inter,sans-serif;padding:16px}
+form{width:100%;max-width:340px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:28px 24px}
+h1{margin:0 0 4px;font-size:22px}p{margin:0 0 20px;color:var(--mute);font-size:14px}
+input[type=password]{width:100%;font-size:22px;letter-spacing:.3em;text-align:center;padding:12px;border:1px solid var(--line);
+border-radius:10px;background:transparent;color:var(--ink)}
+input[type=password]:focus{outline:2px solid var(--acc);outline-offset:1px}
+label{display:flex;gap:8px;align-items:center;margin:14px 0 18px;font-size:14px;color:var(--mute)}
+button{width:100%;padding:12px;border:0;border-radius:10px;background:var(--acc);color:#fff;font-size:16px;font-weight:600;cursor:pointer}
+button:disabled{opacity:.5}.err{color:var(--err);font-size:13px;min-height:18px;margin-top:12px;text-align:center}
+</style></head><body>
+<form id="f" autocomplete="on">
+<h1>💰 Gastos GG</h1><p>Escribe el PIN para entrar.</p>
+<input type="text" name="username" value="gastos-gg" autocomplete="username" hidden>
+<input id="pin" type="password" name="password" inputmode="numeric" autocomplete="current-password" required autofocus aria-label="PIN">
+<label><input id="rem" type="checkbox" checked> Recordar este dispositivo</label>
+<button id="b" type="submit">Entrar</button>
+<div class="err" id="e" role="alert"></div>
+</form>
+<script>
+document.getElementById('f').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const b = document.getElementById('b'), e = document.getElementById('e');
+  b.disabled = true; e.textContent = '';
+  try {
+    const r = await fetch('/api/login', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({pin: document.getElementById('pin').value, remember: document.getElementById('rem').checked})});
+    if (r.ok) { location.reload(); return; }
+    const d = await r.json().catch(() => ({}));
+    e.textContent = d.detail || ('No se pudo entrar (' + r.status + ')');
+    document.getElementById('pin').select();
+  } catch (err) { e.textContent = 'Sin conexión. Intenta de nuevo.'; }
+  b.disabled = false;
+});
+</script>
+</body></html>"""
 
 
 # ──────────────── Pydantic models (module level) ────────────────
@@ -822,6 +960,54 @@ def make_api_app() -> FastAPI:
         version="0.1.0",
         description="Read-only API powering the expense-bot dashboard.",
     )
+
+    # ──────────────── 🔐 Acceso con PIN ────────────────
+    @api.middleware("http")
+    async def _require_pin(request: Request, call_next):
+        path = request.url.path
+        if not _auth_pin() or path in _AUTH_OPEN_PATHS or _auth_request_ok(request):
+            return await call_next(request)
+        if request.method == "GET" and path in ("/", "/index.html"):
+            return HTMLResponse(LOGIN_HTML, headers={"Cache-Control": "no-store"})
+        return JSONResponse({"detail": "auth_required"}, status_code=401, headers={"Cache-Control": "no-store"})
+
+    @api.get("/api/auth/status")
+    def auth_status(request: Request):
+        enabled = bool(_auth_pin())
+        return {"enabled": enabled, "logged_in": (not enabled) or _auth_request_ok(request)}
+
+    @api.post("/api/login")
+    def login(body: LoginBody, request: Request):
+        pin = _auth_pin()
+        if not pin:
+            return {"ok": True, "auth": "disabled"}
+        now = time.time()
+        ip = _auth_client_ip(request)
+        fails = [t for t in _auth_fails_by_ip.get(ip, []) if now - t < AUTH_IP_LOCK_SECONDS]
+        _auth_fails_global[:] = [t for t in _auth_fails_global if now - t < AUTH_GLOBAL_WINDOW_SECONDS]
+        if len(fails) >= AUTH_IP_MAX_FAILS or len(_auth_fails_global) >= AUTH_GLOBAL_MAX_FAILS:
+            raise HTTPException(429, "Demasiados intentos. Espera unos minutos.")
+        if not hmac.compare_digest((body.pin or "").strip().encode(), pin.encode()):
+            fails.append(now)
+            _auth_fails_by_ip[ip] = fails
+            _auth_fails_global.append(now)
+            print(f"[auth] PIN incorrecto desde {ip} ({len(fails)}/{AUTH_IP_MAX_FAILS})")
+            raise HTTPException(401, "PIN incorrecto")
+        _auth_fails_by_ip.pop(ip, None)
+        remember = body.remember is not False
+        resp = JSONResponse({"ok": True})
+        resp.set_cookie(
+            AUTH_COOKIE, _auth_make_token(AUTH_REMEMBER_DAYS if remember else 1),
+            max_age=AUTH_REMEMBER_DAYS * 86400 if remember else None,
+            httponly=True, secure=_auth_is_https(request), samesite="lax", path="/",
+        )
+        return resp
+
+    @api.post("/api/logout")
+    def logout():
+        resp = JSONResponse({"ok": True})
+        resp.delete_cookie(AUTH_COOKIE, path="/")
+        return resp
 
     # Defensive: if api.py's view of the `bot` module is a different instance
     # than the one main() populated (can happen with some import/lifespan
