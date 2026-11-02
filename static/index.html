@@ -89,6 +89,7 @@
   x-cloak
   @expenses-changed.window="reload()"
   @tipos-changed.window="refreshNaturalezas()"
+  @fuentes-changed.window="cargarFuentes(); reload()"
   class="lg:flex min-h-screen"
 >
 
@@ -1075,7 +1076,10 @@
           <span class="text-[11px] text-slate-500 px-1">Fuente</span>
           <select :value="ingForm.source_key" @change="ingElegirFuente($event.target.value)" class="mt-0.5 w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2.5 text-sm">
             <option value="">Elige una…</option>
-            <template x-for="f in incomeSources.filter(x => x.active)" :key="'ifs' + f.key"><option :value="f.key" :selected="ingForm.source_key === f.key" x-text="f.icon + ' ' + f.label"></option></template>
+            <template x-for="f in incomeSources.filter(x => Number(x.active) !== 0)" :key="'ifs' + f.key"><option :value="f.key" :selected="ingForm.source_key === f.key" x-text="f.icon + ' ' + f.label"></option></template>
+            <optgroup label="Archivadas" x-show="incomeSources.some(x => Number(x.active) === 0)">
+              <template x-for="f in incomeSources.filter(x => Number(x.active) === 0)" :key="'ifa' + f.key"><option :value="f.key" :selected="ingForm.source_key === f.key" x-text="f.icon + ' ' + f.label + ' (archivada)'"></option></template>
+            </optgroup>
           </select>
         </label>
         <div class="flex items-stretch gap-2">
@@ -1106,6 +1110,9 @@
         <span class="text-[11px] text-slate-500">toca una para ver sus ingresos</span>
       </div>
       <div x-show="!ingPorFuente().length" class="mt-4 text-xs text-slate-400">Sin fuentes con plan ni ingresos en este período.</div>
+      <button x-show="incomeSources.some(x => Number(x.active) === 0)" @click="openFuentes(); Alpine.store('income').verArchivadas = true"
+        class="mt-1 text-[11px] text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 underline order-last"
+        x-text="'📦 ' + incomeSources.filter(x => Number(x.active) === 0).length + ' archivadas (solo salen en los meses en que tuvieron ingresos) · gestionar'"></button>
       <div class="mt-3 space-y-5">
         <template x-for="g in ingPorFuente()" :key="'ig' + g.key">
           <div>
@@ -1122,13 +1129,14 @@
                   <span class="min-w-0 flex-1">
                     <span class="flex items-center gap-2 min-w-0"><span class="text-sm truncate" x-text="f.label"></span>
                       <span x-show="f.plan > 0 && !f.recibido" class="text-[10px] rounded-full px-2 py-0.5 bg-gusto-suave text-gusto-fuerte dark:bg-amber-950/50 dark:text-amber-300 shrink-0">pendiente</span>
+                      <span x-show="f.archivada" class="text-[10px] rounded-full px-2 py-0.5 bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 shrink-0">📦 archivada</span>
                       <span x-show="f.n" class="text-[10px] text-slate-400 shrink-0" x-text="f.n + (f.n === 1 ? ' ingreso' : ' ingresos')"></span></span>
                     <span class="mt-1 block h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden" x-show="f.plan > 0">
                       <span class="block h-full rounded-full bar" :style="'width:' + Math.min(100, 100 * f.recibido / f.plan) + '%;background:' + g.color"></span></span>
                   </span>
                   <span class="text-right shrink-0">
                     <span class="block text-sm font-semibold" x-text="fmtUsd(f.recibido)"></span>
-                    <span class="block text-[10px] text-slate-400" x-text="f.plan > 0 ? 'de ' + fmtUsd(f.plan) : 'sin plan'"></span>
+                    <span class="block text-[10px] text-slate-400" x-text="f.plan > 0 ? 'de ' + fmtUsd(f.plan) : (f.archivada ? 'archivada' : 'sin plan')"></span>
                   </span>
                 </button>
               </template>
@@ -1184,7 +1192,10 @@
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <label class="block"><span class="text-[11px] text-slate-500 px-1">Fuente</span>
                 <select x-model="ingEdit.source_key" class="mt-0.5 w-full bg-white dark:bg-slate-900 rounded-xl px-3 py-2 text-sm">
-                  <template x-for="f in incomeSources" :key="'iefs' + f.key"><option :value="f.key" :selected="ingEdit.source_key === f.key" x-text="f.icon + ' ' + f.label"></option></template>
+                  <template x-for="f in incomeSources.filter(x => Number(x.active) !== 0)" :key="'iefs' + f.key"><option :value="f.key" :selected="ingEdit.source_key === f.key" x-text="f.icon + ' ' + f.label"></option></template>
+                  <optgroup label="Archivadas" x-show="incomeSources.some(x => Number(x.active) === 0)">
+                    <template x-for="f in incomeSources.filter(x => Number(x.active) === 0)" :key="'iefa' + f.key"><option :value="f.key" :selected="ingEdit.source_key === f.key" x-text="f.icon + ' ' + f.label + ' (archivada)'"></option></template>
+                  </optgroup>
                 </select></label>
               <label class="block"><span class="text-[11px] text-slate-500 px-1">Fecha</span>
                 <input type="date" x-model="ingEdit.fecha" class="mt-0.5 w-full bg-white dark:bg-slate-900 rounded-xl px-3 py-2 text-sm"></label>
@@ -1693,7 +1704,10 @@
             <span class="text-[11px] text-slate-500 px-1">Fuente</span>
             <select :value="$store.quick.source_key" @change="$store.quick.elegirFuente($event.target.value)" class="mt-0.5 w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2.5 text-sm">
               <option value="">Elige una…</option>
-              <template x-for="f in $store.quick.fuentes" :key="'qfs' + f.key"><option :value="f.key" x-text="f.icon + ' ' + f.label" :selected="$store.quick.source_key === f.key"></option></template>
+              <template x-for="f in $store.quick.fuentes.filter(x => Number(x.active) !== 0)" :key="'qfs' + f.key"><option :value="f.key" x-text="f.icon + ' ' + f.label" :selected="$store.quick.source_key === f.key"></option></template>
+              <optgroup label="Archivadas" x-show="$store.quick.fuentes.some(x => Number(x.active) === 0)">
+                <template x-for="f in $store.quick.fuentes.filter(x => Number(x.active) === 0)" :key="'qfa' + f.key"><option :value="f.key" x-text="f.icon + ' ' + f.label + ' (archivada)'" :selected="$store.quick.source_key === f.key"></option></template>
+              </optgroup>
             </select>
           </label>
         </div>
@@ -2799,9 +2813,14 @@
               class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5 text-sm"
             >
               <option value="">— Fuente —</option>
-              <template x-for="s in $store.income.sources" :key="s.key">
+              <template x-for="s in $store.income.activas" :key="s.key">
                 <option :value="s.key" x-text="(s.icon || '💰') + ' ' + s.label"></option>
               </template>
+              <optgroup label="Archivadas" x-show="$store.income.archivadas.length">
+                <template x-for="s in $store.income.archivadas" :key="'oa' + s.key">
+                  <option :value="s.key" x-text="(s.icon || '💰') + ' ' + s.label + ' (archivada)'"></option>
+                </template>
+              </optgroup>
             </select>
             <select
               x-model="$store.income.form.currency"
@@ -2904,12 +2923,12 @@
             </div>
           </div>
           <div class="text-[10px] text-slate-500 mt-0.5">
-            Suma del esperado de las <span x-text="$store.income.sources.length"></span> fuentes activas
+            Suma del esperado de las <span x-text="$store.income.activas.length"></span> fuentes activas<span x-show="$store.income.archivadas.length" x-text="' · ' + $store.income.archivadas.length + ' archivadas no cuentan'"></span>
           </div>
         </div>
 
         <div class="space-y-2">
-          <template x-for="s in $store.income.sources" :key="s.key">
+          <template x-for="s in $store.income.activas" :key="s.key">
             <div class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2 border border-slate-200 dark:border-slate-800">
               <!-- Row 1: icon + label + currency + delete -->
               <div class="flex items-center gap-2">
@@ -2933,6 +2952,10 @@
                 >
                   <option>USD</option><option>COP</option><option>AED</option><option>BOB</option><option>CLP</option><option>ARS</option>
                 </select>
+                <button @click="$store.income.archivar(s, true)" :disabled="$store.income.busy"
+                  class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1" title="Archivar: deja de contar en el plan y de salir por defecto (sus ingresos viejos se siguen viendo)" aria-label="Archivar">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="5" rx="1"/><path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/></svg>
+                </button>
                 <button
                   @click="$store.income.deleteSource(s.key)"
                   class="text-slate-400 hover:text-red-600 p-1"
@@ -2965,6 +2988,24 @@
           @click="$store.income.addSource()"
           class="w-full py-2 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-500 hover:text-slate-700 hover:border-slate-400 transition"
         >+ Agregar fuente de ingreso</button>
+
+        <!-- Archivadas: por temporada o etapa; no cuentan en el plan -->
+        <div x-show="$store.income.archivadas.length" class="pt-2">
+          <button @click="$store.income.verArchivadas = !$store.income.verArchivadas" class="w-full flex items-center justify-between text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 py-1">
+            <span>📦 <span x-text="$store.income.archivadas.length"></span> <span x-text="$store.income.archivadas.length === 1 ? 'fuente archivada' : 'fuentes archivadas'"></span></span>
+            <span x-text="$store.income.verArchivadas ? 'Ocultar' : 'Ver'"></span>
+          </button>
+          <div x-show="$store.income.verArchivadas" class="mt-2 space-y-1.5">
+            <template x-for="s in $store.income.archivadas" :key="'arch' + s.key">
+              <div class="flex items-center gap-2 rounded-lg p-2 border border-dashed border-slate-200 dark:border-slate-700 text-slate-500">
+                <span class="text-lg opacity-60" x-text="s.icon || '💰'"></span>
+                <span class="flex-1 min-w-0 text-sm truncate" x-text="s.label"></span>
+                <span class="text-[10px]" x-text="(Number(s.expected_usd) || 0) ? 'esperaba $' + Math.round(s.expected_usd).toLocaleString('en-US') + '/mes' : ''"></span>
+                <button @click="$store.income.archivar(s, false)" :disabled="$store.income.busy" class="text-xs rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-2.5 py-1 hover:text-slate-800 dark:hover:text-slate-200">Desarchivar</button>
+              </div>
+            </template>
+          </div>
+        </div>
       </div>
 
       <!-- ── TAB: rates ── -->
@@ -4744,7 +4785,23 @@ document.addEventListener('alpine:init', () => {
     // gauge on the dashboard. Recomputes reactively as the user types in the
     // Fuentes tab.
     get totalExpectedMonthly() {
-      return this.sources.reduce((s, src) => s + (Number(src.expected_usd) || 0), 0);
+      return this.activas.reduce((s, src) => s + (Number(src.expected_usd) || 0), 0);
+    },
+    // Archivadas: no cuentan en el plan ni salen por defecto; quedan al final de las listas
+    get activas() { return this.sources.filter(x => Number(x.active) !== 0); },
+    get archivadas() { return this.sources.filter(x => Number(x.active) === 0); },
+    verArchivadas: false,
+    async archivar(s, archivar) {
+      this.busy = true; this.error = null;
+      try {
+        const resp = await fetch('/api/income/sources/' + s.key, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ active: archivar ? 0 : 1 }) });
+        if (!resp.ok) throw new Error('No se pudo ' + (archivar ? 'archivar' : 'desarchivar') + ' (' + resp.status + ')');
+        s.active = archivar ? 0 : 1;
+        Alpine.store('quick').aviso(archivar ? '📦 ' + s.label + ' archivada: ya no cuenta en el plan' : '✓ ' + s.label + ' vuelve a estar activa');
+        window.dispatchEvent(new CustomEvent('fuentes-changed'));
+      } catch (e) { this.error = e.message || String(e); }
+      finally { this.busy = false; }
     },
 
     get previewUsd() {
@@ -5942,7 +5999,7 @@ document.addEventListener('alpine:init', () => {
       pyg: { t: 'P&G', h: '<p>Ingresos contra gastos del período. <b>Neto</b> = ingresos − gastos; si es positivo dice qué parte del ingreso ahorraron.</p><p>La gráfica muestra los últimos meses: barras verdes = ingresos, doradas = gastos, línea = neto (punto verde si sobró, rojo si faltó). Los meses fuera del período elegido se ven más claros.</p><p><b>De dónde vino</b> agrupa los ingresos (CLP, rentas, cripto…) y <b>En qué se fue</b> reparte el gasto en esencial, estilo de vida y gusto. <b>+ Anotar ingreso</b> lleva a la sección Ingresos; en <b>⋯</b> están las fuentes y los CSV.</p>' },
       'ing-recibido': { t: 'Recibido', h: '<p>Todo lo que entró en el período, en dólares (cada ingreso se convierte con la tasa de su mes).</p><p>La barra lo compara con el <b>plan</b>: la suma de lo que esperan de cada fuente al mes (con 3, 6 o 12 meses se multiplica). "Fuentes sin recibir" son las que tienen plan pero no han registrado nada.</p><p>Abajo, el neto del período: ingresos menos gastos.</p>' },
       'ing-form': { t: 'Anotar ingreso', h: '<p>Elige la fuente (los botones son las de mayor plan), escribe el monto y la moneda, y guarda. Al elegir la fuente se pone su moneda.</p><p>El ingreso cuenta en el <b>mes de la fecha</b> y se convierte a dólares con la tasa de ese mes. También puedes anotarlo con el botón <b>+</b> → Ingreso.</p><p><b>Fuentes y plan</b> abre la ventana para crear fuentes y fijar cuánto esperan de cada una al mes.</p>' },
-      'ing-fuentes': { t: 'Por fuente', h: '<p>Cada fuente con lo recibido en el período y su plan, agrupadas (CLP, rentas, cripto DeFi y CeFi, minería, trading y otros). <b>Pendiente</b> = tiene plan y aún no llega nada.</p><p>Toca una fuente para ver solo sus ingresos en la lista de abajo.</p>' },
+      'ing-fuentes': { t: 'Por fuente', h: '<p>Cada fuente con lo recibido en el período y su plan, agrupadas (CLP, rentas, cripto DeFi y CeFi, minería, trading y otros). <b>Pendiente</b> = tiene plan y aún no llega nada.</p><p>Las fuentes <b>archivadas</b> (por temporada o etapa) no cuentan en el plan ni salen por defecto: solo aparecen aquí en los meses en que tuvieron ingresos, marcadas 📦. Se archivan y desarchivan en <b>Fuentes y plan</b>.</p><p>Toca una fuente para ver solo sus ingresos en la lista de abajo.</p>' },
       'ing-mes': { t: 'Mes a mes', h: '<p>Lo recibido en cada uno de los últimos meses; la línea punteada es el plan mensual. Los meses fuera del período elegido se ven más claros. Abajo, el promedio de los meses que tuvieron ingresos.</p>' },
       'ing-lista': { t: 'Cada ingreso', h: '<p>Todos los ingresos del período, del más nuevo al más viejo, con su monto original y la tasa usada.</p><p>Toca uno para cambiar fuente, fecha, monto, moneda o nota, o para borrarlo. Si cambias la fecha a otro mes, pasa a contar en ese mes.</p>' },
       contable: { t: 'Vista contable', h: '<p>Separa el gasto corriente de las compras de bienes (muebles, equipos, vehículo). Solo aparece cuando hay alguna compra marcada como bien.</p><p>Se marca al editar el gasto, en <b>Tipo contable</b>. Tocar una fila abre Movimientos filtrado.</p>' },
@@ -7550,9 +7607,10 @@ function dashboard() {
         const r = rec[e.source_key] || (rec[e.source_key] = { usd: 0, n: 0 });
         r.usd += Number(e.monto_usd) || 0; r.n++;
       }
-      const fuentes = (this.incomeSources || []).map(s => ({ key: s.key, label: s.label, icon: s.icon || '💰', currency: s.currency, active: s.active,
-        recibido: (rec[s.key] || {}).usd || 0, n: (rec[s.key] || {}).n || 0, plan: (Number(s.expected_usd) || 0) * n }))
-        .filter(f => f.recibido > 0 || (f.active && f.plan > 0));
+      const fuentes = (this.incomeSources || []).map(s => ({ key: s.key, label: s.label, icon: s.icon || '💰', currency: s.currency,
+        archivada: Number(s.active) === 0, recibido: (rec[s.key] || {}).usd || 0, n: (rec[s.key] || {}).n || 0,
+        plan: Number(s.active) === 0 ? 0 : (Number(s.expected_usd) || 0) * n }))
+        .filter(f => f.recibido > 0 || (!f.archivada && f.plan > 0));
       for (const k of Object.keys(rec)) if (!fuentes.some(f => f.key === k)) fuentes.push({ key: k, label: k, icon: '💰', recibido: rec[k].usd, n: rec[k].n, plan: 0 });
       const grupos = {};
       for (const f of fuentes) {
@@ -7574,7 +7632,7 @@ function dashboard() {
       return { pct: Math.round(100 * (a.ingresos_usd - b.ingresos_usd) / b.ingresos_usd), mes: this.MESES_LARGOS[Number(b.mes.slice(5)) - 1].toLowerCase() };
     },
     fuentesTop() {
-      return (this.incomeSources || []).filter(s => s.active).slice().sort((a, b) => (Number(b.expected_usd) || 0) - (Number(a.expected_usd) || 0)).slice(0, 6);
+      return (this.incomeSources || []).filter(s => Number(s.active) !== 0).slice().sort((a, b) => (Number(b.expected_usd) || 0) - (Number(a.expected_usd) || 0)).slice(0, 6);
     },
     ingElegirFuente(k) {
       this.ingForm.source_key = k;
@@ -7707,7 +7765,7 @@ function dashboard() {
       }
       const frecuentes = orden.slice(0, 6).map(k => ({ key: k, label: label(k) }));
       return { categorias: this.categoryOptions, metodos: this.paymentOptions, rates: this.rates, frecuentes,
-               fuentes: (this.incomeSources || []).filter(s => s.active), fuentesTop: this.fuentesTop() };
+               fuentes: (this.incomeSources || []).slice(), fuentesTop: this.fuentesTop() };
     },
     goMovimientos() {
       this.view = 'movimientos';

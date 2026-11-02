@@ -1606,6 +1606,15 @@ def make_api_app() -> FastAPI:
             raise HTTPException(400, f"moneda inválida: {updates['currency']!r}")
         if not updates:
             raise HTTPException(400, "nada que actualizar")
+        if "active" in updates:
+            # Archivar = active 0: no cuenta en el plan ni sale como opción por defecto
+            # (sus ingresos viejos se siguen viendo). Se guarda siempre como 0/1.
+            updates["active"] = 1 if updates["active"] in (1, True, "1", "true") else 0
+        if "expected_usd" in updates:
+            try:
+                updates["expected_usd"] = float(updates["expected_usd"] or 0)
+            except (TypeError, ValueError):
+                raise HTTPException(400, "expected_usd debe ser numérico")
         now = datetime.now().isoformat()
         sets = ", ".join(f"{k} = ?" for k in updates)
         params = list(updates.values()) + [now, key]
