@@ -217,7 +217,7 @@ document.getElementById('f').addEventListener('submit', async (ev) => {
   try {
     const r = await fetch('/api/login', {method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({pin: document.getElementById('pin').value, remember: document.getElementById('rem').checked})});
-    if (r.ok) { location.reload(); return; }
+    if (r.ok) { location.replace('/' + location.hash); return; }
     const d = await r.json().catch(() => ({}));
     e.textContent = d.detail || ('No se pudo entrar (' + r.status + ')');
     document.getElementById('pin').select();
@@ -4512,7 +4512,10 @@ def make_api_app() -> FastAPI:
     def root():
         if not index_file.exists():
             raise HTTPException(500, f"index.html missing at {index_file}")
-        return FileResponse(index_file)
+        # no-cache = el navegador SIEMPRE pregunta antes de usar su copia (304 si
+        # no cambió). Sin esto, podía mostrar un dashboard viejo guardado sin
+        # pasar por la pantalla del PIN y la API respondía 401.
+        return FileResponse(index_file, headers={"Cache-Control": "no-cache"})
 
     # /favicon.ico is served inline as a data URI in index.html, but browsers
     # still hit this path — return 204 so we don't spam logs with 404s.

@@ -22,17 +22,18 @@
      Config (darkMode:'class' + fontFamily) vive en tailwind.config.js. -->
 <link rel="stylesheet" href="/static/tw.css">
 <script>
-  // 🔐 Si la sesión vence (o se cambia el PIN), cualquier llamada a la API
-  // responde 401: recargamos para que el servidor muestre la pantalla del PIN.
+  // 🔐 Si no hay sesión (venció, se cambió el PIN, o el navegador mostró una
+  // copia vieja de la página), la API responde 401: vamos a la pantalla del PIN
+  // con una dirección nueva (?entrar=…) para que el navegador no use su caché.
   (() => {
     const orig = window.fetch.bind(window);
-    let reloading = false;
+    let saliendo = false;
     window.fetch = async (...args) => {
       const r = await orig(...args);
       const url = String(args[0] && args[0].url ? args[0].url : args[0]);
-      if (r.status === 401 && url.includes('/api/') && !url.includes('/api/login') && !reloading) {
-        reloading = true;
-        location.reload();
+      if (r.status === 401 && url.includes('/api/') && !url.includes('/api/login') && !saliendo) {
+        saliendo = true;
+        location.replace('/?entrar=' + Date.now() + location.hash);
       }
       return r;
     };
@@ -6811,8 +6812,8 @@ function dashboard() {
           this._fetchRetry('/api/pnl?' + rangeQs),
           this._fetchRetry('/api/income/entries?month=' + encodeURIComponent(this.month)),
         ]);
-        if (!sumR.ok) throw new Error('No se pudo cargar el resumen (' + sumR.status + ')');
-        if (!expR.ok) throw new Error('No se pudo cargar el historial (' + expR.status + ')');
+        if (!sumR.ok) throw new Error(sumR.status === 401 ? 'Tu sesión no está activa: abriendo la pantalla del PIN…' : 'No se pudo cargar el resumen (' + sumR.status + ')');
+        if (!expR.ok) throw new Error(expR.status === 401 ? 'Tu sesión no está activa: abriendo la pantalla del PIN…' : 'No se pudo cargar el historial (' + expR.status + ')');
         this.summary = await sumR.json();
         this.expenses = (await expR.json()).expenses || [];
         if (pnlR.ok) this.pnl = await pnlR.json();
