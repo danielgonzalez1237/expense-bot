@@ -200,24 +200,32 @@ LOGIN_HTML = """<!doctype html>
 <html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#f6f5f2">
 <title>Gastos GG · Entrar</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Fraunces:opsz,wght@9..144,600&display=swap" rel="stylesheet">
+<script>(function(){var t=null;try{t=localStorage.getItem('theme_mode')}catch(e){}var h=new Date().getHours();
+if(t==='dark'||((!t||t==='auto')&&(h>=18||h<6)))document.documentElement.className='dark';})();</script>
 <style>
-:root{--bg:#f8fafc;--card:#fff;--ink:#0f172a;--mute:#64748b;--line:#e2e8f0;--acc:#059669;--err:#e11d48}
-@media (prefers-color-scheme:dark){:root{--bg:#020617;--card:#0f172a;--ink:#f1f5f9;--mute:#94a3b8;--line:#1e293b;--acc:#10b981;--err:#fb7185}}
+:root{--bg:#f6f5f2;--card:#fff;--ink:#1e1c19;--mute:#7e786e;--line:#e8e4dc;--field:#f3f1ec;--btn:#1e1c19;--btnink:#faf9f6;--err:#b0472c}
+html.dark{--bg:#141311;--card:#1e1c19;--ink:#f3f1ec;--mute:#a9a297;--line:#2d2a26;--field:#2d2a26;--btn:#f3f1ec;--btnink:#1e1c19;--err:#e07a5f}
 *{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Inter,sans-serif;padding:16px}
-form{width:100%;max-width:340px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:28px 24px}
-h1{margin:0 0 4px;font-size:22px}p{margin:0 0 20px;color:var(--mute);font-size:14px}
-input[type=password]{width:100%;font-size:22px;letter-spacing:.3em;text-align:center;padding:12px;border:1px solid var(--line);
-border-radius:10px;background:transparent;color:var(--ink)}
-input[type=password]:focus{outline:2px solid var(--acc);outline-offset:1px}
-label{display:flex;gap:8px;align-items:center;margin:14px 0 18px;font-size:14px;color:var(--mute)}
-button{width:100%;padding:12px;border:0;border-radius:10px;background:var(--acc);color:#fff;font-size:16px;font-weight:600;cursor:pointer}
+background:var(--bg);color:var(--ink);font-family:Inter,system-ui,-apple-system,sans-serif;padding:16px;-webkit-font-smoothing:antialiased}
+form{width:100%;max-width:360px;background:var(--card);border-radius:24px;padding:32px 26px;
+box-shadow:0 1px 2px rgba(30,28,25,.04),0 8px 24px rgba(30,28,25,.06)}
+.logo{width:40px;height:40px;border-radius:50%;background:var(--btn);color:var(--btnink);display:grid;place-items:center;font-weight:600;font-size:14px;margin-bottom:18px}
+h1{margin:0 0 4px;font-family:Fraunces,Georgia,serif;font-weight:600;font-size:30px;letter-spacing:-.02em}p{margin:0 0 22px;color:var(--mute);font-size:14px}
+input[type=password]{width:100%;font-size:24px;letter-spacing:.35em;text-align:center;padding:14px;border:0;
+border-radius:16px;background:var(--field);color:var(--ink)}
+input[type=password]:focus{outline:2px solid #e5a54b;outline-offset:2px}
+label{display:flex;gap:8px;align-items:center;margin:16px 0 20px;font-size:14px;color:var(--mute)}
+input[type=checkbox]{accent-color:var(--btn);width:16px;height:16px}
+button{width:100%;padding:13px;border:0;border-radius:999px;background:var(--btn);color:var(--btnink);font-size:15px;font-weight:600;cursor:pointer}
 button:disabled{opacity:.5}.err{color:var(--err);font-size:13px;min-height:18px;margin-top:12px;text-align:center}
 </style></head><body>
 <form id="f" autocomplete="on">
-<h1>💰 Gastos GG</h1><p>Escribe el PIN para entrar.</p>
+<div class="logo">gg</div><h1>Gastos GG</h1><p>Escribe tu PIN para entrar.</p>
 <input type="text" name="username" value="gastos-gg" autocomplete="username" hidden>
 <input id="pin" type="password" name="password" inputmode="numeric" autocomplete="current-password" required autofocus aria-label="PIN">
 <label><input id="rem" type="checkbox" checked> Recordar este dispositivo</label>

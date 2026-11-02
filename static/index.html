@@ -3,18 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#020617" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f6f5f2" id="meta-theme">
 <title>Gastos GG</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%92%B0%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap" rel="stylesheet">
 
-<!-- Apply theme BEFORE Tailwind loads to avoid FOUC -->
+<!-- Tema ANTES de pintar (sin parpadeo). 'auto' (por defecto) = claro de día,
+     oscuro de noche (18:00–6:00, hora del dispositivo). 'light'/'dark' = fijo. -->
 <script>
   (function() {
-    var t = localStorage.getItem('theme');
-    if (t === 'dark' || (t === null && window.matchMedia('(prefers-color-scheme: dark)').matches && false /* default light */)) {
-      document.documentElement.classList.add('dark');
-    }
+    var t = null;
+    try { t = localStorage.getItem('theme_mode'); } catch (e) {}
+    var h = new Date().getHours();
+    var dark = t === 'dark' || ((!t || t === 'auto') && (h >= 18 || h < 6));
+    if (dark) document.documentElement.classList.add('dark');
+    var m = document.getElementById('meta-theme');
+    if (m) m.setAttribute('content', dark ? '#141311' : '#f6f5f2');
   })();
 </script>
 
@@ -39,18 +45,28 @@
     };
   })();
 </script>
+<!-- Chart.js antes que Alpine (los scripts defer corren en orden). Si no carga,
+     la página funciona igual y las gráficas muestran un aviso. -->
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
 <style>
-  html, body { background: #f8fafc; }
-  html.dark, html.dark body { background: #020617; }
-  body { -webkit-font-smoothing: antialiased; }
+  html, body { background: #f6f5f2; }
+  html.dark, html.dark body { background: #141311; }
+  body { -webkit-font-smoothing: antialiased; font-feature-settings: "tnum" 1, "cv11" 1; }
+  /* Números grandes en Fraunces (serif editorial) */
+  .num { font-family: 'Fraunces', Georgia, serif; letter-spacing: -.02em; font-feature-settings: "tnum" 1, "lnum" 1; }
+  /* Mapa de calor de días */
+  .hm-cell { width: 100%; aspect-ratio: 1; border-radius: 3px; }
+  /* Recorrido guiado: el elemento señalado queda por encima del velo */
+  .tour-target { position: relative; z-index: 61 !important; box-shadow: 0 0 0 4px #e5a54b, 0 0 0 9999px rgba(20,19,17,.55) !important; border-radius: 16px; transition: box-shadow .2s; }
+  .safe-bottom { padding-bottom: max(env(safe-area-inset-bottom), 10px); }
   [x-cloak] { display: none !important; }
   .bar { transition: width .35s cubic-bezier(.4,0,.2,1); }
   .fade { animation: fade .25s ease-out; }
   @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
   .scroll-area::-webkit-scrollbar { width: 6px; height: 6px; }
-  .scroll-area::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 3px; }
-  .dark .scroll-area::-webkit-scrollbar-thumb { background: #1e293b; }
+  .scroll-area::-webkit-scrollbar-thumb { background: #e8e4dc; border-radius: 3px; }
+  .dark .scroll-area::-webkit-scrollbar-thumb { background: #2d2a26; }
   /* Hide scrollbar completely on the month button bar for a cleaner look */
   #month-bar { scrollbar-width: none; -ms-overflow-style: none; }
   #month-bar::-webkit-scrollbar { display: none; }
@@ -65,99 +81,80 @@
   x-data="dashboard()"
   x-cloak
   @expenses-changed.window="reload()"
-  class="max-w-xl md:max-w-5xl lg:max-w-6xl xl:max-w-7xl mx-auto px-4 pt-6 pb-16"
+  class="lg:flex min-h-screen"
 >
 
-  <!-- ──────────────── Header ──────────────── -->
-  <!-- flex-wrap: en celular (375–430px) los botones no caben al lado del
-       título; sin wrap la página se ensanchaba a ~480px y los modales
-       (🔁 Fijos, 💱 Tasas) quedaban cortados a la derecha. -->
-  <header class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 mb-5">
-    <div>
-      <h1 class="text-xl font-bold tracking-tight">💰 Gastos GG</h1>
-      <p class="text-xs text-slate-500 dark:text-slate-500">González-Guevara · Budget familiar</p>
+  <!-- ════════════════ Menú lateral (escritorio) ════════════════ -->
+  <aside class="hidden lg:flex flex-col w-60 xl:w-64 shrink-0 h-screen sticky top-0 px-5 py-6 overflow-y-auto">
+    <div class="flex items-center gap-2.5">
+      <div class="w-9 h-9 rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 grid place-items-center text-sm font-semibold">gg</div>
+      <div><div class="text-sm font-semibold">Gastos GG</div><div class="text-[11px] text-slate-500">Familia González-Guevara</div></div>
     </div>
-    <div class="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 ml-auto">
-      <button
-        @click="openAnalytics()"
-        class="text-xs bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-3 py-1.5 font-medium transition flex items-center gap-1"
-        title="Análisis de gasto diario por categoría"
-      >📊 Análisis</button>
-      <button
-        @click="$store.fx.openFor(month)"
-        class="text-xs bg-teal-600 hover:bg-teal-700 text-white rounded-lg px-3 py-1.5 font-medium transition flex items-center gap-1"
-        title="Tasas de cambio por mes (COP/BOB/AED/CLP/ARS)"
-      >💱 Tasas</button>
-      <button
-        @click="$store.recurring.openModal()"
-        class="text-xs bg-amber-600 hover:bg-amber-700 text-white rounded-lg px-3 py-1.5 font-medium transition flex items-center gap-1"
-        title="Gastos fijos recurrentes (hipoteca, admin, suscripciones...)"
-      >🔁 Fijos</button>
-      <button
-        @click="$store.guide.open = true"
-        class="text-slate-500 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300 transition p-2"
-        title="Guía de uso"
-        aria-label="Guía de uso"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    <button @click="$store.quick.openModal(quickCtx())" data-tour="add"
+      class="mt-6 w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 py-2.5 text-[13px] font-medium hover:opacity-90 transition">
+      <span class="text-base leading-none">+</span> Anotar gasto</button>
+    <nav class="mt-6 space-y-1 text-[13px]" data-tour="nav" aria-label="Secciones">
+      <template x-for="t in views" :key="t.key">
+        <button @click="view = t.key" :aria-current="view === t.key ? 'page' : null"
+          class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-full transition"
+          :class="view === t.key ? 'bg-white dark:bg-slate-800 shadow-sm text-slate-900 dark:text-slate-100 font-medium' : 'text-slate-500 hover:bg-white/70 dark:hover:bg-slate-900 hover:text-slate-800 dark:hover:text-slate-200'">
+          <svg class="w-[18px] h-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" x-html="t.svg"></svg>
+          <span x-text="t.label"></span>
+        </button>
+      </template>
+    </nav>
+    <div class="mt-8 px-3.5 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Atajos</div>
+    <div class="mt-2 space-y-0.5 text-[13px]" data-tour="atajos">
+      <button @click="$store.recurring.openModal('fijos')" class="w-full text-left px-3.5 py-2 rounded-full text-slate-500 hover:bg-white/70 dark:hover:bg-slate-900 hover:text-slate-800 dark:hover:text-slate-200 transition">🔁&nbsp; Fijos y diferidos</button>
+      <button @click="$store.fx.openFor(month)" class="w-full text-left px-3.5 py-2 rounded-full text-slate-500 hover:bg-white/70 dark:hover:bg-slate-900 hover:text-slate-800 dark:hover:text-slate-200 transition">💱&nbsp; Tasas de cambio</button>
+      <button @click="openAnalytics()" class="w-full text-left px-3.5 py-2 rounded-full text-slate-500 hover:bg-white/70 dark:hover:bg-slate-900 hover:text-slate-800 dark:hover:text-slate-200 transition">📈&nbsp; Análisis diario</button>
+      <button @click="openReconcile()" class="w-full text-left px-3.5 py-2 rounded-full text-slate-500 hover:bg-white/70 dark:hover:bg-slate-900 hover:text-slate-800 dark:hover:text-slate-200 transition">🔄&nbsp; Conciliación</button>
+    </div>
+    <div class="mt-auto pt-8 space-y-3">
+      <div class="flex rounded-full bg-slate-200/60 dark:bg-slate-900 p-0.5 text-[11px]" data-tour="tema" role="group" aria-label="Tema">
+        <template x-for="o in themeOptions" :key="o.key">
+          <button @click="setThemeMode(o.key)" :title="o.title" class="flex-1 rounded-full py-1.5 transition"
+            :class="themeMode === o.key ? 'bg-white dark:bg-slate-700 shadow-sm font-semibold text-slate-900 dark:text-slate-100' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'"
+            x-text="o.label"></button>
+        </template>
+      </div>
+      <button @click="$store.guide.open = true" data-tour="guia"
+        class="w-full rounded-full border border-slate-300 dark:border-slate-700 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-900 transition">? Guía de uso</button>
+      <div class="flex items-center gap-2.5 px-1" x-show="$store.auth.user">
+        <div class="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-800 grid place-items-center text-xs font-semibold" x-text="($store.auth.user || '?').charAt(0)"></div>
+        <div class="text-xs leading-tight"><div class="font-medium" x-text="$store.auth.user"></div>
+          <button class="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200" @click="$store.auth.logout()">Salir</button></div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="flex-1 min-w-0 px-4 sm:px-6 lg:pl-2 lg:pr-8 xl:pr-10 pt-5 lg:pt-7 pb-28 lg:pb-10">
+
+  <!-- ──────────────── Barra superior: título de la sección + acciones ──────────────── -->
+  <header class="relative flex flex-wrap items-end gap-x-4 gap-y-3 mb-5">
+    <div class="min-w-0 max-w-full">
+      <div class="flex items-center gap-2 lg:hidden mb-2">
+        <div class="w-7 h-7 rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 grid place-items-center text-[11px] font-semibold">gg</div>
+        <span class="text-xs font-semibold">Gastos GG</span>
+        <span class="text-[11px] text-slate-400" x-show="$store.auth.user" x-text="'· ' + $store.auth.user"></span>
+      </div>
+      <div class="text-xs text-slate-500" x-text="viewSub()"></div>
+      <h1 class="num text-[2rem] leading-tight sm:text-4xl lg:text-5xl font-semibold truncate" x-text="viewTitle()"></h1>
+    </div>
+    <div class="absolute right-0 top-0 lg:static lg:ml-auto flex items-center gap-1.5">
+      <button @click="$store.guide.open = true" data-tour="guia-movil"
+        class="lg:hidden w-9 h-9 rounded-full bg-white dark:bg-slate-900 shadow-sm grid place-items-center text-sm font-semibold text-slate-600 dark:text-slate-300"
+        title="Guía de uso" aria-label="Guía de uso">?</button>
+      <button @click="reload(); if (view === 'revision') $store.review.load(true)" :disabled="loading"
+        class="w-9 h-9 rounded-full bg-white dark:bg-slate-900 shadow-sm grid place-items-center text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 disabled:opacity-40 transition"
+        title="Recargar" aria-label="Recargar">
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="loading && 'animate-spin'"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
       </button>
-      <button
-        x-show="$store.auth.enabled" x-cloak
-        @click="$store.auth.logout()"
-        class="text-slate-500 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300 transition p-2"
-        :title="'Cerrar sesión' + ($store.auth.user ? ' (' + $store.auth.user + ')' : '')"
-        aria-label="Cerrar sesión"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-      </button>
-      <button
-        @click="openReconcile()"
-        class="text-slate-500 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300 transition p-2"
-        title="Conciliación de extractos"
-        aria-label="Conciliación"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 17l-5-5 5-5"/><path d="M6 12h13"/><path d="M13 7l5 5-5 5"/></svg>
-      </button>
-      <button
-        @click="openSettings()"
-        class="text-slate-500 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300 transition p-2"
-        title="Configuración"
-        aria-label="Configuración"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-      </button>
-      <button
-        @click="toggleTheme()"
-        class="text-slate-500 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300 transition p-2"
-        :title="isDark ? 'Modo claro' : 'Modo oscuro'"
-        aria-label="Cambiar tema"
-      >
-        <svg x-show="!isDark" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-        <svg x-show="isDark" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-      </button>
-      <button
-        @click="reload()"
-        :disabled="loading"
-        class="text-slate-500 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300 disabled:opacity-30 transition p-2"
-        title="Recargar"
-        aria-label="Recargar"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" :class="loading && 'animate-spin'"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
-      </button>
+      <button @click="$store.quick.openModal(quickCtx())"
+        class="hidden lg:inline-flex items-center gap-1.5 rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-4 py-2.5 text-xs font-medium hover:opacity-90 transition">
+        <span class="text-base leading-none">+</span> Anotar gasto</button>
     </div>
   </header>
-
-  <!-- ──────────────── Pestañas: Resumen · Revisión · Movimientos · Ajustes ────────────────
-       La pestaña activa vive en `view` y en la dirección (#revision, …). -->
-  <nav class="grid grid-cols-4 gap-1 mb-4 bg-slate-100 dark:bg-slate-900 rounded-xl p-1" role="tablist" aria-label="Secciones">
-    <template x-for="t in views" :key="t.key">
-      <button role="tab" @click="view = t.key" :aria-selected="view === t.key" :title="t.label"
-        class="min-w-0 rounded-lg px-0.5 py-2 text-[10px] sm:text-xs font-medium transition flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5"
-        :class="view === t.key ? 'bg-white dark:bg-slate-800 shadow text-slate-900 dark:text-slate-100' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'">
-        <span x-text="t.icon"></span><span class="max-w-full truncate" x-text="t.label"></span>
-      </button>
-    </template>
-  </nav>
 
   <!-- ──────────────── Próximos pagos (recordatorios de fechas de pago) ────────────────
        Tarjetas de crédito, créditos, hipoteca… El color dice qué tan cerca está
@@ -226,7 +223,7 @@
 
   <!-- ──────────────── Month + window selectors (Resumen y Movimientos) ──────────────── -->
   <section x-show="view === 'resumen' || view === 'movimientos'"
-           class="mb-4 sticky top-0 bg-slate-50 dark:bg-slate-950 z-20 py-2 border-b border-slate-100 dark:border-slate-900">
+           class="mb-4 sticky top-0 bg-papel/95 dark:bg-slate-950/95 backdrop-blur z-20 py-2 border-b border-slate-200/70 dark:border-slate-900">
     <div class="flex items-center justify-between mb-1.5">
       <div class="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600 font-semibold">Mes</div>
       <!-- Window pills -->
@@ -285,24 +282,32 @@
        con el anterior. Datos: GET /api/review (store `review`). -->
   <section x-show="view === 'revision'" x-cloak class="mb-4 space-y-4">
     <!-- Controles -->
-    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-3">
-      <div class="flex flex-wrap items-center gap-1.5">
-        <template x-for="p in $store.review.presets" :key="p.key">
-          <button @click="$store.review.setPreset(p.key)"
-            class="text-xs rounded-lg px-2.5 py-1.5 font-medium transition"
-            :class="$store.review.preset === p.key ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'"
-            x-text="p.label"></button>
-        </template>
+    <div class="bg-white dark:bg-slate-900 rounded-2xl p-3 sm:p-4 shadow-sm space-y-3" data-tour="rev-controles">
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="flex flex-wrap rounded-full bg-slate-100 dark:bg-slate-800 p-1 text-xs">
+          <template x-for="p in $store.review.presets" :key="p.key">
+            <button @click="$store.review.setPreset(p.key)"
+              class="px-3 py-1.5 rounded-full font-medium transition whitespace-nowrap"
+              :class="$store.review.preset === p.key ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'"
+              x-text="p.corto || p.label" :title="p.label"></button>
+          </template>
+        </div>
+        <div class="ml-auto flex rounded-full bg-slate-100 dark:bg-slate-800 p-1">
+          <template x-for="m in ['usd', 'cop']" :key="m">
+            <button @click="$store.review.moneda = m" class="px-3 py-1 rounded-full text-[11px] font-semibold uppercase transition"
+              :class="$store.review.moneda === m ? 'bg-white dark:bg-slate-900 shadow-sm' : 'text-slate-500'" x-text="m"></button>
+          </template>
+        </div>
       </div>
       <div x-show="$store.review.preset === 'custom'" class="flex flex-wrap items-center gap-2 text-xs">
         <label class="text-slate-500">Desde <input type="month" x-model="$store.review.desde" @change="$store.review.load()"
-          class="ml-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100"></label>
+          class="ml-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-full px-3 py-1 text-slate-900 dark:text-slate-100"></label>
         <label class="text-slate-500">Hasta <input type="month" x-model="$store.review.hasta" @change="$store.review.load()"
-          class="ml-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100"></label>
+          class="ml-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-full px-3 py-1 text-slate-900 dark:text-slate-100"></label>
       </div>
-      <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
         <select x-model="$store.review.persona" @change="$store.review.load()"
-          class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5">
+          class="bg-slate-100 dark:bg-slate-800 border-0 rounded-full px-3 py-1.5 font-medium">
           <option value="familia">👨‍👩 Familia (sin Tuo)</option>
           <option value="Daniel">Daniel</option>
           <option value="Mado">Mado</option>
@@ -310,99 +315,172 @@
           <option value="todos">Todos</option>
         </select>
         <label class="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
-          <input type="checkbox" x-model="$store.review.sinViajes" @change="$store.review.load()"> Sin viajes</label>
+          <input type="checkbox" class="accent-slate-900 dark:accent-slate-100" x-model="$store.review.sinViajes" @change="$store.review.load()"> Sin viajes</label>
         <label class="flex items-center gap-1.5 text-slate-600 dark:text-slate-300" title="Quita compras sueltas de US$600 o más que no son esenciales (no quita fijos ni cuotas)">
-          <input type="checkbox" x-model="$store.review.sinGrandes" @change="$store.review.load()"> Sin compras grandes</label>
-        <div class="ml-auto flex rounded-lg bg-slate-100 dark:bg-slate-800 p-0.5">
-          <template x-for="m in ['usd', 'cop']" :key="m">
-            <button @click="$store.review.moneda = m" class="px-2 py-1 rounded-md text-[11px] font-semibold uppercase"
-              :class="$store.review.moneda === m ? 'bg-white dark:bg-slate-900 shadow' : 'text-slate-500'" x-text="m"></button>
-          </template>
-        </div>
+          <input type="checkbox" class="accent-slate-900 dark:accent-slate-100" x-model="$store.review.sinGrandes" @change="$store.review.load()"> Sin compras grandes</label>
+        <span class="text-[11px] text-slate-400 sm:ml-auto" x-show="$store.review.data" x-text="$store.review.rangoLabel()"></span>
       </div>
-      <div class="text-[11px] text-slate-500" x-show="$store.review.data">
-        <span x-text="$store.review.rangoLabel()"></span>
-        <span x-show="$store.review.data && !$store.review.data.anterior.completo" class="text-amber-600 dark:text-amber-400">
-          · el período anterior tiene datos incompletos (el bot registra desde el <span x-text="$store.review.fechaCorta($store.review.data && $store.review.data.datos_desde)"></span>), la comparación no es confiable</span>
+      <div class="text-[11px] text-amber-700 dark:text-amber-400" x-show="$store.review.data && !$store.review.data.anterior.completo">
+        El período anterior tiene datos incompletos (el bot registra desde el <span x-text="$store.review.fechaCorta($store.review.data && $store.review.data.datos_desde)"></span>): la comparación no es confiable.
       </div>
     </div>
 
     <div x-show="$store.review.loading" class="text-xs text-slate-400 text-center py-6">Cargando…</div>
-    <div x-show="$store.review.error" class="bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900 rounded-xl p-3 text-sm text-red-700 dark:text-red-300" x-text="$store.review.error"></div>
+    <div x-show="$store.review.error" class="bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900 rounded-2xl p-3 text-sm text-red-700 dark:text-red-300" x-text="$store.review.error"></div>
 
     <template x-if="$store.review.data && !$store.review.loading">
-    <div class="space-y-4">
+    <div class="space-y-4" x-effect="$store.review.data; $store.review.moneda; $store.review.nivel; $store.review.filtroTipo; view; $nextTick(() => { if (view === 'revision') RevCharts.render(); })">
+      <div x-show="!$store.review.chartsOk" class="text-[11px] text-slate-500 bg-white dark:bg-slate-900 rounded-2xl p-3 shadow-sm">
+        Las gráficas no cargaron (sin conexión al servidor de gráficas). Los números de abajo sí están completos.
+      </div>
+
       <!-- KPIs -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-          <div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Total del período</div>
-          <div class="text-lg font-bold mt-1" x-text="$store.review.fmt($store.review.v($store.review.data.totales))"></div>
+      <div class="grid grid-cols-2 xl:grid-cols-5 gap-3 sm:gap-4" data-tour="rev-kpis">
+        <div class="col-span-2 bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 shadow-sm flex items-center gap-4">
+          <div class="relative w-32 h-24 shrink-0" x-show="$store.review.presupuesto()">
+            <canvas id="rev-gauge"></canvas>
+            <div class="absolute inset-0 grid place-items-center pointer-events-none"><div class="text-center mt-4">
+              <div class="num text-xl font-semibold" :class="$store.review.pctPresupuesto() > 100 ? 'text-alerta-fuerte dark:text-alerta' : 'text-ahorro dark:text-emerald-400'" x-text="$store.review.pctPresupuesto() + '%'"></div>
+              <div class="text-[9px] text-slate-500 leading-tight">del presupuesto</div></div></div>
+          </div>
+          <div class="min-w-0">
+            <div class="text-xs text-slate-500">Por mes</div>
+            <div class="num text-3xl sm:text-4xl font-semibold truncate" x-text="$store.review.fmt($store.review.v($store.review.data.totales) / $store.review.data.periodo.n_meses)"></div>
+            <div class="text-[11px] text-slate-400" x-show="$store.review.presupuesto()" x-text="'presupuesto ' + $store.review.fmt($store.review.presupuesto())"></div>
+            <div class="text-[11px] text-slate-400" x-show="!$store.review.presupuesto()" x-text="$store.review.data.totales.count + ' gastos'"></div>
+          </div>
+        </div>
+        <div class="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 shadow-sm min-w-0">
+          <div class="text-xs text-slate-500">Gastaron</div>
+          <div class="num text-2xl 2xl:text-3xl font-semibold mt-1 truncate" x-text="$store.review.fmt($store.review.v($store.review.data.totales))"></div>
           <div class="text-[11px] mt-0.5" x-html="$store.review.deltaHtml($store.review.data.totales, $store.review.data.totales_anterior)"></div>
+          <div class="h-9 mt-1" x-show="$store.review.data.periodo.n_meses > 1"><canvas id="rev-spark"></canvas></div>
         </div>
-        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-          <div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Promedio por mes</div>
-          <div class="text-lg font-bold mt-1" x-text="$store.review.fmt($store.review.v($store.review.data.totales) / $store.review.data.periodo.n_meses)"></div>
-          <div class="text-[11px] text-slate-500 mt-0.5" x-text="$store.review.data.totales.count + ' gastos en ' + $store.review.data.periodo.n_meses + ($store.review.data.periodo.n_meses === 1 ? ' mes' : ' meses')"></div>
+        <div class="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 shadow-sm min-w-0">
+          <div class="text-xs text-slate-500">En gustos</div>
+          <div class="num text-2xl 2xl:text-3xl font-semibold mt-1 text-gusto-fuerte dark:text-gusto" x-text="$store.review.pctTipo('gusto').toLocaleString('es-CO') + '%'"></div>
+          <div class="text-[11px] text-slate-400 mt-0.5" x-text="$store.review.fmt($store.review.v($store.review.data.totales.por_tipo.gusto)) + ' en el período'"></div>
         </div>
-        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-          <div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Gustos</div>
-          <div class="text-lg font-bold mt-1 text-amber-600 dark:text-amber-400" x-text="$store.review.pctTipo('gusto') + '%'"></div>
-          <div class="text-[11px] text-slate-500 mt-0.5" x-text="$store.review.fmt($store.review.v($store.review.data.totales.por_tipo.gusto)) + ' del total'"></div>
-        </div>
-        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-          <div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Si bajas gustos 20%</div>
-          <div class="text-lg font-bold mt-1 text-emerald-600 dark:text-emerald-400" x-text="$store.review.fmt(0.2 * $store.review.v($store.review.data.totales.por_tipo.gusto) / $store.review.data.periodo.n_meses) + '/mes'"></div>
-          <div class="text-[11px] text-slate-500 mt-0.5" x-text="$store.review.fmt(12 * 0.2 * $store.review.v($store.review.data.totales.por_tipo.gusto) / $store.review.data.periodo.n_meses) + ' al año'"></div>
+        <div class="col-span-2 xl:col-span-1 bg-ahorro-suave dark:bg-emerald-950/40 rounded-2xl p-4 sm:p-5 shadow-sm min-w-0">
+          <div class="text-xs text-ahorro-medio dark:text-emerald-400">Si bajan los gustos 20%</div>
+          <div class="num text-2xl 2xl:text-3xl font-semibold mt-1 text-ahorro dark:text-emerald-300" x-text="$store.review.fmt(0.2 * $store.review.v($store.review.data.totales.por_tipo.gusto) / $store.review.data.periodo.n_meses)"></div>
+          <div class="text-[11px] text-ahorro-medio dark:text-emerald-400 mt-0.5" x-text="'ahorran al mes · ' + $store.review.fmt(12 * 0.2 * $store.review.v($store.review.data.totales.por_tipo.gusto) / $store.review.data.periodo.n_meses) + ' al año'"></div>
         </div>
       </div>
 
-      <!-- Tipo de gasto: total y mes a mes -->
-      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="text-sm font-semibold">Tipo de gasto</h2>
-          <button @click="$store.review.abrirTipos()" class="text-[11px] text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">Editar tipos</button>
-        </div>
-        <div class="flex h-3 rounded-full overflow-hidden bg-slate-100 dark:bg-slate-800">
-          <template x-for="t in $store.review.tiposOrden" :key="t">
-            <div :class="$store.review.TIPOS[t].bar" :style="'width:' + $store.review.pctTipo(t) + '%'" :title="$store.review.TIPOS[t].label"></div>
-          </template>
-        </div>
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3">
-          <template x-for="t in $store.review.tiposOrden.filter(t => t !== 'sin_clasificar' || $store.review.data.totales.por_tipo.sin_clasificar.usd > 0)" :key="t">
-            <button @click="$store.review.filtroTipo = ($store.review.filtroTipo === t ? 'todos' : t)"
-              class="text-left rounded-lg px-3 py-2 border transition"
-              :class="$store.review.filtroTipo === t ? 'border-slate-400 dark:border-slate-500 bg-slate-50 dark:bg-slate-800' : 'border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60'">
-              <div class="flex items-center gap-1.5 text-xs font-medium"><span class="w-2.5 h-2.5 rounded-full" :class="$store.review.TIPOS[t].bar"></span><span x-text="$store.review.TIPOS[t].label"></span>
-                <span class="text-slate-400 ml-auto" x-text="$store.review.pctTipo(t) + '%'"></span></div>
-              <div class="text-sm font-semibold mt-0.5" x-text="$store.review.fmt($store.review.v($store.review.data.totales.por_tipo[t]))"></div>
-              <div class="text-[11px]" x-html="$store.review.deltaHtml($store.review.data.totales.por_tipo[t], $store.review.data.totales_anterior.por_tipo[t])"></div>
-            </button>
-          </template>
-        </div>
-        <!-- Mes a mes -->
-        <div class="mt-4 space-y-1.5" x-show="$store.review.data.por_mes.length > 1">
-          <div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Mes a mes</div>
-          <template x-for="m in $store.review.data.por_mes" :key="m.mes">
-            <div class="flex items-center gap-2 text-[11px]">
-              <span class="w-12 shrink-0 text-slate-500" x-text="$store.review.mesCorto(m.mes)"></span>
-              <div class="flex-1 h-3 rounded bg-slate-100 dark:bg-slate-800 overflow-hidden">
-                <div class="h-full flex" :style="'width:' + $store.review.pctMes(m) + '%'">
-                  <template x-for="t in $store.review.tiposOrden" :key="t">
-                    <div class="h-full" :class="$store.review.TIPOS[t].bar" :style="'width:' + $store.review.pctDentro(m, t) + '%'"></div>
-                  </template>
-                </div>
-              </div>
-              <span class="w-24 shrink-0 text-right font-medium" x-text="$store.review.fmt($store.review.v(m))"></span>
+      <div class="grid grid-cols-1 xl:grid-cols-12 gap-4">
+        <!-- Mes a mes: barras apiladas por tipo + línea de presupuesto -->
+        <div class="xl:col-span-8 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm min-w-0" data-tour="rev-mes">
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 class="num text-xl sm:text-2xl font-semibold" x-text="$store.review.data.periodo.n_meses > 1 ? 'Mes a mes' : 'Día a día'"></h2>
+            <div class="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
+              <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-esencial"></span>Esencial</span>
+              <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-estilo"></span>Estilo</span>
+              <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-gusto"></span>Gusto</span>
+              <span class="flex items-center gap-1.5" x-show="$store.review.presupuesto() && $store.review.data.periodo.n_meses > 1"><span class="w-4 border-t-2 border-dashed border-alerta"></span>Presupuesto</span>
             </div>
+          </div>
+          <p class="text-[11px] text-slate-400 mt-1" x-show="$store.review.data.periodo.n_meses === 1">Gasto de cada día sin fijos ni cuotas (gustos en dorado).</p>
+          <div class="mt-4 h-64 sm:h-72"><canvas id="rev-mes"></canvas></div>
+        </div>
+
+        <!-- Necesario o gusto: dona + filtro por tipo -->
+        <div class="xl:col-span-4 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm min-w-0" data-tour="rev-dona">
+          <div class="flex items-baseline justify-between">
+            <h2 class="num text-xl sm:text-2xl font-semibold">Necesario o gusto</h2>
+            <button @click="$store.review.abrirTipos()" class="text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">Editar tipos</button>
+          </div>
+          <div class="relative mt-3 h-52"><canvas id="rev-dona"></canvas>
+            <div class="absolute inset-0 grid place-items-center pointer-events-none"><div class="text-center">
+              <div class="num text-xl font-semibold" x-text="$store.review.fmt($store.review.v($store.review.data.totales))"></div>
+              <div class="text-[11px] text-slate-500" x-text="$store.review.data.periodo.n_meses + ($store.review.data.periodo.n_meses === 1 ? ' mes' : ' meses')"></div></div></div>
+          </div>
+          <div class="mt-3 space-y-1">
+            <template x-for="t in $store.review.tiposOrden.filter(t => t !== 'sin_clasificar' || $store.review.data.totales.por_tipo.sin_clasificar.usd > 0)" :key="t">
+              <button @click="$store.review.filtroTipo = ($store.review.filtroTipo === t ? 'todos' : t)"
+                class="w-full flex items-center gap-2 rounded-xl px-2.5 py-1.5 text-sm transition"
+                :class="$store.review.filtroTipo === t ? 'bg-slate-100 dark:bg-slate-800' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'"
+                :title="'Ver solo ' + $store.review.TIPOS[t].label">
+                <span class="w-2.5 h-2.5 rounded-full shrink-0" :class="$store.review.TIPOS[t].bar"></span>
+                <span x-text="$store.review.TIPOS[t].label"></span>
+                <span class="ml-auto text-[11px]" x-html="$store.review.deltaHtml($store.review.data.totales.por_tipo[t], $store.review.data.totales_anterior.por_tipo[t], true)"></span>
+                <span class="w-14 text-right font-semibold" x-text="$store.review.pctTipo(t).toLocaleString('es-CO') + '%'"></span>
+              </button>
+            </template>
+            <div class="text-[11px] text-slate-400 pt-1 px-2.5">Toca un tipo para ver solo ese en el ranking.</div>
+          </div>
+        </div>
+
+        <!-- En qué se fue: top 12 -->
+        <div class="xl:col-span-6 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm min-w-0">
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 class="num text-xl sm:text-2xl font-semibold">En qué se fue</h2>
+            <span class="text-[11px] text-slate-500" x-text="($store.review.filtroTipo !== 'todos' ? 'solo ' + $store.review.TIPOS[$store.review.filtroTipo].label.toLowerCase() + ' · ' : '') + 'las 12 más grandes · toca una barra'"></span>
+          </div>
+          <div class="mt-4" :style="'height:' + Math.max(160, 34 * Math.min(12, $store.review.filas().length) + 30) + 'px'"><canvas id="rev-top"></canvas></div>
+        </div>
+
+        <!-- Cada día: mapa de calor -->
+        <div class="xl:col-span-6 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm min-w-0" data-tour="rev-dias">
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 class="num text-xl sm:text-2xl font-semibold">Cada día</h2>
+            <span class="text-[11px] text-slate-500">gasto del día, sin fijos ni cuotas</span>
+          </div>
+          <div class="mt-4 flex gap-1.5">
+            <div class="grid grid-rows-7 gap-[3px] text-[9px] text-slate-400 pt-[15px] shrink-0">
+              <span class="leading-none">lun</span><span></span><span class="leading-none">mié</span><span></span><span class="leading-none">vie</span><span></span><span class="leading-none">dom</span>
+            </div>
+            <div class="flex-1 min-w-0" id="rev-heat"></div>
+          </div>
+          <div class="mt-3 flex items-center gap-1.5 text-[10px] text-slate-500">menos
+            <template x-for="c in (isDark, RevCharts.heatColors())" :key="c"><span class="w-3 h-3 rounded-[3px]" :style="'background:' + c"></span></template> más</div>
+          <div class="mt-4 rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-3.5 text-xs text-slate-600 dark:text-slate-300" id="rev-heat-txt"></div>
+        </div>
+
+        <!-- Cómo se mueve el gasto: área apilada -->
+        <div class="xl:col-span-8 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm min-w-0" x-show="$store.review.data.periodo.n_meses > 1">
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 class="num text-xl sm:text-2xl font-semibold">Cómo se mueve el gasto</h2>
+            <span class="text-[11px] text-slate-500">cada tipo, mes a mes</span>
+          </div>
+          <div class="mt-4 h-64"><canvas id="rev-area"></canvas></div>
+        </div>
+
+        <!-- Qué días gastan más: por día de la semana -->
+        <div class="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm min-w-0" :class="$store.review.data.periodo.n_meses > 1 ? 'xl:col-span-4' : 'xl:col-span-12'">
+          <h2 class="num text-xl sm:text-2xl font-semibold">Qué días gastan más</h2>
+          <p class="text-[11px] text-slate-500 mt-1">Promedio por día de la semana, sin fijos ni cuotas</p>
+          <div class="mt-4 h-56"><canvas id="rev-semana"></canvas></div>
+          <div class="mt-3 rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-3 text-xs text-slate-600 dark:text-slate-300" id="rev-semana-txt"></div>
+        </div>
+      </div>
+
+      <!-- Cada categoría, mes a mes: tarjetas con mini gráfica -->
+      <div x-show="$store.review.miniCats().length">
+        <div class="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+          <h2 class="num text-xl sm:text-2xl font-semibold">Cada categoría, mes a mes</h2>
+          <span class="text-[11px] text-slate-500">toca una para ver el detalle</span>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
+          <template x-for="(c, i) in $store.review.miniCats()" :key="'mini' + c.key">
+            <button @click="$store.review.verDetalle(c.key)" class="text-left bg-white dark:bg-slate-900 rounded-2xl p-4 shadow-sm hover:-translate-y-0.5 transition min-w-0">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="w-8 h-8 rounded-full grid place-items-center shrink-0" :class="$store.review.TIPOS[c.naturaleza].suave" x-text="c.icon"></span>
+                <span class="text-sm font-medium truncate" x-text="c.label"></span>
+              </div>
+              <div class="num text-xl sm:text-2xl font-semibold mt-3 truncate" x-text="$store.review.fmt($store.review.v(c))"></div>
+              <div class="text-[11px] text-slate-400 truncate" x-text="c.count + ' veces · ' + $store.review.fmt($store.review.v(c) / $store.review.data.periodo.n_meses) + '/mes'"></div>
+              <div class="h-12 mt-2" x-show="$store.review.data.periodo.n_meses > 1"><canvas :id="'rev-mini-' + i"></canvas></div>
+            </button>
           </template>
         </div>
       </div>
 
       <!-- Ranking: dónde se va la plata -->
-      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
+      <div class="bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm">
         <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
           <div>
-            <h2 class="text-sm font-semibold">Dónde se va la plata</h2>
+            <h2 class="num text-xl sm:text-2xl font-semibold">Ranking de categorías</h2>
             <div class="text-[11px] text-slate-500" x-show="$store.review.filtroTipo !== 'todos'">
               Solo <span x-text="$store.review.TIPOS[$store.review.filtroTipo] && $store.review.TIPOS[$store.review.filtroTipo].label"></span> ·
               <button class="underline" @click="$store.review.filtroTipo = 'todos'">ver todo</button></div>
@@ -414,7 +492,7 @@
         </div>
         <div class="divide-y divide-slate-100 dark:divide-slate-800">
           <template x-for="(c, i) in $store.review.filasVisibles()" :key="$store.review.nivel + c.key">
-            <div class="py-2">
+            <div class="py-2 scroll-mt-24" :id="'rev-row-' + c.key">
               <button class="w-full text-left flex items-center gap-2" @click="$store.review.toggle(c.key)">
                 <span class="w-5 text-[11px] text-slate-400 text-right shrink-0" x-text="i + 1"></span>
                 <span class="text-base shrink-0" x-text="c.icon"></span>
@@ -474,8 +552,8 @@
       </div>
 
       <!-- Dónde mejorar -->
-      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
-        <h2 class="text-sm font-semibold mb-1">Dónde puedes mejorar</h2>
+      <div class="bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm">
+        <h2 class="num text-xl sm:text-2xl font-semibold mb-1">Dónde pueden mejorar</h2>
         <p class="text-[11px] text-slate-500 mb-3">Lo que más pesa entre los gustos y el estilo de vida, con lo que ahorrarías si lo bajas.</p>
         <div class="space-y-2">
           <template x-for="c in $store.review.mejorables()" :key="'m' + c.key">
@@ -511,8 +589,8 @@
 
       <!-- Lo que quedó por fuera -->
       <div x-show="$store.review.data.filtros.sin_viajes || $store.review.data.filtros.sin_grandes"
-           class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm text-xs">
-        <h2 class="text-sm font-semibold mb-2">Quedó por fuera de esta vista</h2>
+           class="bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm text-xs">
+        <h2 class="num text-lg font-semibold mb-2">Quedó por fuera de esta vista</h2>
         <div x-show="$store.review.data.filtros.sin_viajes">✈️ Viajes: <span class="font-semibold" x-text="$store.review.fmt($store.review.v($store.review.data.excluidos.viajes))"></span>
           (<span x-text="$store.review.data.excluidos.viajes.count"></span>)</div>
         <div x-show="$store.review.data.filtros.sin_grandes" class="mt-1">🛍️ Compras grandes (US$600 o más, no esenciales): <span class="font-semibold" x-text="$store.review.fmt($store.review.v($store.review.data.excluidos.grandes))"></span>
@@ -534,12 +612,13 @@
   <!-- ════════════════════════ ⚙️ AJUSTES ════════════════════════
        Todo lo que se configura, en un solo lugar (abre las mismas ventanas). -->
   <section x-show="view === 'ajustes'" x-cloak class="mb-4">
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4" data-tour="ajustes-grid">
       <template x-for="a in ajustes()" :key="a.key">
         <button @click="a.run()" x-show="a.show === undefined || a.show()"
-          class="text-left bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm hover:border-slate-300 dark:hover:border-slate-600 transition">
-          <div class="text-sm font-semibold"><span x-text="a.icon"></span> <span x-text="a.label"></span></div>
-          <div class="text-[11px] text-slate-500 mt-1" x-text="a.desc"></div>
+          class="text-left bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm hover:-translate-y-0.5 transition flex items-start gap-3.5">
+          <span class="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 grid place-items-center text-lg shrink-0" x-text="a.icon"></span>
+          <span class="min-w-0"><span class="block text-sm font-semibold" x-text="a.label"></span>
+          <span class="block text-[11px] text-slate-500 mt-0.5" x-text="a.desc"></span></span>
         </button>
       </template>
     </div>
@@ -562,7 +641,7 @@
   <div class="md:grid md:grid-cols-2 md:gap-4">
 
   <!-- ──────────────── P&L card (bitácora familiar) ──────────────── -->
-  <section class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm">
+  <section class="bg-white dark:bg-slate-900 rounded-2xl p-5 mb-4 fade shadow-sm">
     <div class="flex items-start justify-between mb-3">
       <div>
         <div class="text-xs text-slate-500 uppercase tracking-wide">💼 P&G del mes · <span x-text="monthLabel"></span></div>
@@ -709,7 +788,7 @@
   </section>
 
   <!-- ──────────────── Overall gauge — dual reference (Ideal + Configurado) ──────────────── -->
-  <section class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm">
+  <section class="bg-white dark:bg-slate-900 rounded-2xl p-5 mb-4 fade shadow-sm">
     <!-- Top row: month label + big total spent + pace -->
     <div class="flex items-start justify-between">
       <div>
@@ -897,7 +976,7 @@
        ═══════════════════════════════════════════════════════════════ -->
   <section
     x-show="summary.total_capex_usd && summary.total_capex_usd > 0"
-    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm"
+    class="bg-white dark:bg-slate-900 rounded-2xl p-5 mb-4 fade shadow-sm"
   >
     <div class="flex items-center justify-between mb-3">
       <div>
@@ -960,7 +1039,7 @@
        ═══════════════════════════════════════════════════════════════ -->
   <section
     x-show="pieChartData && pieChartData.length"
-    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm"
+    class="bg-white dark:bg-slate-900 rounded-2xl p-5 mb-4 fade shadow-sm"
   >
     <div class="flex items-center justify-between mb-3">
       <div>
@@ -1081,7 +1160,7 @@
   <div class="md:col-span-1 space-y-4">
 
   <!-- ──────────────── Per user ──────────────── -->
-  <section class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 mb-0 fade shadow-sm" x-show="summary.by_user && summary.by_user.length">
+  <section class="bg-white dark:bg-slate-900 rounded-2xl p-4 mb-0 fade shadow-sm" x-show="summary.by_user && summary.by_user.length">
     <div class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-3">Por usuario</div>
     <div class="space-y-2">
       <template x-for="u in summary.by_user" :key="u.user">
@@ -1101,7 +1180,7 @@
   <!-- ──────────────── Por método de pago ──────────────── -->
   <section
     x-show="summary.by_payment_method && summary.by_payment_method.length"
-    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 mb-0 fade shadow-sm"
+    class="bg-white dark:bg-slate-900 rounded-2xl p-4 mb-0 fade shadow-sm"
   >
     <div class="flex items-center justify-between mb-3">
       <div class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Por método de pago</div>
@@ -1152,7 +1231,7 @@
   <!-- ──────────────── Empty state (full width inside the gastos 3-col grid) ──────────────── -->
   <section
     x-show="!loading && summary.count === 0"
-    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-8 text-center mb-4 shadow-sm md:col-span-3"
+    class="bg-white dark:bg-slate-900 rounded-2xl p-8 text-center mb-4 shadow-sm md:col-span-3"
   >
     <div class="text-4xl mb-2">🪙</div>
     <div class="text-sm text-slate-500">No hay gastos registrados en <span x-text="monthLabel"></span></div>
@@ -1164,7 +1243,7 @@
        horizontal room next to the narrower Usuario+Método stack. -->
   <section
     x-show="summary.categories && summary.categories.length"
-    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm md:col-span-2"
+    class="bg-white dark:bg-slate-900 rounded-2xl p-5 mb-4 fade shadow-sm md:col-span-2"
   >
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-sm font-semibold">Categorías con gasto</h2>
@@ -1271,15 +1350,15 @@
 
   <!-- ──────────────── History (pestaña 🧾 Movimientos) ──────────────── -->
   <div x-show="view === 'movimientos' && !loading && !expenses.length" x-cloak
-       class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-8 text-center mb-4 shadow-sm text-sm text-slate-500">
+       class="bg-white dark:bg-slate-900 rounded-2xl p-8 text-center mb-4 shadow-sm text-sm text-slate-500">
     No hay movimientos en <span x-text="monthLabel"></span>.
   </div>
-  <section class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm" x-show="view === 'movimientos' && expenses.length">
+  <section class="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 mb-4 fade shadow-sm" x-show="view === 'movimientos' && expenses.length">
     <div class="flex items-center justify-between mb-3">
-      <h2 class="text-sm font-semibold movimientos-anchor">Movimientos</h2>
+      <h2 class="num text-xl sm:text-2xl font-semibold movimientos-anchor">Cada gasto</h2>
       <a
         :href="'/api/export/csv_full?month=' + month"
-        class="text-xs bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg px-3 py-1.5 transition"
+        class="text-xs bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-full px-3 py-1.5 transition"
         download
         title="CSV completo del mes (gastos + ingresos detallados)"
       >📁 CSV completo</a>
@@ -1293,14 +1372,14 @@
         <span class="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600 self-center font-semibold w-16">Usuario</span>
         <button
           @click="userFilter = null"
-          :class="userFilter === null ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
-          class="px-2.5 py-1 rounded-md"
+          :class="userFilter === null ? 'bg-slate-900 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
+          class="px-3 py-1 rounded-full transition"
         >Todos</button>
         <template x-for="u in uniqueUsers" :key="u">
           <button
             @click="userFilter = u"
             :class="userFilter === u ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
-            class="px-2.5 py-1 rounded-md"
+            class="px-3 py-1 rounded-full transition"
             x-text="u"
           ></button>
         </template>
@@ -1312,13 +1391,13 @@
         <button
           @click="claseFilter = null"
           :class="claseFilter === null ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
-          class="px-2.5 py-1 rounded-md"
+          class="px-3 py-1 rounded-full transition"
         >Todos</button>
         <template x-for="c in clasesContables" :key="c.key">
           <button
             @click="claseFilter = c.key"
             :class="claseFilter === c.key ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
-            class="px-2.5 py-1 rounded-md"
+            class="px-3 py-1 rounded-full transition"
           ><span x-text="c.icon"></span> <span x-text="c.label"></span></button>
         </template>
       </div>
@@ -1384,7 +1463,47 @@
       page normally. Each row shows: nota (prominent) / date · user ·
       category · method (secondary) / amount USD · amount COP on the right.
     -->
-    <div class="divide-y divide-slate-100 dark:divide-slate-800/80 -mx-1 px-1">
+    <!-- Escritorio: tabla -->
+    <div class="hidden md:block -mx-2 overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-[11px] text-slate-400 text-left border-b border-slate-200 dark:border-slate-800">
+            <th class="font-medium py-2 px-2 w-20">Fecha</th>
+            <th class="font-medium py-2 px-2">Concepto</th>
+            <th class="font-medium py-2 px-2">Categoría</th>
+            <th class="font-medium py-2 px-2">Quién</th>
+            <th class="font-medium py-2 px-2 hidden lg:table-cell">Método</th>
+            <th class="font-medium py-2 px-2 text-right">Pesos</th>
+            <th class="font-medium py-2 px-2 text-right">Dólares</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 dark:divide-slate-800/80">
+          <template x-for="e in regularExpenses" :key="'t' + e.id">
+            <tr @click="openEdit(e)" class="cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 transition" title="Toca para editar">
+              <td class="py-2.5 px-2 text-xs text-slate-500 whitespace-nowrap" x-text="formatDate(e.fecha)"></td>
+              <td class="py-2.5 px-2 max-w-[340px]">
+                <div class="flex items-center gap-2 min-w-0">
+                  <span class="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 grid place-items-center text-sm shrink-0" x-text="catIcon(e.categoria)"></span>
+                  <span class="truncate font-medium" x-text="e.nota || catLabel(e.categoria)"></span>
+                  <span x-show="e.clase_contable && e.clase_contable !== 'gasto'" :title="claseLabel(e.clase_contable)" class="text-[11px] shrink-0" x-text="claseIcon(e.clase_contable)"></span>
+                  <span x-show="e.recurring_id" title="Gasto fijo mensual (se anota solo cada mes)" class="text-[11px] shrink-0">🔁</span>
+                  <span x-show="e.deferred_total > 1" class="text-[10px] bg-gusto-suave dark:bg-amber-900/40 text-gusto-fuerte dark:text-amber-400 rounded-full px-1.5 py-0.5 font-semibold shrink-0"
+                        x-text="'📅 ' + e.deferred_index + '/' + e.deferred_total"></span>
+                </div>
+              </td>
+              <td class="py-2.5 px-2 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap" x-text="catLabel(e.categoria)"></td>
+              <td class="py-2.5 px-2 text-xs text-slate-600 dark:text-slate-300" x-text="e.user_name"></td>
+              <td class="py-2.5 px-2 text-xs text-slate-500 hidden lg:table-cell max-w-[200px] truncate" x-text="e.metodo_pago && e.metodo_pago !== 'Sin especificar' ? e.metodo_pago : '—'"></td>
+              <td class="py-2.5 px-2 text-xs text-slate-500 text-right whitespace-nowrap" x-text="'$' + Math.round(e.monto_cop || 0).toLocaleString('de-DE')"></td>
+              <td class="py-2.5 px-2 text-right font-semibold whitespace-nowrap" x-text="fmtUsd(e.monto_usd)"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Celular: lista -->
+    <div class="md:hidden divide-y divide-slate-100 dark:divide-slate-800/80 -mx-1 px-1">
       <template x-for="e in regularExpenses" :key="e.id">
         <div
           @click="openEdit(e)"
@@ -1499,7 +1618,7 @@
 
   <!-- ──────────────── Análisis de gasto diario ──────────────── -->
   <section id="analytics-section" x-show="analytics.open && view === 'resumen'" style="display:none"
-           class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm">
+           class="bg-white dark:bg-slate-900 rounded-2xl p-5 mb-4 fade shadow-sm">
     <div class="flex items-center justify-between mb-3">
       <div>
         <h2 class="text-sm font-semibold">📊 Análisis de gasto</h2>
@@ -1648,8 +1767,148 @@
 
   <footer class="text-center text-[11px] text-slate-400 dark:text-slate-700 mt-8 space-y-1">
     <div>@gastos_gg_bot · TRM <span x-text="rates.TRM"></span> · BOB <span x-text="rates.BOB_RATE"></span> · AED <span x-text="rates.AED_RATE"></span> · CLP <span x-text="rates.CLP_RATE"></span> · ARS <span x-text="rates.ARS_RATE"></span></div>
-    <div class="text-slate-300 dark:text-slate-800">v8 · <span x-text="summary.budget_limit_usd ? '$' + summary.budget_limit_usd + ' USD/mes' : ''"></span></div>
+    <div class="text-slate-300 dark:text-slate-700">v9 · <span x-text="summary.budget_limit_usd ? '$' + summary.budget_limit_usd + ' USD/mes' : ''"></span></div>
   </footer>
+  </main>
+
+  <!-- ════════════════ Barra flotante (celular) con "+" en el centro ════════════════ -->
+  <nav class="lg:hidden fixed inset-x-3 z-40 rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur shadow-lg border border-slate-200/70 dark:border-slate-800 px-1.5 py-1.5 flex items-center justify-around text-[10px] text-slate-500"
+       style="bottom: max(env(safe-area-inset-bottom), 12px)" data-tour="nav-movil" aria-label="Secciones">
+    <template x-for="t in views.slice(0, 2)" :key="'nb' + t.key">
+        <button @click="view = t.key" class="flex flex-col items-center gap-0.5 px-2 py-1 min-w-[56px] rounded-full transition"
+          :class="view === t.key ? 'text-slate-900 dark:text-slate-100 font-semibold' : ''">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" :stroke-width="view === t.key ? 2.2 : 1.7" stroke-linecap="round" stroke-linejoin="round" x-html="t.svg"></svg>
+          <span x-text="t.corto || t.label"></span>
+        </button>
+    </template>
+    <button @click="$store.quick.openModal(quickCtx())" data-tour="add-movil" aria-label="Anotar gasto"
+      class="w-12 h-12 -my-3 rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 grid place-items-center text-2xl font-light shadow-lg shrink-0">+</button>
+    <template x-for="t in views.slice(2)" :key="'nb' + t.key">
+        <button @click="view = t.key" class="flex flex-col items-center gap-0.5 px-2 py-1 min-w-[56px] rounded-full transition"
+          :class="view === t.key ? 'text-slate-900 dark:text-slate-100 font-semibold' : ''">
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" :stroke-width="view === t.key ? 2.2 : 1.7" stroke-linecap="round" stroke-linejoin="round" x-html="t.svg"></svg>
+          <span x-text="t.corto || t.label"></span>
+        </button>
+    </template>
+  </nav>
+</div>
+
+<!-- ──────────────── ➕ Anotar gasto (rápido) ──────────────── -->
+<div
+  x-data
+  x-show="$store.quick.open"
+  x-cloak
+  class="fixed inset-0 z-50 flex items-end sm:items-center justify-center modal-backdrop bg-slate-900/40 dark:bg-slate-950/70"
+  @click.self="$store.quick.close()"
+  @keydown.escape.window="$store.quick.close()"
+>
+  <div x-show="$store.quick.open" x-transition
+    class="bg-white dark:bg-slate-900 w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-xl p-5 sm:p-6 max-h-[92vh] overflow-y-auto"
+    style="padding-bottom: max(env(safe-area-inset-bottom), 20px)">
+    <div class="flex items-start justify-between">
+      <div>
+        <div class="text-xs text-slate-500">Anotar gasto</div>
+        <div class="num text-2xl font-semibold">¿Cuánto fue?</div>
+      </div>
+      <button @click="$store.quick.close()" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1" aria-label="Cerrar">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <form @submit.prevent="$store.quick.save()" class="mt-4 space-y-3">
+      <div class="flex items-stretch gap-2">
+        <input x-ref="qmonto" type="text" inputmode="decimal" autocomplete="off" placeholder="0"
+          x-model="$store.quick.form.monto" @input="$store.quick.error = null"
+          class="num flex-1 min-w-0 text-4xl font-semibold bg-slate-100 dark:bg-slate-800 rounded-2xl px-4 py-3 text-slate-900 dark:text-slate-100 placeholder:text-slate-300 dark:placeholder:text-slate-600">
+        <select x-model="$store.quick.form.moneda" class="bg-slate-100 dark:bg-slate-800 rounded-2xl px-3 text-sm font-semibold">
+          <template x-for="m in $store.quick.monedas" :key="m"><option :value="m" x-text="m"></option></template>
+        </select>
+      </div>
+      <div class="text-[11px] text-slate-500 -mt-1 px-1" x-show="$store.quick.preview()" x-text="$store.quick.preview()"></div>
+
+      <div x-show="$store.quick.frecuentes.length" class="flex flex-wrap gap-1.5">
+        <template x-for="c in $store.quick.frecuentes" :key="'qf' + c.key">
+          <button type="button" @click="$store.quick.form.categoria = c.key"
+            class="text-xs rounded-full px-3 py-1.5 transition"
+            :class="$store.quick.form.categoria === c.key ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'"
+            x-text="c.label"></button>
+        </template>
+      </div>
+      <label class="block">
+        <span class="text-[11px] text-slate-500 px-1">Categoría</span>
+        <select x-model="$store.quick.form.categoria" class="mt-0.5 w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2.5 text-sm">
+          <option value="">Elige una…</option>
+          <template x-for="c in $store.quick.categorias" :key="'qc' + c.key"><option :value="c.key" x-text="c.label"></option></template>
+        </select>
+      </label>
+      <label class="block">
+        <span class="text-[11px] text-slate-500 px-1">Nota (opcional)</span>
+        <input type="text" x-model="$store.quick.form.nota" maxlength="200" placeholder="Ej. almuerzo con clientes"
+          class="mt-0.5 w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2.5 text-sm">
+      </label>
+      <div class="grid grid-cols-2 gap-2">
+        <label class="block min-w-0">
+          <span class="text-[11px] text-slate-500 px-1">Método de pago</span>
+          <select x-model="$store.quick.form.metodo_pago" class="mt-0.5 w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2.5 text-sm">
+            <template x-for="m in $store.quick.metodos" :key="'qm' + m"><option :value="m" x-text="m"></option></template>
+          </select>
+        </label>
+        <label class="block min-w-0">
+          <span class="text-[11px] text-slate-500 px-1">Fecha</span>
+          <input type="date" x-model="$store.quick.form.fecha" :max="$store.quick.hoy()"
+            class="mt-0.5 w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2 text-sm">
+        </label>
+      </div>
+      <div>
+        <span class="text-[11px] text-slate-500 px-1">¿Quién?</span>
+        <div class="mt-0.5 flex rounded-full bg-slate-100 dark:bg-slate-800 p-1 text-sm">
+          <template x-for="u in ['Daniel', 'Mado', 'Tuo']" :key="'qu' + u">
+            <button type="button" @click="$store.quick.form.user_name = u" class="flex-1 rounded-full py-1.5 transition"
+              :class="$store.quick.form.user_name === u ? 'bg-white dark:bg-slate-900 shadow-sm font-semibold' : 'text-slate-500'" x-text="u"></button>
+          </template>
+        </div>
+      </div>
+      <div x-show="$store.quick.error" class="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/50 rounded-xl px-3 py-2" x-text="$store.quick.error"></div>
+      <button type="submit" :disabled="$store.quick.busy"
+        class="w-full rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 py-3 text-sm font-semibold disabled:opacity-50 transition"
+        x-text="$store.quick.busy ? 'Guardando…' : 'Guardar gasto'"></button>
+      <p class="text-[11px] text-slate-400 text-center">Queda igual que si lo mandaras al bot de Telegram.</p>
+    </form>
+  </div>
+</div>
+
+<!-- Aviso corto (gasto guardado, etc.) -->
+<div x-data x-show="$store.quick.toast" x-cloak x-transition.opacity
+  class="fixed left-1/2 -translate-x-1/2 z-[70] bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 rounded-full px-4 py-2.5 text-sm shadow-lg max-w-[92vw] text-center"
+  style="bottom: calc(max(env(safe-area-inset-bottom), 12px) + 76px)" x-text="$store.quick.toast"></div>
+
+<!-- ──────────────── 🧭 Recorrido guiado (primera vez de cada persona) ──────────────── -->
+<div x-data x-show="$store.tour.on" x-cloak @keydown.escape.window="$store.tour.on && $store.tour.end()">
+  <!-- bloquea clics fuera de la tarjeta -->
+  <div class="fixed inset-0 z-[59]" :class="$store.tour.rect ? '' : 'bg-slate-950/55'"></div>
+  <!-- foco: hueco transparente sobre lo que se explica, el resto oscurecido -->
+  <div x-show="$store.tour.rect" class="fixed z-[60] pointer-events-none rounded-2xl transition-all duration-200"
+    style="box-shadow: 0 0 0 4px #e5a54b, 0 0 0 9999px rgba(20,19,17,.58)"
+    :style="$store.tour.rect ? { top: $store.tour.rect.top + 'px', left: $store.tour.rect.left + 'px', width: $store.tour.rect.width + 'px', height: $store.tour.rect.height + 'px' } : {}"></div>
+  <div id="tour-card" class="fixed z-[61] bg-white dark:bg-slate-900 rounded-3xl shadow-2xl p-5 w-[min(360px,calc(100vw-24px))]"
+    :style="$store.tour.cardStyle" role="dialog" aria-live="polite">
+    <div class="flex items-center justify-between text-[11px] text-slate-400">
+      <span x-text="($store.tour.i + 1) + ' de ' + $store.tour.steps.length"></span>
+      <button @click="$store.tour.end()" class="hover:text-slate-700 dark:hover:text-slate-200">Saltar</button>
+    </div>
+    <div class="num text-xl font-semibold mt-1" x-text="$store.tour.titulo()"></div>
+    <p class="text-sm text-slate-600 dark:text-slate-300 mt-1.5 leading-relaxed" x-html="$store.tour.step().text"></p>
+    <div class="mt-4 flex items-center gap-2">
+      <div class="flex gap-1">
+        <template x-for="(st, k) in $store.tour.steps" :key="'td' + k">
+          <span class="h-1.5 rounded-full transition-all" :class="k === $store.tour.i ? 'w-4 bg-gusto' : 'w-1.5 bg-slate-200 dark:bg-slate-700'"></span>
+        </template>
+      </div>
+      <button x-show="$store.tour.i > 0" @click="$store.tour.go(-1)" class="ml-auto text-sm text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 px-2">Atrás</button>
+      <button @click="$store.tour.go(1)" :class="$store.tour.i > 0 ? '' : 'ml-auto'"
+        class="rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-4 py-2 text-sm font-medium"
+        x-text="$store.tour.i === $store.tour.steps.length - 1 ? 'Listo ✓' : ($store.tour.i === 0 ? 'Empezar' : 'Siguiente')"></button>
+    </div>
+  </div>
 </div>
 
 <!-- ──────────────── Edit modal ──────────────── -->
@@ -3610,7 +3869,7 @@
           <button
             @click="$store.guide.active = i"
             :class="$store.guide.active === i
-              ? 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-300 border-emerald-500'
+              ? 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100 border-slate-900 dark:border-slate-100'
               : 'text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-700 dark:hover:text-slate-300'"
             class="px-3 py-1.5 rounded-t-md border-b-2 whitespace-nowrap transition flex items-center gap-1"
           >
@@ -3624,8 +3883,44 @@
     <!-- Scrollable body -->
     <div class="flex-1 overflow-y-auto px-5 py-5 scroll-area text-sm leading-relaxed space-y-4">
 
+      <!-- ── 0. Lo nuevo (rediseño nov-2026) ── -->
+      <div x-show="$store.guide.active === 0" class="fade space-y-4">
+        <div>
+          <div class="num text-2xl font-semibold">✨ Lo nuevo en la página</div>
+          <p class="text-slate-600 dark:text-slate-400 text-sm mt-1">Más clara, con gráficas y lista para usar en el celular y en el computador.</p>
+        </div>
+        <button @click="$store.guide.close(); $store.tour.start()"
+          class="w-full sm:w-auto rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-5 py-2.5 text-sm font-medium">🧭 Ver el recorrido paso a paso</button>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <div class="rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-4">
+            <div class="font-semibold text-sm">🧭 Cuatro secciones</div>
+            <p class="text-xs text-slate-600 dark:text-slate-400 mt-1"><b>Resumen</b> (el mes), <b>Revisión</b> (gráficas), <b>Movimientos</b> (cada gasto) y <b>Ajustes</b>. En el computador están en el menú de la izquierda; en el celular, en la barra de abajo.</p>
+          </div>
+          <div class="rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-4">
+            <div class="font-semibold text-sm">➕ Anotar gasto</div>
+            <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">El botón <b>+</b> (abajo en el celular, arriba a la derecha en el computador). Monto, moneda (COP, USD, BOB, AED, CLP, ARS), categoría, método y quién. La conversión usa la tasa del mes. El bot de Telegram sigue igual.</p>
+          </div>
+          <div class="rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-4">
+            <div class="font-semibold text-sm">📊 Revisión con gráficas</div>
+            <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">Mes a mes contra el presupuesto, necesario o gusto, en qué se fue, cada día (mapa de calor), qué día de la semana sale más caro y una mini gráfica por categoría. Toca una barra o una tarjeta para ver el detalle.</p>
+          </div>
+          <div class="rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-4">
+            <div class="font-semibold text-sm">🌓 Día y noche</div>
+            <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">La página se pone oscura sola de 6 pm a 6 am. Si prefieres fijarla, en Ajustes → <b>Tema</b> (o abajo del menú en el computador).</p>
+          </div>
+          <div class="rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-4">
+            <div class="font-semibold text-sm">🧾 Movimientos</div>
+            <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">Toca cualquier gasto para editarlo o borrarlo. Arriba eliges el mes y si quieres ver 1, 3, 6 o 12 meses.</p>
+          </div>
+          <div class="rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-4">
+            <div class="font-semibold text-sm">🔐 Cada uno con su PIN</div>
+            <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">Daniel y Mado entran con su PIN. Los gastos que anotas desde aquí quedan a tu nombre (puedes cambiarlo en la ventana).</p>
+          </div>
+        </div>
+      </div>
+
       <!-- ── 0. Welcome ── -->
-      <div x-show="$store.guide.active === 0" class="fade">
+      <div x-show="$store.guide.active === 1" class="fade">
         <div class="text-2xl font-bold mb-2">👋 Hola Daniel y Mado</div>
         <p class="text-slate-600 dark:text-slate-400">
           Esta es la herramienta familiar para controlar el presupuesto mensual de la casa.
@@ -3664,13 +3959,13 @@
         </p>
 
         <div class="mt-4 p-3 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs text-slate-700 dark:text-slate-300">
-          <strong>Presupuesto mensual:</strong> $5,000 USD (≈ $18,500,000 COP)
-          · reinicia cada primero de mes a las 12:01 AM hora Colombia.
+          <strong>Presupuesto mensual:</strong> se configura en Ajustes → Categorías y presupuesto
+          · el mes reinicia cada primero de mes a las 12:01 AM hora Colombia.
         </div>
       </div>
 
       <!-- ── 1. Registrar gasto (Telegram) ── -->
-      <div x-show="$store.guide.active === 1" class="fade space-y-4">
+      <div x-show="$store.guide.active === 2" class="fade space-y-4">
         <h3 class="text-lg font-bold">📱 Cómo registrar un gasto por Telegram</h3>
 
         <div>
@@ -3732,7 +4027,7 @@
       </div>
 
       <!-- ── 2. Categorías disponibles ── -->
-      <div x-show="$store.guide.active === 2" class="fade space-y-4">
+      <div x-show="$store.guide.active === 3" class="fade space-y-4">
         <h3 class="text-lg font-bold">📂 Categorías disponibles</h3>
         <p class="text-slate-600 dark:text-slate-400 text-xs">
           Estas son las categorías que el bot entiende. Puedes escribirlas directamente
@@ -3762,13 +4057,14 @@
       </div>
 
       <!-- ── 3. Ver y editar (dashboard) ── -->
-      <div x-show="$store.guide.active === 3" class="fade space-y-4">
+      <div x-show="$store.guide.active === 4" class="fade space-y-4">
         <h3 class="text-lg font-bold">💻 Ver y editar gastos</h3>
 
         <div>
           <div class="font-semibold mb-1">Qué muestra el dashboard</div>
           <ul class="text-slate-600 dark:text-slate-400 text-xs space-y-1 list-disc pl-5">
-            <li><strong>Gauge mensual:</strong> cuánto llevas vs el tope de $5,000 USD</li>
+            <li><strong>Resumen:</strong> cuánto llevan en el mes frente al presupuesto, ingresos y P&amp;G</li>
+            <li><strong>Revisión:</strong> gráficas por tipo de gasto, categoría, mes y día</li>
             <li><strong>Ritmo:</strong> "Vas rápido" / "Buen ritmo" / "En línea" según el día del mes</li>
             <li><strong>Por usuario:</strong> cuánto ha gastado Daniel vs Mado</li>
             <li><strong>Categorías con gasto:</strong> qué categorías están activas este mes con barras de progreso</li>
@@ -3806,7 +4102,7 @@
         <div>
           <div class="font-semibold mb-1">Cambiar de mes</div>
           <p class="text-slate-600 dark:text-slate-400 text-xs">
-            Selector arriba a la derecha del header. Muestra los últimos 12 meses.
+            Barra de meses arriba de Resumen y Movimientos (los últimos 18 meses), con 1, 3, 6, 12 meses o el año.
           </p>
         </div>
 
@@ -3820,7 +4116,7 @@
       </div>
 
       <!-- ── 4. Income + P&L ── -->
-      <div x-show="$store.guide.active === 4" class="fade space-y-4">
+      <div x-show="$store.guide.active === 5" class="fade space-y-4">
         <h3 class="text-lg font-bold">💼 Ingresos y P&G familiar</h3>
 
         <p class="text-slate-600 dark:text-slate-400 text-xs">
@@ -3879,11 +4175,11 @@
       </div>
 
       <!-- ── 5. Configurar (⚙️) ── -->
-      <div x-show="$store.guide.active === 5" class="fade space-y-4">
+      <div x-show="$store.guide.active === 6" class="fade space-y-4">
         <h3 class="text-lg font-bold">⚙️ Configurar categorías y presupuestos</h3>
 
         <p class="text-slate-600 dark:text-slate-400 text-xs">
-          El ícono de <strong>engranaje</strong> en el header abre el editor de categorías.
+          En <strong>Ajustes → Categorías y presupuesto</strong> se abre el editor de categorías.
           Ahí puedes ajustar TODO sin necesidad de tocar código:
         </p>
 
@@ -3904,7 +4200,7 @@
           <ul class="text-xs text-slate-600 dark:text-slate-400 mt-1 list-disc pl-5">
             <li><span class="text-emerald-600 dark:text-emerald-400 font-semibold">Verde</span> — tienes disponible</li>
             <li><span class="text-amber-600 dark:text-amber-400 font-semibold">Ámbar</span> — estás cerca al tope</li>
-            <li><span class="text-red-600 dark:text-red-400 font-semibold">Rojo</span> — te pasaste del tope de $5,000</li>
+            <li><span class="text-red-600 dark:text-red-400 font-semibold">Rojo</span> — te pasaste del tope del mes</li>
           </ul>
           <p class="text-xs text-slate-600 dark:text-slate-400 mt-2">
             Así sabes si puedes guardar los cambios ANTES de presionar Guardar, sin hacer cuentas mentales.
@@ -3921,7 +4217,7 @@
       </div>
 
       <!-- ── 6. FAQ ── -->
-      <div x-show="$store.guide.active === 6" class="fade space-y-3">
+      <div x-show="$store.guide.active === 7" class="fade space-y-3">
         <h3 class="text-lg font-bold">❓ Preguntas frecuentes</h3>
 
         <details class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 text-xs">
@@ -4014,7 +4310,7 @@
             <button
               @click="$store.guide.active = i"
               class="w-2 h-2 rounded-full transition"
-              :class="$store.guide.active === i ? 'bg-emerald-500 w-4' : 'bg-slate-300 dark:bg-slate-700'"
+              :class="$store.guide.active === i ? 'bg-gusto w-4' : 'bg-slate-300 dark:bg-slate-700'"
               :aria-label="'Sección ' + (i+1)"
             ></button>
           </template>
@@ -4950,6 +5246,216 @@ document.addEventListener('alpine:init', () => {
   // simulador) se arma aquí. Los colores son clases completas para que
   // Tailwind las compile.
   const REV_MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  // ──────────────── Gráficas de Revisión (Chart.js) ────────────────
+  // Fuera de Alpine a propósito: las gráficas no deben ser reactivas. Se
+  // destruyen y se vuelven a dibujar cuando cambian los datos, la moneda,
+  // el filtro o el tema.
+  window.RevCharts = {
+    charts: {},
+    colors() {
+      const dark = document.documentElement.classList.contains('dark');
+      return {
+        dark, es: '#6aa3cc', st: '#a99bd6', gu: '#e5a54b', sc: '#a9a297', bud: '#e07a5f', ok: '#3d7a55',
+        ink: dark ? '#a9a297' : '#7e786e', grid: dark ? '#2d2a26' : '#eeebe4', card: dark ? '#1e1c19' : '#ffffff',
+        track: dark ? '#2d2a26' : '#f1ece2', rest: dark ? '#47433d' : '#e2dccf', line: dark ? '#e8e4dc' : '#1e1c19',
+      };
+    },
+    heatColors() {
+      return document.documentElement.classList.contains('dark')
+        ? ['#2d2a26', '#5c4720', '#9a6413', '#d9973b', '#f6cf8a']
+        : ['#f1ece2', '#f3d9a4', '#e5a54b', '#c97a2b', '#8f4d16'];
+    },
+    kill(id) { if (this.charts[id]) { try { this.charts[id].destroy(); } catch (e) {} delete this.charts[id]; } },
+    make(id, cfg) {
+      this.kill(id);
+      const el = document.getElementById(id);
+      if (!el || !window.Chart) return;
+      try { this.charts[id] = new Chart(el, cfg); } catch (e) { console.warn('gráfica', id, e); }
+    },
+    ymd(t) { return t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0'); },
+    // Días del período (hasta hoy si el período llega al mes en curso)
+    dias(d) {
+      const [y0, m0] = d.periodo.desde.split('-').map(Number), [y1, m1] = d.periodo.hasta.split('-').map(Number);
+      const ini = new Date(y0, m0 - 1, 1), fin0 = new Date(y1, m1, 0), hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
+      return { ini, fin: fin0 > hoy ? hoy : fin0 };
+    },
+    render() {
+      const R = Alpine.store('review'), d = R.data;
+      if (!d) return;
+      if (!window.Chart) { R.chartsOk = false; this.heat(R, d); return; }
+      R.chartsOk = true;
+      const C = this.colors();
+      Chart.defaults.font.family = 'Inter, system-ui, sans-serif';
+      Chart.defaults.font.size = 11;
+      Chart.defaults.color = C.ink;
+      const cop = R.moneda === 'cop';
+      const money = (x) => R.fmt(x);
+      const short = (x) => { const a = Math.abs(x); const p = cop ? '$' : 'US$';
+        if (a >= 1e6) return p + (x / 1e6).toLocaleString('es-CO', { maximumFractionDigits: 1 }) + 'M';
+        if (a >= 1e3) return p + (x / 1e3).toLocaleString('es-CO', { maximumFractionDigits: 1 }) + 'k';
+        return p + Math.round(x); };
+      const meses = d.periodo.meses || d.por_mes.map(m => m.mes);
+      const lab = meses.map(m => REV_MESES[Number(m.slice(5)) - 1] + (meses.length > 12 ? ' ' + m.slice(2, 4) : ''));
+      const porMes = meses.map(m => d.por_mes.find(x => x.mes === m) || { usd: 0, cop: 0, por_tipo: {} });
+      const tipoMes = (t) => porMes.map(m => R.v(m.por_tipo && m.por_tipo[t]));
+      const tipos = [['esencial', 'Esencial', C.es], ['estilo', 'Estilo de vida', C.st], ['gusto', 'Gusto', C.gu]];
+      if (d.totales.por_tipo.sin_clasificar && d.totales.por_tipo.sin_clasificar.usd > 0) tipos.push(['sin_clasificar', 'Sin clasificar', C.sc]);
+      const presu = R.presupuesto();
+      const axisY = { stacked: true, beginAtZero: true, grid: { color: C.grid }, border: { display: false }, ticks: { callback: v => short(v), maxTicksLimit: 6 } };
+      const tip = { backgroundColor: C.dark ? '#f3f1ec' : '#1e1c19', titleColor: C.dark ? '#1e1c19' : '#faf9f6', bodyColor: C.dark ? '#1e1c19' : '#faf9f6', padding: 10, cornerRadius: 10, boxPadding: 4 };
+      const nm = d.periodo.n_meses;
+
+      // KPI: medidor del presupuesto
+      if (presu) {
+        const pct = R.pctPresupuesto();
+        const col = pct > 100 ? C.bud : (pct > 90 ? C.gu : C.ok);
+        this.make('rev-gauge', { type: 'doughnut',
+          data: { datasets: [{ data: [Math.min(pct, 100), Math.max(0, 100 - pct)], backgroundColor: [col, C.track], borderWidth: 0, borderRadius: 6 }] },
+          options: { maintainAspectRatio: false, rotation: -110, circumference: 220, cutout: '78%', animation: { duration: 500 },
+            plugins: { legend: { display: false }, tooltip: { enabled: false } } } });
+      } else this.kill('rev-gauge');
+
+      // KPI: mini línea del total por mes
+      if (nm > 1) {
+        this.make('rev-spark', { type: 'line',
+          data: { labels: lab, datasets: [{ data: porMes.map(m => R.v(m)), borderColor: C.line, borderWidth: 2, tension: .35, pointRadius: 0, fill: true, backgroundColor: C.dark ? 'rgba(232,228,220,.08)' : 'rgba(30,28,25,.06)' }] },
+          options: { maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { enabled: false } }, scales: { x: { display: false }, y: { display: false, beginAtZero: true } } } });
+      } else this.kill('rev-spark');
+
+      // Mes a mes (o día a día si el período es un solo mes)
+      if (nm > 1) {
+        const ds = tipos.map(([t, l, c]) => ({ label: l, data: tipoMes(t), backgroundColor: c, borderRadius: 6, stack: 's', borderSkipped: false, maxBarThickness: 46 }));
+        if (presu) ds.push({ label: 'Presupuesto', type: 'line', data: lab.map(() => presu), borderColor: C.bud, borderDash: [6, 5], borderWidth: 2, pointRadius: 0, pointHoverRadius: 0, order: -1 });
+        this.make('rev-mes', { type: 'bar', data: { labels: lab, datasets: ds },
+          options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { display: false }, tooltip: { ...tip, callbacks: {
+              label: c => ' ' + c.dataset.label + ': ' + money(c.parsed.y),
+              footer: items => { const tot = items.filter(i => i.dataset.type !== 'line').reduce((a, i) => a + i.parsed.y, 0); return 'Total: ' + money(tot); } } } },
+            scales: { x: { stacked: true, grid: { display: false }, border: { display: false } }, y: axisY } } });
+      } else {
+        const { ini, fin } = this.dias(d);
+        const labs = [], gus = [], rest = [];
+        for (let t = new Date(ini); t <= fin; t.setDate(t.getDate() + 1)) {
+          const v = d.por_dia[this.ymd(t)] || {};
+          const tot = cop ? (v.cop || 0) : (v.usd || 0), g = cop ? (v.gusto_cop || 0) : (v.gusto_usd || 0);
+          labs.push(t.getDate()); gus.push(g); rest.push(Math.max(0, tot - g));
+        }
+        this.make('rev-mes', { type: 'bar', data: { labels: labs, datasets: [
+            { label: 'Gustos', data: gus, backgroundColor: C.gu, borderRadius: 4, stack: 's', borderSkipped: false, maxBarThickness: 18 },
+            { label: 'Lo demás', data: rest, backgroundColor: C.es, borderRadius: 4, stack: 's', borderSkipped: false, maxBarThickness: 18 } ] },
+          options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { display: false }, tooltip: { ...tip, callbacks: { title: i => 'Día ' + i[0].label, label: c => ' ' + c.dataset.label + ': ' + money(c.parsed.y) } } },
+            scales: { x: { stacked: true, grid: { display: false }, border: { display: false } }, y: axisY } } });
+      }
+
+      // Dona: necesario o gusto
+      this.make('rev-dona', { type: 'doughnut',
+        data: { labels: tipos.map(t => t[1]), datasets: [{ data: tipos.map(([t]) => R.v(d.totales.por_tipo[t])), backgroundColor: tipos.map(t => t[2]), borderWidth: 3, borderColor: C.card, hoverOffset: 6 }] },
+        options: { maintainAspectRatio: false, cutout: '72%',
+          onClick: (e, els) => { if (els.length) { const t = tipos[els[0].index][0]; R.filtroTipo = R.filtroTipo === t ? 'todos' : t; } },
+          plugins: { legend: { display: false }, tooltip: { ...tip, callbacks: { label: c => ' ' + c.label + ': ' + money(c.parsed) + ' (' + R.pctTipo(tipos[c.dataIndex][0]).toLocaleString('es-CO') + '%)' } } } } });
+
+      // En qué se fue: las 12 más grandes (respeta el filtro por tipo y el nivel)
+      const top = R.filas().slice(0, 12);
+      const colTipo = { esencial: C.es, estilo: C.st, gusto: C.gu };
+      const corta = (s) => s.length > 22 ? s.slice(0, 21) + '…' : s;
+      this.make('rev-top', { type: 'bar',
+        data: { labels: top.map(c => (c.icon || '') + '  ' + corta(c.label)), datasets: [{ data: top.map(c => R.v(c)), backgroundColor: top.map(c => colTipo[c.naturaleza] || C.sc), borderRadius: 8, borderSkipped: false, maxBarThickness: 22 }] },
+        options: { indexAxis: 'y', maintainAspectRatio: false,
+          onClick: (e, els) => { if (els.length) R.verDetalle(top[els[0].index].key); },
+          onHover: (e, els) => { e.native && (e.native.target.style.cursor = els.length ? 'pointer' : 'default'); },
+          plugins: { legend: { display: false }, tooltip: { ...tip, callbacks: { title: i => top[i[0].dataIndex].label, label: c => ' ' + money(c.parsed.x) + ' · ' + top[c.dataIndex].count + ' veces · ' + top[c.dataIndex].pct.toFixed(1).replace('.', ',') + '%' } } },
+          scales: { x: { beginAtZero: true, grid: { color: C.grid }, border: { display: false }, ticks: { callback: v => short(v), maxTicksLimit: 5 } },
+                    y: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 12 }, color: C.dark ? '#d7d1c6' : '#47433d' } } } } });
+
+      // Área apilada por tipo
+      if (nm > 1) {
+        const area = ([t, l, c], i) => ({ label: l, data: tipoMes(t), borderColor: c, backgroundColor: c + (C.dark ? '55' : '66'), fill: i === 0 ? 'origin' : '-1', tension: .4, borderWidth: 2, pointRadius: 3, pointBackgroundColor: C.card, pointBorderColor: c });
+        this.make('rev-area', { type: 'line', data: { labels: lab, datasets: tipos.map(area) },
+          options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { display: false }, tooltip: { ...tip, callbacks: { label: c => ' ' + c.dataset.label + ': ' + money(c.parsed.y) } } },
+            scales: { x: { grid: { display: false }, border: { display: false } }, y: axisY } } });
+      } else this.kill('rev-area');
+
+      // Qué días gastan más (promedio por día de la semana)
+      const dn = ['lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom'], largo = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
+      const sum = [0, 0, 0, 0, 0, 0, 0], gus = [0, 0, 0, 0, 0, 0, 0], cnt = [0, 0, 0, 0, 0, 0, 0];
+      const { ini, fin } = this.dias(d);
+      for (let t = new Date(ini); t <= fin; t.setDate(t.getDate() + 1)) {
+        const i = (t.getDay() + 6) % 7, v = d.por_dia[this.ymd(t)] || {};
+        sum[i] += cop ? (v.cop || 0) : (v.usd || 0); gus[i] += cop ? (v.gusto_cop || 0) : (v.gusto_usd || 0); cnt[i]++;
+      }
+      const prom = sum.map((x, i) => cnt[i] ? x / cnt[i] : 0), promG = gus.map((x, i) => cnt[i] ? x / cnt[i] : 0);
+      this.make('rev-semana', { type: 'bar', data: { labels: dn, datasets: [
+          { label: 'Gustos', data: promG, backgroundColor: C.gu, borderRadius: 6, stack: 's', borderSkipped: false, maxBarThickness: 30 },
+          { label: 'Lo demás', data: prom.map((x, i) => Math.max(0, x - promG[i])), backgroundColor: C.rest, borderRadius: 6, stack: 's', borderSkipped: false, maxBarThickness: 30 } ] },
+        options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { display: false }, tooltip: { ...tip, callbacks: { label: c => ' ' + c.dataset.label + ': ' + money(c.parsed.y) + ' por día' } } },
+          scales: { x: { stacked: true, grid: { display: false }, border: { display: false } }, y: { ...axisY, ticks: { callback: v => short(v), maxTicksLimit: 5 } } } } });
+      const sTxt = document.getElementById('rev-semana-txt');
+      if (sTxt) {
+        const imax = prom.indexOf(Math.max(...prom));
+        sTxt.innerHTML = prom[imax] > 0
+          ? 'El día más caro es el <b>' + largo[imax] + '</b>: ' + money(prom[imax]) + ' en promedio, ' + money(promG[imax]) + ' en gustos.'
+          : 'Sin gastos del día a día en este período.';
+      }
+
+      // Mini gráficas por categoría
+      if (nm > 1) {
+        R.miniCats().forEach((c, i) => {
+          const col = colTipo[c.naturaleza] || C.sc;
+          this.make('rev-mini-' + i, { type: 'line',
+            data: { labels: lab, datasets: [{ data: cop ? c.serie_cop : c.serie_usd, borderColor: col, backgroundColor: col + '33', fill: true, tension: .4, borderWidth: 2, pointRadius: 0, pointHoverRadius: 3 }] },
+            options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+              plugins: { legend: { display: false }, tooltip: { ...tip, displayColors: false, callbacks: { label: x => money(x.parsed.y) } } },
+              scales: { x: { display: false }, y: { display: false, beginAtZero: true } } } });
+        });
+      }
+      this.heat(R, d);
+    },
+    // Mapa de calor (con divs, no necesita Chart.js). Lunes arriba.
+    heat(R, d) {
+      const box = document.getElementById('rev-heat'), txt = document.getElementById('rev-heat-txt');
+      if (!box) return;
+      const cop = R.moneda === 'cop', shades = this.heatColors();
+      const { ini, fin } = this.dias(d);
+      const vals = [];
+      for (let t = new Date(ini); t <= fin; t.setDate(t.getDate() + 1)) {
+        const v = d.por_dia[this.ymd(t)] || {}; const x = cop ? (v.cop || 0) : (v.usd || 0); if (x > 0) vals.push(x);
+      }
+      vals.sort((a, b) => a - b);
+      const q = (p) => vals.length ? vals[Math.min(vals.length - 1, Math.floor(p * vals.length))] : 0;
+      const th = [q(.4), q(.7), q(.9)];
+      const lvl = (x) => x <= 0 ? 0 : x <= th[0] ? 1 : x <= th[1] ? 2 : x <= th[2] ? 3 : 4;
+      const s0 = new Date(ini); s0.setDate(s0.getDate() - ((s0.getDay() + 6) % 7));
+      let cells = '', col = 0, top = { x: 0, k: null }, conGasto = 0, total = 0;
+      const mesesCol = [];
+      for (let t = new Date(s0); t <= fin; t.setDate(t.getDate() + 1)) {
+        const wd = (t.getDay() + 6) % 7;
+        if (wd === 0 && t > s0) col++;
+        const k = this.ymd(t), v = d.por_dia[k] || {}, x = cop ? (v.cop || 0) : (v.usd || 0);
+        if (t >= ini && t.getDate() === 1) mesesCol.push([col, REV_MESES[t.getMonth()]]);
+        if (t < ini) { cells += '<div class="hm-cell"></div>'; continue; }
+        if (x > top.x) top = { x, k };
+        if (x > 0) conGasto++;
+        total++;
+        cells += '<div class="hm-cell" style="background:' + shades[lvl(x)] + '" title="' + R.fechaCorta(k) + ' · ' + R.fmt(x) + (v.n ? ' · ' + v.n + (v.n === 1 ? ' gasto' : ' gastos') : '') + '"></div>';
+      }
+      const ncol = col + 1;
+      if (!mesesCol.length || mesesCol[0][0] !== 0) mesesCol.unshift([0, REV_MESES[ini.getMonth()]]);
+      const paso = ncol > 30 ? 2 : 1;   // en 12 meses, una etiqueta cada 2 meses
+      const labels = mesesCol.filter((m, i) => i % paso === 0).map(([c, m]) => '<span style="grid-column:' + (c + 1) + ' / span 4">' + m + '</span>').join('');
+      const tmpl = 'grid-template-columns:repeat(' + ncol + ', minmax(0, 1fr))';
+      box.style.maxWidth = (ncol * 26) + 'px';
+      box.innerHTML = '<div class="grid text-[9px] text-slate-400 mb-1 h-[11px] leading-none" style="' + tmpl + '">' + labels + '</div>'
+        + '<div class="grid grid-rows-7 grid-flow-col gap-[3px]" style="' + tmpl + '">' + cells + '</div>';
+      if (txt) txt.innerHTML = conGasto
+        ? 'Gastaron algo <b>' + conGasto + ' de ' + total + ' días</b>. El día más alto fue el <b>' + R.fechaCorta(top.k) + '</b> (' + R.fmt(top.x) + ').'
+        : 'Sin gastos del día a día en este período.';
+    },
+  };
+  window.addEventListener('theme-changed', () => { if (Alpine.store('review').data) setTimeout(() => RevCharts.render(), 30); });
   const revYm = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
   Alpine.store('review', {
     loaded: false, loading: false, error: null, data: null,
@@ -4957,16 +5463,47 @@ document.addEventListener('alpine:init', () => {
     nivel: 'sub', filtroTipo: 'todos', abiertos: {}, simCat: '__gustos', simPct: 20, verTodas: false, LIMITE: 15,
     openTipos: false, tiposBusy: false, tiposError: null, tiposCats: [],
     presets: [
-      { key: 'mes', label: 'Este mes' }, { key: '3m', label: 'Últimos 3 meses' }, { key: '6m', label: 'Últimos 6 meses' },
-      { key: '12m', label: 'Últimos 12 meses' }, { key: 'anio', label: 'Este año' }, { key: 'custom', label: 'Elegir meses' },
+      { key: 'mes', label: 'Este mes', corto: 'Mes' }, { key: '3m', label: 'Últimos 3 meses', corto: '3m' }, { key: '6m', label: 'Últimos 6 meses', corto: '6m' },
+      { key: '12m', label: 'Últimos 12 meses', corto: '12m' }, { key: 'anio', label: 'Este año', corto: 'Año' }, { key: 'custom', label: 'Elegir meses', corto: 'Elegir' },
     ],
     tiposOrden: ['esencial', 'estilo', 'gusto', 'sin_clasificar'],
     TIPOS: {
-      esencial:       { label: 'Esencial',       corto: 'esencial', bar: 'bg-sky-500',    chip: 'bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300' },
-      estilo:         { label: 'Estilo de vida', corto: 'estilo',   bar: 'bg-violet-500', chip: 'bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300' },
-      gusto:          { label: 'Gusto',          corto: 'gusto',    bar: 'bg-amber-500',  chip: 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300' },
-      sin_clasificar: { label: 'Sin clasificar', corto: '?',        bar: 'bg-slate-400',  chip: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' },
-      mixto:          { label: 'Mixto',          corto: 'mixto',    bar: 'bg-slate-400',  chip: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' },
+      esencial:       { label: 'Esencial',       corto: 'esencial', bar: 'bg-esencial', suave: 'bg-esencial-suave dark:bg-sky-950/60',       chip: 'bg-esencial-suave text-esencial-fuerte dark:bg-sky-950/60 dark:text-sky-300' },
+      estilo:         { label: 'Estilo de vida', corto: 'estilo',   bar: 'bg-estilo',   suave: 'bg-estilo-suave dark:bg-violet-950/60',      chip: 'bg-estilo-suave text-estilo-fuerte dark:bg-violet-950/60 dark:text-violet-300' },
+      gusto:          { label: 'Gusto',          corto: 'gusto',    bar: 'bg-gusto',    suave: 'bg-gusto-suave dark:bg-amber-950/60',        chip: 'bg-gusto-suave text-gusto-fuerte dark:bg-amber-950/60 dark:text-amber-300' },
+      sin_clasificar: { label: 'Sin clasificar', corto: '?',        bar: 'bg-slate-400', suave: 'bg-slate-100 dark:bg-slate-800',            chip: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' },
+      mixto:          { label: 'Mixto',          corto: 'mixto',    bar: 'bg-slate-400', suave: 'bg-slate-100 dark:bg-slate-800',            chip: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' },
+    },
+    chartsOk: true,
+    // ── para la barra superior y las gráficas ──
+    periodoCorto() {
+      const d = this.data; if (!d) return '';
+      return this.mesCorto(d.periodo.desde) + (d.periodo.desde !== d.periodo.hasta ? ' – ' + this.mesCorto(d.periodo.hasta) : '');
+    },
+    personaLabel() { return ({ familia: 'familia', todos: 'todos', Tuo: 'Tuo' })[this.persona] || this.persona; },
+    // Presupuesto mensual (solo tiene sentido para la familia completa)
+    presupuesto() {
+      const d = this.data; if (!d || !d.presupuesto_mes) return 0;
+      if (this.persona !== 'familia' && this.persona !== 'todos') return 0;
+      return this.v(d.presupuesto_mes);
+    },
+    pctPresupuesto() {
+      const b = this.presupuesto(); if (!b) return 0;
+      return Math.round(100 * this.v(this.data.totales) / this.data.periodo.n_meses / b);
+    },
+    miniCats() {
+      if (!this.data) return [];
+      return this.data.categorias.filter(c => this.v(c) > 0).sort((a, b) => this.v(b) - this.v(a)).slice(0, 8);
+    },
+    // Abre el detalle de una categoría en el ranking y baja hasta ella
+    verDetalle(key) {
+      const esPadre = this.data && this.data.padres.some(p => p.key === key) && !this.data.categorias.some(c => c.key === key);
+      if (esPadre) this.nivel = 'cat';
+      if (this.filtroTipo !== 'todos' && !this.filas().some(c => c.key === key)) this.filtroTipo = 'todos';
+      const pos = this.filas().findIndex(c => c.key === key);
+      if (pos >= this.LIMITE) this.verTodas = true;
+      this.abiertos = { ...this.abiertos, [key]: true };
+      setTimeout(() => document.getElementById('rev-row-' + key)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
     },
     ensureLoaded() { if (!this.loaded && !this.loading) this.setPreset(this.preset); },
     setPreset(k) {
@@ -5132,6 +5669,196 @@ document.addEventListener('alpine:init', () => {
     async logout() {
       if (!confirm('¿Cerrar sesión en este dispositivo?')) return;
       try { await fetch('/api/logout', { method: 'POST' }); } finally { location.reload(); }
+    },
+  });
+
+  // ──────────────── ➕ Anotar gasto (rápido) ────────────────
+  // POST /api/expenses/quick: convierte con la tasa del mes en el servidor.
+  const qHoy = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  const qGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+  const qSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+  Alpine.store('quick', {
+    open: false, busy: false, error: null, toast: '', _t: null,
+    monedas: ['COP', 'USD', 'BOB', 'AED', 'CLP', 'ARS'],
+    categorias: [], metodos: [], frecuentes: [], rates: {},
+    form: { monto: '', moneda: 'COP', categoria: '', nota: '', metodo_pago: 'Sin especificar', user_name: 'Daniel', fecha: '' },
+    hoy() { return qHoy(); },
+    openModal(ctx) {
+      ctx = ctx || {};
+      this.categorias = ctx.categorias || this.categorias;
+      this.metodos = ctx.metodos && ctx.metodos.length ? ctx.metodos : (this.metodos.length ? this.metodos : ['Sin especificar']);
+      this.frecuentes = ctx.frecuentes || [];
+      this.rates = ctx.rates || this.rates;
+      const yo = Alpine.store('auth').user;
+      const quien = ['Daniel', 'Mado', 'Tuo'].includes(yo) ? yo : 'Daniel';
+      const metodo = qGet('quick_metodo_' + quien);
+      this.form = { monto: '', moneda: qGet('quick_moneda_' + quien) || 'COP', categoria: '', nota: '',
+        metodo_pago: metodo && this.metodos.includes(metodo) ? metodo : 'Sin especificar', user_name: quien, fecha: qHoy() };
+      this.error = null; this.busy = false; this.open = true;
+      setTimeout(() => document.querySelector('[x-ref="qmonto"]')?.focus(), 80);
+    },
+    close() { if (!this.busy) this.open = false; },
+    // "85.000" o "85,000" = 85 mil en pesos; "12,50" o "12.50" = 12,5 en dólares
+    parse() {
+      let t = String(this.form.monto || '').replace(/[\s$]/g, '');
+      if (!t) return 0;
+      if (this.form.moneda === 'COP' || this.form.moneda === 'CLP') return Number(t.replace(/[.,]/g, '')) || 0;
+      const lc = t.lastIndexOf(','), ld = t.lastIndexOf('.');
+      if (lc >= 0 && ld >= 0) { const dec = lc > ld ? ','  : '.'; t = t.split(dec === ',' ? '.' : ',').join(''); t = t.replace(dec, '.'); }
+      else if (lc >= 0 || ld >= 0) { const sep = lc >= 0 ? ',' : '.';
+        if (new RegExp('^\\d{1,3}(\\' + sep + '\\d{3})+$').test(t)) t = t.split(sep).join(''); else t = t.replace(sep, '.'); }
+      const n = Number(t);
+      return isFinite(n) ? n : 0;
+    },
+    preview() {
+      const n = this.parse(); if (!(n > 0)) return '';
+      const r = this.rates || {}, trm = r.TRM || 0, m = this.form.moneda;
+      const div = { USD: 1, BOB: r.BOB_RATE, AED: r.AED_RATE, CLP: r.CLP_RATE, ARS: r.ARS_RATE }[m];
+      const usd = m === 'COP' ? (trm ? n / trm : 0) : (div ? n / div : 0);
+      const f = (x, d) => x.toLocaleString('es-CO', { maximumFractionDigits: d });
+      if (m === 'COP') return '$' + f(n, 0) + ' pesos' + (usd ? ' ≈ US$' + f(usd, 2) : '');
+      if (m === 'USD') return 'US$' + f(n, 2) + (trm ? ' ≈ $' + f(n * trm, 0) + ' pesos' : '');
+      return f(n, 2) + ' ' + m + (usd ? ' ≈ US$' + f(usd, 2) + (trm ? ' · $' + f(usd * trm, 0) + ' pesos' : '') : '') + ' (tasa del mes)';
+    },
+    aviso(msg) { this.toast = msg; clearTimeout(this._t); this._t = setTimeout(() => { this.toast = ''; }, 3500); },
+    async save() {
+      if (this.busy) return;
+      const monto = this.parse();
+      if (!(monto > 0)) { this.error = 'Escribe un monto mayor que cero.'; return; }
+      if (!this.form.categoria) { this.error = 'Elige una categoría.'; return; }
+      if (this.form.fecha && this.form.fecha > qHoy()) { this.error = 'La fecha no puede ser futura.'; return; }
+      this.busy = true; this.error = null;
+      try {
+        const body = { ...this.form, monto, nota: (this.form.nota || '').trim() };
+        const r = await fetch('/api/expenses/quick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.detail || ('No se pudo guardar (' + r.status + ')'));
+        qSet('quick_moneda_' + this.form.user_name, this.form.moneda);
+        qSet('quick_metodo_' + this.form.user_name, this.form.metodo_pago);
+        this.busy = false; this.open = false;
+        this.aviso('✓ Guardado: $' + Math.round(d.monto_cop || 0).toLocaleString('de-DE') + ' (US$' + (d.monto_usd || 0).toLocaleString('es-CO', { maximumFractionDigits: 2 }) + ')');
+        window.dispatchEvent(new CustomEvent('expenses-changed'));
+        const rv = Alpine.store('review'); if (rv.loaded) rv.load(true);
+      } catch (e) { this.error = e.message || String(e); }
+      finally { this.busy = false; }
+    },
+  });
+
+  // ──────────────── 🧭 Recorrido guiado ────────────────
+  // Sale solo la primera vez que cada persona (por PIN) entra a la versión
+  // nueva (/api/tour). Se repite desde Ajustes o desde la guía.
+  let tourEl = null;
+  Alpine.store('tour', {
+    on: false, i: 0, user: null, rect: null, cardStyle: '', _mv: null,
+    steps: [
+      { title: (u) => '¡Hola' + (u ? ' ' + u : '') + '! 👋',
+        text: 'Renovamos la página de gastos: más clara, con gráficas nuevas, modo de noche automático y un botón para anotar gastos desde aquí. Te muestro lo nuevo en un minuto.' },
+      { sel: ['[data-tour=nav]', '[data-tour=nav-movil]'], view: 'resumen', title: 'Las 4 secciones',
+        text: '<b>Resumen</b> es el mes en curso. <b>Revisión</b> son las gráficas de dónde se va la plata. <b>Movimientos</b> es cada gasto (tócalo para editarlo). <b>Ajustes</b> es todo lo que se configura.' },
+      { sel: ['[data-tour=add]', '[data-tour=add-movil]'], view: 'resumen', title: 'Anotar un gasto',
+        text: 'Con el botón <b>+</b> anotas un gasto aquí mismo: monto, moneda, categoría y listo. Queda igual que si lo mandaras al bot de Telegram, que sigue funcionando como siempre.' },
+      { sel: ['[data-tour=rev-controles]'], view: 'revision', title: 'Revisión: qué quieres ver',
+        text: 'Escoge el período (mes, 3, 6 o 12 meses, o el año), de quién (familia, Daniel, Mado o Tuo) y si lo ves en dólares o en pesos.' },
+      { sel: ['[data-tour=rev-kpis]'], view: 'revision', title: 'Lo clave, arriba',
+        text: 'Cuánto gastan por mes frente al presupuesto, el total del período, qué parte se va en gustos y cuánto ahorrarían bajando los gustos un 20%.' },
+      { sel: ['[data-tour=rev-mes]'], view: 'revision', title: 'Mes a mes',
+        text: 'Cada barra es un mes, partida en <b style="color:#4f8bb8">esencial</b>, <b style="color:#8a79c4">estilo de vida</b> y <b style="color:#c98a2e">gusto</b>. La línea punteada es el presupuesto. Pasa el dedo o el mouse por encima para ver los números.' },
+      { sel: ['[data-tour=rev-dona]'], view: 'revision', title: 'Necesario o gusto',
+        text: 'Toca un tipo y el ranking de abajo muestra solo ese. En <b>En qué se fue</b>, toca una barra y se abre el detalle de esa categoría.' },
+      { sel: ['[data-tour=rev-dias]'], view: 'revision', title: 'Cada día',
+        text: 'Cada cuadrito es un día: entre más oscuro, más gastaron (sin contar fijos ni cuotas). Al lado está qué día de la semana sale más caro.' },
+      { sel: ['[data-tour=ajustes-grid]'], view: 'ajustes', title: 'Ajustes',
+        text: 'Fijos y diferidos, categorías y presupuesto, tipos de gasto, tasas, fechas de pago y conciliación. El <b>tema</b> está en automático (claro de día, oscuro de 6 pm a 6 am) y aquí lo puedes fijar.' },
+      { sel: ['[data-tour=guia]', '[data-tour=guia-movil]'], view: 'resumen', title: 'Siempre hay ayuda',
+        text: 'El botón <b>?</b> abre la guía de uso. Y en Ajustes → <b>Ver el recorrido otra vez</b> lo repites cuando quieras.' },
+    ],
+    step() { return this.steps[this.i] || {}; },
+    titulo() { const t = this.step().title; return typeof t === 'function' ? t(this.user) : (t || ''); },
+    async checkAuto() {
+      try {
+        const r = await fetch('/api/tour'); if (!r.ok) return;
+        const d = await r.json();
+        this.user = d.user && d.user !== 'dashboard' ? d.user : null;
+        if (!d.visto) setTimeout(() => { if (!this.on) this.start(); }, 700);
+      } catch (e) { /* sin recorrido */ }
+    },
+    start() {
+      if (!this.user) this.user = Alpine.store('auth').user || null;
+      Alpine.store('guide').open = false;
+      Alpine.store('quick').open = false;
+      this.i = 0; this.on = true; this._bind(); this.show();
+    },
+    go(n) {
+      const j = this.i + n;
+      if (j >= this.steps.length) return this.end();
+      if (j < 0) return;
+      this.i = j; this.show();
+    },
+    async end() {
+      this.on = false; this.rect = null; tourEl = null; this._unbind();
+      if (location.hash.slice(1) !== 'resumen') location.hash = 'resumen';
+      try { await fetch('/api/tour/visto', { method: 'POST' }); } catch (e) {}
+    },
+    _target() {
+      for (const q of (this.step().sel || [])) {
+        const el = document.querySelector(q);
+        if (el && el.getClientRects().length && el.getBoundingClientRect().width > 0) return el;
+      }
+      return null;
+    },
+    async show() {
+      const st = this.step(), idx = this.i;
+      if (st.view && location.hash.slice(1) !== st.view) location.hash = st.view;
+      this.rect = null; tourEl = null;
+      await Alpine.nextTick(); this.place(null);
+      if (!st.sel) return;
+      let el = null;   // espera a que aparezca (la Revisión carga datos)
+      for (let k = 0; k < 50 && !el; k++) {
+        await new Promise(r => setTimeout(r, k ? 100 : 80));
+        if (this.i !== idx || !this.on) return;
+        el = this._target();
+      }
+      if (!el) return;
+      tourEl = el;
+      const r0 = el.getBoundingClientRect();
+      const fijo = getComputedStyle(el).position === 'fixed' || el.closest('aside');
+      if (!fijo && innerWidth < 1024) {
+        // celular: lo señalado arriba y la tarjeta abajo
+        if (r0.top < 8 || r0.top > 90) window.scrollBy({ top: r0.top - 12, behavior: 'instant' });
+      } else if (!fijo && (r0.top < 70 || r0.bottom > innerHeight - 220)) el.scrollIntoView({ block: r0.height > innerHeight * 0.55 ? 'start' : 'center' });
+      await new Promise(r => setTimeout(r, 90));
+      if (this.i === idx) this.measure();
+    },
+    measure() {
+      if (!tourEl || !this.on) return;
+      const r = tourEl.getBoundingClientRect(), pad = 6;
+      this.rect = { top: Math.round(r.top - pad), left: Math.round(r.left - pad), width: Math.round(r.width + 2 * pad), height: Math.round(r.height + 2 * pad) };
+      this.place(r);
+    },
+    place(r) {
+      const W = innerWidth, H = innerHeight, card = document.getElementById('tour-card');
+      const ch = (card && card.offsetHeight) || 230, cw = Math.min(360, W - 24);
+      if (!r) { this.cardStyle = 'left:' + Math.round((W - cw) / 2) + 'px;top:' + Math.round(Math.max(16, (H - ch) / 2)) + 'px'; return; }
+      if (W < 1024) {   // celular: la tarjeta abajo, salvo que lo señalado esté abajo (barra, "+")
+        const centro = (Math.max(0, r.top) + Math.min(H, r.bottom)) / 2;
+        this.cardStyle = 'left:12px;right:12px;width:auto;' + (centro < H * 0.62 ? 'bottom:' + 92 + 'px' : 'top:16px');
+        return;
+      }
+      let top, left;
+      if (r.right < 330) { left = r.right + 22; top = Math.min(Math.max(16, r.top), H - ch - 16); }
+      else if (r.bottom + 18 + ch < H) { top = r.bottom + 18; left = Math.min(Math.max(16, r.left), W - cw - 16); }
+      else if (r.top - 18 - ch > 0) { top = r.top - 18 - ch; left = Math.min(Math.max(16, r.left), W - cw - 16); }
+      else { top = H - ch - 16; left = W - cw - 24; }
+      this.cardStyle = 'left:' + Math.round(left) + 'px;top:' + Math.round(top) + 'px';
+    },
+    _bind() {
+      if (this._mv) return;
+      this._mv = () => { if (this.on) requestAnimationFrame(() => this.measure()); };
+      addEventListener('scroll', this._mv, true); addEventListener('resize', this._mv);
+    },
+    _unbind() {
+      if (!this._mv) return;
+      removeEventListener('scroll', this._mv, true); removeEventListener('resize', this._mv); this._mv = null;
     },
   });
 
@@ -5845,6 +6572,7 @@ REGLAS:
     open: false,
     active: 0,
     sections: [
+      { id: 'nuevo',    icon: '✨', label: 'Lo nuevo' },
       { id: 'welcome',  icon: '👋', label: 'Hola' },
       { id: 'telegram', icon: '📱', label: 'Registrar' },
       { id: 'cats',     icon: '📂', label: 'Categorías' },
@@ -6315,11 +7043,71 @@ function dashboard() {
     // Pestaña activa (Resumen · Revisión · Movimientos · Ajustes), también en la dirección (#revision…)
     view: 'resumen',
     views: [
-      { key: 'resumen',     icon: '📊', label: 'Resumen' },
-      { key: 'revision',    icon: '🔎', label: 'Revisión' },
-      { key: 'movimientos', icon: '🧾', label: 'Movimientos' },
-      { key: 'ajustes',     icon: '⚙️', label: 'Ajustes' },
+      { key: 'resumen',     icon: '📊', label: 'Resumen',
+        svg: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>' },
+      { key: 'revision',    icon: '🔎', label: 'Revisión',
+        svg: '<path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/>' },
+      { key: 'movimientos', icon: '🧾', label: 'Movimientos', corto: 'Movim.',
+        svg: '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>' },
+      { key: 'ajustes',     icon: '⚙️', label: 'Ajustes',
+        svg: '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>' },
     ],
+    // Título grande y línea de arriba según la sección
+    viewTitle() {
+      if (this.view === 'resumen') { const m = this.months.find(x => x.value === this.month); return m ? m.label : 'Resumen'; }
+      return (this.views.find(v => v.key === this.view) || {}).label || '';
+    },
+    viewSub() {
+      if (this.view === 'resumen') return 'Resumen del mes · familia';
+      if (this.view === 'revision') { const r = Alpine.store('review'); return r.data ? r.periodoCorto() + ' · ' + r.personaLabel() : 'Dónde se va la plata'; }
+      if (this.view === 'movimientos') { const m = this.months.find(x => x.value === this.month); return (m ? m.label : '') + (this.windowSize !== 1 ? ' · ' + this.rangeLabel : ''); }
+      return 'Todo lo que se configura';
+    },
+    // Tema: auto (claro de día, oscuro de 18:00 a 6:00) · claro · oscuro
+    themeMode: (() => { try { return localStorage.getItem('theme_mode') || 'auto'; } catch (e) { return 'auto'; } })(),
+    themeOptions: [
+      { key: 'auto',  label: 'Auto',   title: 'Claro de día, oscuro de noche (6 pm a 6 am)' },
+      { key: 'light', label: 'Claro',  title: 'Siempre claro' },
+      { key: 'dark',  label: 'Oscuro', title: 'Siempre oscuro' },
+    ],
+    _themeDark() {
+      if (this.themeMode === 'dark') return true;
+      if (this.themeMode === 'light') return false;
+      const h = new Date().getHours();
+      return h >= 18 || h < 6;
+    },
+    applyTheme() {
+      const dark = this._themeDark();
+      if (dark === this.isDark && document.documentElement.classList.contains('dark') === dark) return;
+      this.isDark = dark;
+      document.documentElement.classList.toggle('dark', dark);
+      const meta = document.getElementById('meta-theme');
+      if (meta) meta.setAttribute('content', dark ? '#141311' : '#f6f5f2');
+      window.dispatchEvent(new CustomEvent('theme-changed', { detail: { dark } }));
+    },
+    setThemeMode(m) {
+      this.themeMode = m;
+      try { localStorage.setItem('theme_mode', m); } catch (e) {}
+      this.applyTheme();
+    },
+    // Datos para la ventana "Anotar gasto": categorías, métodos, tasas y las más usadas del mes
+    quickCtx() {
+      const cuenta = {};
+      for (const e of (this.expenses || [])) {
+        if (e.recurring_id || e.deferred_group_id) continue;
+        cuenta[e.categoria] = (cuenta[e.categoria] || 0) + 1;
+      }
+      const label = (k) => { const b = this.budget[k] || {}; return (b.icon || '📦') + ' ' + (b.label || k); };
+      let orden = Object.entries(cuenta).filter(([k]) => this.budget[k]).sort((a, b) => b[1] - a[1]).map(([k]) => k);
+      // A comienzo de mes casi no hay datos: completa con las más usadas de la Revisión (si ya cargó)
+      const rv = Alpine.store('review').data;
+      if (orden.length < 6 && rv) {
+        rv.categorias.filter(c => this.budget[c.key] && !orden.includes(c.key)).sort((a, b) => b.count - a.count)
+          .slice(0, 6 - orden.length).forEach(c => orden.push(c.key));
+      }
+      const frecuentes = orden.slice(0, 6).map(k => ({ key: k, label: label(k) }));
+      return { categorias: this.categoryOptions, metodos: this.paymentOptions, rates: this.rates, frecuentes };
+    },
     goMovimientos() {
       this.view = 'movimientos';
       this.$nextTick(() => document.querySelector('h2.movimientos-anchor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
@@ -6334,7 +7122,9 @@ function dashboard() {
         { key: 'pagos', icon: '📅', label: 'Fechas de pago', desc: 'Tarjetas, créditos e hipoteca: cuándo vence cada uno.', run: () => Alpine.store('reminders').openModal() },
         { key: 'conciliacion', icon: '🔄', label: 'Conciliación', desc: 'Cruzar extractos del banco con lo registrado.', run: () => this.openReconcile() },
         { key: 'guia', icon: '📖', label: 'Guía de uso', desc: 'Cómo funciona el bot y el dashboard.', run: () => { Alpine.store('guide').open = true; } },
-        { key: 'tema', icon: '🌓', label: 'Tema claro / oscuro', desc: 'Cambia los colores de la página.', run: () => this.toggleTheme() },
+        { key: 'analisis', icon: '📈', label: 'Análisis diario', desc: 'Gasto día a día por categoría, con promedios y medianas.', run: () => this.openAnalytics() },
+        { key: 'recorrido', icon: '🧭', label: 'Ver el recorrido otra vez', desc: 'Te muestra paso a paso lo nuevo de la página.', run: () => Alpine.store('tour').start(true) },
+        { key: 'tema', icon: '🌓', label: 'Tema: ' + ({ auto: 'automático', light: 'claro', dark: 'oscuro' })[this.themeMode], desc: this.themeMode === 'auto' ? 'Claro de día y oscuro de noche (6 pm a 6 am). Toca para cambiar.' : 'Toca para cambiar (automático → claro → oscuro).', run: () => this.setThemeMode(({ auto: 'light', light: 'dark', dark: 'auto' })[this.themeMode]) },
         { key: 'salir', icon: '🔒', label: 'Cerrar sesión', desc: (Alpine.store('auth').user ? 'Entraste como ' + Alpine.store('auth').user + '. ' : '') + 'Pide el PIN otra vez en este dispositivo.', run: () => Alpine.store('auth').logout(), show: () => Alpine.store('auth').enabled },
       ];
     },
@@ -6556,6 +7346,9 @@ function dashboard() {
       // the pattern:
       if (this._inited) return;
       this._inited = true;
+      // Modo automático: revisa la hora cada minuto (a las 6 pm se oscurece sola)
+      this.applyTheme();
+      setInterval(() => { if (this.themeMode === 'auto') this.applyTheme(); }, 60000);
       // Pestaña según la dirección (#revision, #movimientos, #ajustes); atrás/adelante del navegador cambia de pestaña
       const vistas = this.views.map(v => v.key);
       const desdeHash = () => { const h = (location.hash || '').slice(1); return vistas.includes(h) ? h : null; };
@@ -6605,13 +7398,11 @@ function dashboard() {
       // Scroll the active month button into view on first paint
       this.$nextTick(() => this.scrollActiveMonthIntoView());
 
-      // First-visit onboarding: if the user has never seen the guide, open it
-      // automatically. Persisted in localStorage so it only fires once per
-      // browser — not annoying on every reload.
-      if (!localStorage.getItem('seen_guide_v1')) {
-        Alpine.store('guide').open = true;
-        localStorage.setItem('seen_guide_v1', new Date().toISOString());
-      }
+      // Carga la Revisión en segundo plano (gráficas listas y sugerencias para "Anotar gasto")
+      setTimeout(() => Alpine.store('review').ensureLoaded(), 1500);
+      // Primera vez de cada persona (por PIN) con la versión nueva: recorrido guiado.
+      // Lo decide el servidor (/api/tour), así Mado lo ve aunque Daniel ya lo vio.
+      Alpine.store('tour').checkAuto();
     },
 
     async selectMonth(value) {
@@ -6633,11 +7424,7 @@ function dashboard() {
       bar.scrollTo({ left: bar.scrollLeft + offset, behavior: 'smooth' });
     },
 
-    toggleTheme() {
-      this.isDark = !this.isDark;
-      document.documentElement.classList.toggle('dark', this.isDark);
-      localStorage.setItem('theme', this.isDark ? 'dark' : 'light');
-    },
+    toggleTheme() { this.setThemeMode(this.isDark ? 'light' : 'dark'); },
 
     openEdit(e) {
       Alpine.store('edit').openFor(e, {
