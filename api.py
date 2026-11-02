@@ -77,6 +77,7 @@ class NaturalezaBody(BaseModel):
 
 # ──────────────── 🔎 Revisión ────────────────
 REVIEW_MAX_MONTHS = 36
+REVIEW_MIN_MES = 20   # registros mínimos para que un mes cuente como inicio de los datos
 _REVIEW_TAG_RE = re.compile(r"\s*·\s*conciliaci[oó]n.*$", re.IGNORECASE)
 
 
@@ -4316,11 +4317,16 @@ def make_api_app() -> FastAPI:
                 "FROM expenses WHERE substr(fecha, 1, 7) BETWEEN ? AND ?",
                 (p_from, hasta),
             ).fetchall()
-            datos_desde = (conn.execute("SELECT MIN(substr(fecha, 1, 10)) FROM expenses").fetchone()[0] or "")
+            # Inicio real de los datos = primer mes con al menos REVIEW_MIN_MES registros
+            # (un gasto suelto mal fechado, p.ej. en 2025, no debe parecer historia).
+            primer_mes = next((m for m, n in conn.execute(
+                "SELECT substr(fecha, 1, 7) AS m, COUNT(*) FROM expenses GROUP BY m ORDER BY m").fetchall()
+                if n >= REVIEW_MIN_MES), "")
+            datos_desde = (conn.execute("SELECT MIN(substr(fecha, 1, 10)) FROM expenses WHERE substr(fecha, 1, 7) = ?",
+                                        (primer_mes,)).fetchone()[0] or "") if primer_mes else ""
         finally:
             conn.close()
         # Un mes cuenta como completo si el bot ya tenía datos desde antes de ese mes
-        primer_mes = datos_desde[:7]
 
         def incluye_persona(user, cat):
             if persona == "todos":
