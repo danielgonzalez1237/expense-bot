@@ -87,7 +87,7 @@ class QuickExpense(BaseModel):
 
 
 # Versión del recorrido guiado: al cambiarla, a todos les vuelve a salir.
-TOUR_VERSION = "2026-11-ingresos"  # cambiarla vuelve a mostrar el recorrido a todos
+TOUR_VERSION = "2026-11-revision2"  # cambiarla vuelve a mostrar el recorrido a todos
 
 
 # ──────────────── 🔎 Revisión ────────────────
@@ -1190,6 +1190,63 @@ def make_api_app() -> FastAPI:
         rows = _query_all(cols + "WHERE fecha LIKE ? ORDER BY fecha DESC, id DESC LIMIT ?",
                           (f"{prefix}%", limit))
         return {"month": prefix, "count": len(rows), "expenses": rows}
+
+    @api.get("/api/expenses/search")
+    def search_expenses(
+        q: str = Query("", description="palabra clave: nota, categoría, método, persona o monto"),
+        desde: Optional[str] = Query(None, description="YYYY-MM-DD"),
+        hasta: Optional[str] = Query(None, description="YYYY-MM-DD"),
+        limit: int = Query(300, ge=1, le=2000),
+    ):
+        """Busca en todo el historial (o entre dos fechas). Sin tildes ni mayúsculas."""
+        import unicodedata
+
+        def norm(t):
+            return "".join(c for c in unicodedata.normalize("NFD", str(t or "").lower()) if unicodedata.category(c) != "Mn")
+
+        for v in (desde, hasta):
+            if v:
+                try:
+                    datetime.strptime(v, "%Y-%m-%d")
+                except ValueError:
+                    raise HTTPException(400, f"fecha inválida {v!r}, se espera YYYY-MM-DD")
+        if desde and hasta and desde > hasta:
+            raise HTTPException(400, "desde debe ser ≤ hasta")
+        q = (q or "").strip()
+        if not q and not desde and not hasta:
+            raise HTTPException(400, "escribe algo para buscar o elige fechas")
+        where, params = [], []
+        if desde:
+            where.append("substr(fecha, 1, 10) >= ?"); params.append(desde)
+        if hasta:
+            where.append("substr(fecha, 1, 10) <= ?"); params.append(hasta)
+        rows = _query_all(
+            "SELECT id, user_id, user_name, fecha, monto_cop, monto_usd, categoria, nota, created_at, "
+            "COALESCE(metodo_pago, 'Sin especificar') AS metodo_pago, "
+            "COALESCE(clase_contable, 'gasto') AS clase_contable, "
+            "COALESCE(deferred_total, 1) AS deferred_total, COALESCE(deferred_index, 1) AS deferred_index, "
+            "deferred_group_id, deferred_mode, recurring_id FROM expenses "
+            + ("WHERE " + " AND ".join(where) + " " if where else "")
+            + "ORDER BY fecha DESC, id DESC", tuple(params))
+        palabras = [norm(w) for w in q.split() if w.strip()]
+        digitos = "".join(ch for ch in q if ch.isdigit()) if q and all(ch.isdigit() or ch in ".,$ " for ch in q) else ""
+        out = []
+        for r in rows:
+            if q:
+                if digitos:
+                    ok = digitos in str(int(round(r["monto_cop"] or 0))) or digitos == str(int(round(r["monto_usd"] or 0)))
+                else:
+                    info = bot.BUDGET.get(r["categoria"]) or {}
+                    padre = bot.BUDGET.get(info.get("parent") or "") or {}
+                    texto = norm(" ".join([r["nota"] or "", r["categoria"] or "", info.get("label", ""), padre.get("label", ""),
+                                           r["metodo_pago"] or "", r["user_name"] or "", (r["fecha"] or "")[:10]]))
+                    ok = all(w in texto for w in palabras)
+                if not ok:
+                    continue
+            out.append(r)
+        return {"q": q, "desde": desde, "hasta": hasta, "count": len(out), "expenses": out[:limit],
+                "total_usd": round(sum(r["monto_usd"] or 0 for r in out), 2),
+                "total_cop": round(sum(r["monto_cop"] or 0 for r in out))}
 
     @api.get("/api/expenses/recent")
     def get_recent_expenses(limit: int = Query(20, ge=1, le=500)):
@@ -4408,6 +4465,7 @@ def make_api_app() -> FastAPI:
         sin_viajes: int = 0,
         sin_grandes: int = 0,
         umbral_usd: float = 600.0,
+        excluir: str = Query("", description="categorías a dejar por fuera, separadas por coma (un padre incluye sus subcategorías)"),
     ):
         """Gasto del período por tipo (esencial/estilo/gusto), por categoría y
         por mes, comparado con el período anterior de igual duración.
@@ -4422,6 +4480,8 @@ def make_api_app() -> FastAPI:
                 raise HTTPException(400, f"mes inválido {v!r}, se espera YYYY-MM")
         if desde > hasta:
             raise HTTPException(400, "desde debe ser ≤ hasta")
+        if sin_grandes and not (umbral_usd > 0):
+            raise HTTPException(400, "el umbral de compras grandes debe ser mayor que cero")
         meses = list(_iter_months(desde, hasta))
         if len(meses) > REVIEW_MAX_MONTHS:
             raise HTTPException(400, f"máximo {REVIEW_MAX_MONTHS} meses")
@@ -4455,17 +4515,32 @@ def make_api_app() -> FastAPI:
             return user == persona
 
         tipos = list(bot.NATURALEZA_TIPOS) + ["sin_clasificar"]
+        # Categorías a excluir: las pedidas (un padre arrastra sus subcategorías) + viaje si sin_viajes
+        pedidas = {k.strip() for k in (excluir or "").split(",") if k.strip()}
+        if sin_viajes:
+            pedidas.add("viaje")
+        excluidas = set(pedidas)
+        for k, info in bot.BUDGET.items():
+            if (info or {}).get("parent") in pedidas:
+                excluidas.add(k)
         excl = {"viajes": {"usd": 0.0, "cop": 0.0, "count": 0},
-                "grandes": {"usd": 0.0, "cop": 0.0, "count": 0, "items": []}}
+                "grandes": {"usd": 0.0, "cop": 0.0, "count": 0, "items": []},
+                "categorias": {}}
         cur, prev = [], []
         por_dia: dict[str, dict] = {}
         for (eid, fecha, cop, usd, cat, nota, user, met, rec_id, grp_id) in rows:
             if not incluye_persona(user, cat):
                 continue
             en_periodo = fecha[:7] >= desde
-            if sin_viajes and cat == "viaje":
+            if cat in excluidas:
                 if en_periodo:
-                    excl["viajes"]["usd"] += usd; excl["viajes"]["cop"] += cop; excl["viajes"]["count"] += 1
+                    raiz = cat if cat in pedidas else (bot.BUDGET.get(cat) or {}).get("parent") or cat
+                    e = excl["categorias"].setdefault(raiz, {"key": raiz, "label": (bot.BUDGET.get(raiz) or {}).get("label", raiz),
+                                                            "icon": (bot.BUDGET.get(raiz) or {}).get("icon", "📦"),
+                                                            "usd": 0.0, "cop": 0.0, "count": 0})
+                    e["usd"] += usd; e["cop"] += cop; e["count"] += 1
+                    if raiz == "viaje":
+                        excl["viajes"]["usd"] += usd; excl["viajes"]["cop"] += cop; excl["viajes"]["count"] += 1
                 continue
             if sin_grandes and usd >= umbral_usd and not rec_id and not grp_id and bot.naturaleza_de(cat) != "esencial":
                 if en_periodo:
@@ -4579,13 +4654,36 @@ def make_api_app() -> FastAPI:
         excl["grandes"]["items"].sort(key=lambda x: -x["usd"])
         for k in ("viajes", "grandes"):
             excl[k]["usd"] = r2(excl[k]["usd"]); excl[k]["cop"] = round(excl[k]["cop"])
+        excl["categorias"] = sorted(({**v, "usd": r2(v["usd"]), "cop": round(v["cop"])} for v in excl["categorias"].values()),
+                                    key=lambda v: -v["usd"])
+
+        # Ingresos del período (para comparar el gasto con lo que entró). Son de la
+        # familia: solo tienen sentido con persona=familia o todos.
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            ing_mes = {m: float(u or 0) for m, u in conn.execute(
+                "SELECT period, SUM(monto_usd) FROM income_entries WHERE period BETWEEN ? AND ? GROUP BY period",
+                (p_from, hasta))}
+            trm_mes = {m: float(_rates_for_period(conn, m).get("TRM") or bot.TRM or 0) for m in set(meses) | set(_iter_months(p_from, p_to))}
+        finally:
+            conn.close()
+        ing_cur = {m: ing_mes.get(m, 0.0) for m in meses}
+        ing_prev = sum(v for m, v in ing_mes.items() if p_from <= m <= p_to)
+        ingresos = {
+            "aplica": persona in ("familia", "todos"),
+            "usd": r2(sum(ing_cur.values())),
+            "cop": round(sum(v * trm_mes.get(m, 0) for m, v in ing_cur.items())),
+            "anterior_usd": r2(ing_prev),
+            "por_mes": [{"mes": m, "usd": r2(v), "cop": round(v * trm_mes.get(m, 0))} for m, v in ing_cur.items()],
+        }
         return {
             "periodo": {"desde": desde, "hasta": hasta, "meses": meses, "n_meses": len(meses), "dias": dias_periodo,
                         "completo": bool(primer_mes) and desde > primer_mes},
             "anterior": {"desde": p_from, "hasta": p_to, "completo": bool(primer_mes) and p_from > primer_mes},
             "datos_desde": datos_desde,
-            "filtros": {"persona": persona, "sin_viajes": bool(sin_viajes), "sin_grandes": bool(sin_grandes),
-                        "umbral_usd": umbral_usd},
+            "filtros": {"persona": persona, "sin_viajes": "viaje" in pedidas, "sin_grandes": bool(sin_grandes),
+                        "umbral_usd": umbral_usd, "excluir": sorted(pedidas)},
+            "ingresos": ingresos,
             "totales": redondear_tot(totales),
             "totales_anterior": redondear_tot(totales_prev),
             "por_mes": [{"mes": m, "usd": r2(v["usd"]), "cop": round(v["cop"]),
