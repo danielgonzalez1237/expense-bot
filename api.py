@@ -99,17 +99,37 @@ def _review_prev_range(desde: str, hasta: str) -> tuple[str, str]:
     return p_from, f"{ey:04d}-{em + 1:02d}"
 
 
-def _auth_pin() -> str:
-    return (os.environ.get("DASHBOARD_PIN") or "").strip()
+def _auth_pins() -> dict[str, str]:
+    """PINes del dashboard desde DASHBOARD_PIN.
+
+    Formato: un PIN por persona, "Daniel:123456,Mado:654321". También acepta
+    un solo PIN sin nombre (queda como persona "dashboard"). Vacío = sin login.
+    """
+    raw = (os.environ.get("DASHBOARD_PIN") or "").strip()
+    pins: dict[str, str] = {}
+    for i, part in enumerate(p.strip() for p in raw.split(",")):
+        if not part:
+            continue
+        name, pin = (part.split(":", 1) if ":" in part else ("dashboard", part))
+        name = re.sub(r"[^A-Za-z0-9_-]", "", name.strip())[:20] or f"persona{i + 1}"
+        if pin.strip():
+            pins[name] = pin.strip()
+    return pins
+
+
+def _auth_enabled() -> bool:
+    return bool(_auth_pins())
 
 
 def _auth_api_token() -> str:
     return (os.environ.get("DASHBOARD_API_TOKEN") or "").strip()
 
 
-def _auth_key() -> bytes:
-    pin = _auth_pin()
-    if pin not in _auth_secret_cache:
+def _auth_key(user: str, pin: str) -> bytes:
+    """Clave de firma por persona: secreto de la base + persona + su PIN.
+    Cambiar el PIN de alguien cierra solo sus sesiones."""
+    ck = user + "\x00" + pin
+    if ck not in _auth_secret_cache:
         conn = sqlite3.connect(bot.DB_PATH)
         try:
             row = conn.execute("SELECT value FROM config WHERE key = 'session_secret'").fetchone()
@@ -117,25 +137,29 @@ def _auth_key() -> bytes:
             conn.close()
         if not row or not row[0]:
             raise RuntimeError("falta config.session_secret (migración 019)")
-        _auth_secret_cache.clear()
-        _auth_secret_cache[pin] = hashlib.sha256((row[0] + "|" + pin).encode()).digest()
-    return _auth_secret_cache[pin]
+        if len(_auth_secret_cache) > 32:
+            _auth_secret_cache.clear()
+        _auth_secret_cache[ck] = hashlib.sha256((row[0] + "|" + user + "|" + pin).encode()).digest()
+    return _auth_secret_cache[ck]
 
 
-def _auth_make_token(days: int) -> str:
-    payload = f"v1.{int(time.time()) + days * 86400}.{secrets.token_hex(8)}"
-    return payload + "." + hmac.new(_auth_key(), payload.encode(), hashlib.sha256).hexdigest()
+def _auth_make_token(user: str, days: int) -> str:
+    pin = _auth_pins()[user]
+    payload = f"v2.{int(time.time()) + days * 86400}.{secrets.token_hex(8)}.{user}"
+    return payload + "." + hmac.new(_auth_key(user, pin), payload.encode(), hashlib.sha256).hexdigest()
 
 
-def _auth_token_ok(token: str) -> bool:
+def _auth_token_user(token: str) -> Optional[str]:
+    """Persona dueña de la cookie si es válida y vigente; si no, None."""
     try:
-        version, exp, nonce, sig = (token or "").split(".")
+        version, exp, nonce, user, sig = (token or "").split(".")
     except ValueError:
-        return False
-    if version != "v1" or not exp.isdigit() or int(exp) < time.time():
-        return False
-    good = hmac.new(_auth_key(), f"{version}.{exp}.{nonce}".encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(sig, good)
+        return None
+    pin = _auth_pins().get(user)
+    if version != "v2" or not pin or not exp.isdigit() or int(exp) < time.time():
+        return None
+    good = hmac.new(_auth_key(user, pin), f"{version}.{exp}.{nonce}.{user}".encode(), hashlib.sha256).hexdigest()
+    return user if hmac.compare_digest(sig, good) else None
 
 
 def _auth_client_ip(request: Request) -> str:
@@ -147,13 +171,14 @@ def _auth_is_https(request: Request) -> bool:
     return request.url.scheme == "https" or request.headers.get("x-forwarded-proto", "") == "https"
 
 
-def _auth_request_ok(request: Request) -> bool:
-    """True si la petición trae sesión válida o el token de API."""
+def _auth_request_user(request: Request) -> Optional[str]:
+    """Quién hace la petición: la persona de la cookie, 'api' si trae el
+    token de scripts, o None si no tiene acceso."""
     api_tok = _auth_api_token()
     given = request.headers.get("x-api-token") or ""
     if api_tok and given and hmac.compare_digest(given, api_tok):
-        return True
-    return _auth_token_ok(request.cookies.get(AUTH_COOKIE, ""))
+        return "api"
+    return _auth_token_user(request.cookies.get(AUTH_COOKIE, ""))
 
 
 LOGIN_HTML = """<!doctype html>
@@ -993,7 +1018,7 @@ def make_api_app() -> FastAPI:
     @api.middleware("http")
     async def _require_pin(request: Request, call_next):
         path = request.url.path
-        if not _auth_pin() or path in _AUTH_OPEN_PATHS or _auth_request_ok(request):
+        if not _auth_enabled() or path in _AUTH_OPEN_PATHS or _auth_request_user(request):
             return await call_next(request)
         if request.method == "GET" and path in ("/", "/index.html"):
             return HTMLResponse(LOGIN_HTML, headers={"Cache-Control": "no-store"})
@@ -1001,13 +1026,15 @@ def make_api_app() -> FastAPI:
 
     @api.get("/api/auth/status")
     def auth_status(request: Request):
-        enabled = bool(_auth_pin())
-        return {"enabled": enabled, "logged_in": (not enabled) or _auth_request_ok(request)}
+        if not _auth_enabled():
+            return {"enabled": False, "logged_in": True, "user": None}
+        user = _auth_request_user(request)
+        return {"enabled": True, "logged_in": bool(user), "user": user}
 
     @api.post("/api/login")
     def login(body: LoginBody, request: Request):
-        pin = _auth_pin()
-        if not pin:
+        pins = _auth_pins()
+        if not pins:
             return {"ok": True, "auth": "disabled"}
         now = time.time()
         ip = _auth_client_ip(request)
@@ -1015,17 +1042,23 @@ def make_api_app() -> FastAPI:
         _auth_fails_global[:] = [t for t in _auth_fails_global if now - t < AUTH_GLOBAL_WINDOW_SECONDS]
         if len(fails) >= AUTH_IP_MAX_FAILS or len(_auth_fails_global) >= AUTH_GLOBAL_MAX_FAILS:
             raise HTTPException(429, "Demasiados intentos. Espera unos minutos.")
-        if not hmac.compare_digest((body.pin or "").strip().encode(), pin.encode()):
+        given = (body.pin or "").strip().encode()
+        user = None
+        for name, pin in pins.items():   # se comparan todos para no filtrar tiempos
+            if hmac.compare_digest(given, pin.encode()) and user is None:
+                user = name
+        if not user:
             fails.append(now)
             _auth_fails_by_ip[ip] = fails
             _auth_fails_global.append(now)
             print(f"[auth] PIN incorrecto desde {ip} ({len(fails)}/{AUTH_IP_MAX_FAILS})")
             raise HTTPException(401, "PIN incorrecto")
         _auth_fails_by_ip.pop(ip, None)
+        print(f"[auth] entró {user} desde {ip}")
         remember = body.remember is not False
-        resp = JSONResponse({"ok": True})
+        resp = JSONResponse({"ok": True, "user": user})
         resp.set_cookie(
-            AUTH_COOKIE, _auth_make_token(AUTH_REMEMBER_DAYS if remember else 1),
+            AUTH_COOKIE, _auth_make_token(user, AUTH_REMEMBER_DAYS if remember else 1),
             max_age=AUTH_REMEMBER_DAYS * 86400 if remember else None,
             httponly=True, secure=_auth_is_https(request), samesite="lax", path="/",
         )

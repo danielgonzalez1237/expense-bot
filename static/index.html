@@ -104,7 +104,7 @@
         x-show="$store.auth.enabled" x-cloak
         @click="$store.auth.logout()"
         class="text-slate-500 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300 transition p-2"
-        title="Cerrar sesión"
+        :title="'Cerrar sesión' + ($store.auth.user ? ' (' + $store.auth.user + ')' : '')"
         aria-label="Cerrar sesión"
       >
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -5124,9 +5124,9 @@ document.addEventListener('alpine:init', () => {
 
   // ──────────────── 🔐 Sesión (PIN) ────────────────
   Alpine.store('auth', {
-    enabled: false,
+    enabled: false, user: null,
     init() {
-      fetch('/api/auth/status').then(r => r.json()).then(d => { this.enabled = !!d.enabled; }).catch(() => {});
+      fetch('/api/auth/status').then(r => r.json()).then(d => { this.enabled = !!d.enabled; this.user = d.user || null; }).catch(() => {});
     },
     async logout() {
       if (!confirm('¿Cerrar sesión en este dispositivo?')) return;
@@ -6334,7 +6334,7 @@ function dashboard() {
         { key: 'conciliacion', icon: '🔄', label: 'Conciliación', desc: 'Cruzar extractos del banco con lo registrado.', run: () => this.openReconcile() },
         { key: 'guia', icon: '📖', label: 'Guía de uso', desc: 'Cómo funciona el bot y el dashboard.', run: () => { Alpine.store('guide').open = true; } },
         { key: 'tema', icon: '🌓', label: 'Tema claro / oscuro', desc: 'Cambia los colores de la página.', run: () => this.toggleTheme() },
-        { key: 'salir', icon: '🔒', label: 'Cerrar sesión', desc: 'Pide el PIN otra vez en este dispositivo.', run: () => Alpine.store('auth').logout(), show: () => Alpine.store('auth').enabled },
+        { key: 'salir', icon: '🔒', label: 'Cerrar sesión', desc: (Alpine.store('auth').user ? 'Entraste como ' + Alpine.store('auth').user + '. ' : '') + 'Pide el PIN otra vez en este dispositivo.', run: () => Alpine.store('auth').logout(), show: () => Alpine.store('auth').enabled },
       ];
     },
     month: '',
