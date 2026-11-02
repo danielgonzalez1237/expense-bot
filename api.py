@@ -1142,6 +1142,9 @@ def make_api_app() -> FastAPI:
             "budget_limit_usd": bot.BUDGET_LIMIT_USD,
             "total_assigned_usd": total,
             "categories": bot.BUDGET,
+            # Tipo efectivo de cada categoría (guardado, por defecto o heredado del
+            # padre). Aparte de `categories` para que el editor no lo guarde de vuelta.
+            "naturalezas": {k: bot.naturaleza_de(k) for k in bot.BUDGET},
         }
 
     @api.get("/api/payment-methods")
@@ -1161,21 +1164,31 @@ def make_api_app() -> FastAPI:
     @api.get("/api/expenses")
     def get_expenses(
         month: Optional[str] = Query(None, description="YYYY-MM. Defaults to current month."),
+        frm: Optional[str] = Query(None, alias="from", description="YYYY-MM (rango, con `to`)"),
+        to: Optional[str] = Query(None, description="YYYY-MM (rango, con `from`)"),
         limit: int = Query(1000, ge=1, le=10000),
     ):
+        cols = ("SELECT id, user_id, user_name, fecha, monto_cop, monto_usd, "
+                "categoria, nota, created_at, "
+                "COALESCE(metodo_pago, 'Sin especificar') AS metodo_pago, "
+                "COALESCE(clase_contable, 'gasto') AS clase_contable, "
+                "COALESCE(deferred_total, 1) AS deferred_total, "
+                "COALESCE(deferred_index, 1) AS deferred_index, "
+                "deferred_group_id, deferred_mode, recurring_id "
+                "FROM expenses ")
+        if frm or to:
+            # Rango de meses (Resumen/Movimientos con 3, 6, 12 meses o el año)
+            for v in (frm, to):
+                if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", v or ""):
+                    raise HTTPException(400, "from y to deben ser YYYY-MM")
+            if frm > to:
+                raise HTTPException(400, "from debe ser ≤ to")
+            rows = _query_all(cols + "WHERE substr(fecha, 1, 7) BETWEEN ? AND ? "
+                              "ORDER BY fecha DESC, id DESC LIMIT ?", (frm, to, limit))
+            return {"from": frm, "to": to, "count": len(rows), "expenses": rows}
         prefix = _month_prefix(month)
-        rows = _query_all(
-            "SELECT id, user_id, user_name, fecha, monto_cop, monto_usd, "
-            "categoria, nota, created_at, "
-            "COALESCE(metodo_pago, 'Sin especificar') AS metodo_pago, "
-            "COALESCE(clase_contable, 'gasto') AS clase_contable, "
-            "COALESCE(deferred_total, 1) AS deferred_total, "
-            "COALESCE(deferred_index, 1) AS deferred_index, "
-            "deferred_group_id, deferred_mode, recurring_id "
-            "FROM expenses WHERE fecha LIKE ? "
-            "ORDER BY fecha DESC, id DESC LIMIT ?",
-            (f"{prefix}%", limit),
-        )
+        rows = _query_all(cols + "WHERE fecha LIKE ? ORDER BY fecha DESC, id DESC LIMIT ?",
+                          (f"{prefix}%", limit))
         return {"month": prefix, "count": len(rows), "expenses": rows}
 
     @api.get("/api/expenses/recent")
