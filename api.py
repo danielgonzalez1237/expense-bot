@@ -87,7 +87,7 @@ class QuickExpense(BaseModel):
 
 
 # Versión del recorrido guiado: al cambiarla, a todos les vuelve a salir.
-TOUR_VERSION = "2026-11-rediseno"
+TOUR_VERSION = "2026-11-resumen"  # cambiarla vuelve a mostrar el recorrido a todos
 
 
 # ──────────────── 🔎 Revisión ────────────────

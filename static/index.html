@@ -60,6 +60,13 @@
   /* Recorrido guiado: el elemento señalado queda por encima del velo */
   .tour-target { position: relative; z-index: 61 !important; box-shadow: 0 0 0 4px #e5a54b, 0 0 0 9999px rgba(20,19,17,.55) !important; border-radius: 16px; transition: box-shadow .2s; }
   .safe-bottom { padding-bottom: max(env(safe-area-inset-bottom), 10px); }
+  /* Botón ⓘ de cada módulo */
+  .info-i { display: inline-grid; place-items: center; width: 22px; height: 22px; flex-shrink: 0; border-radius: 9999px;
+            font: italic 600 12px/1 'Fraunces', Georgia, serif; letter-spacing: 0; color: #7e786e; border: 1px solid #d7d1c6;
+            background: transparent; vertical-align: middle; transition: background .15s, color .15s, border-color .15s; cursor: pointer; }
+  .info-i:hover, .info-i:focus-visible { color: #1e1c19; border-color: #7e786e; background: #f3f1ec; outline: none; }
+  .dark .info-i { color: #a9a297; border-color: #47433d; }
+  .dark .info-i:hover, .dark .info-i:focus-visible { color: #f3f1ec; border-color: #a9a297; background: #2d2a26; }
   [x-cloak] { display: none !important; }
   .bar { transition: width .35s cubic-bezier(.4,0,.2,1); }
   .fade { animation: fade .25s ease-out; }
@@ -247,6 +254,7 @@
         <label class="flex items-center gap-1.5 text-slate-600 dark:text-slate-300" title="Quita compras sueltas de US$600 o más que no son esenciales (no quita fijos ni cuotas)">
           <input type="checkbox" class="accent-slate-900 dark:accent-slate-100" x-model="$store.review.sinGrandes" @change="$store.review.load()"> Sin compras grandes</label>
         <span class="text-[11px] text-slate-400 sm:ml-auto" x-show="$store.review.data" x-text="$store.review.rangoLabel()"></span>
+        <button type="button" class="info-i" @click.stop="$store.info.abrir('rev-controles', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button>
       </div>
       <div class="text-[11px] text-amber-700 dark:text-amber-400" x-show="$store.review.data && !$store.review.data.anterior.completo">
         El período anterior tiene datos incompletos (el bot registra desde el <span x-text="$store.review.fechaCorta($store.review.data && $store.review.data.datos_desde)"></span>): la comparación no es confiable.
@@ -272,7 +280,7 @@
               <div class="text-[9px] text-slate-500 leading-tight">del presupuesto</div></div></div>
           </div>
           <div class="min-w-0">
-            <div class="text-xs text-slate-500">Por mes</div>
+            <div class="text-xs text-slate-500 flex items-center gap-2">Por mes <button type="button" class="info-i" @click.stop="$store.info.abrir('rev-kpis', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></div>
             <div class="num text-3xl sm:text-4xl font-semibold truncate" x-text="$store.review.fmt($store.review.v($store.review.data.totales) / $store.review.data.periodo.n_meses)"></div>
             <div class="text-[11px] text-slate-400" x-show="$store.review.presupuesto()" x-text="'presupuesto ' + $store.review.fmt($store.review.presupuesto())"></div>
             <div class="text-[11px] text-slate-400" x-show="!$store.review.presupuesto()" x-text="$store.review.data.totales.count + ' gastos'"></div>
@@ -300,7 +308,7 @@
         <!-- Mes a mes: barras apiladas por tipo + línea de presupuesto -->
         <div class="xl:col-span-8 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm min-w-0" data-tour="rev-mes">
           <div class="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 class="num text-xl sm:text-2xl font-semibold" x-text="$store.review.data.periodo.n_meses > 1 ? 'Mes a mes' : 'Día a día'"></h2>
+            <div class="flex items-center gap-2"><h2 class="num text-xl sm:text-2xl font-semibold" x-text="$store.review.data.periodo.n_meses > 1 ? 'Mes a mes' : 'Día a día'"></h2> <button type="button" class="info-i" @click.stop="$store.info.abrir('rev-mes', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></div>
             <div class="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
               <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-esencial"></span>Esencial</span>
               <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-estilo"></span>Estilo</span>
@@ -315,7 +323,7 @@
         <!-- Necesario o gusto: dona + filtro por tipo -->
         <div class="xl:col-span-4 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm min-w-0" data-tour="rev-dona">
           <div class="flex items-baseline justify-between">
-            <h2 class="num text-xl sm:text-2xl font-semibold">Necesario o gusto</h2>
+            <h2 class="num text-xl sm:text-2xl font-semibold flex items-center gap-2">Necesario o gusto <button type="button" class="info-i" @click.stop="$store.info.abrir('rev-dona', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
             <button @click="$store.review.abrirTipos()" class="text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">Editar tipos</button>
           </div>
           <div class="relative mt-3 h-52"><canvas id="rev-dona"></canvas>
@@ -342,7 +350,7 @@
         <!-- En qué se fue: top 12 -->
         <div class="xl:col-span-6 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm min-w-0">
           <div class="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 class="num text-xl sm:text-2xl font-semibold">En qué se fue</h2>
+            <h2 class="num text-xl sm:text-2xl font-semibold flex items-center gap-2">En qué se fue <button type="button" class="info-i" @click.stop="$store.info.abrir('rev-top', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
             <span class="text-[11px] text-slate-500" x-text="($store.review.filtroTipo !== 'todos' ? 'solo ' + $store.review.TIPOS[$store.review.filtroTipo].label.toLowerCase() + ' · ' : '') + 'las 12 más grandes · toca una barra'"></span>
           </div>
           <div class="mt-4" :style="'height:' + Math.max(160, 34 * Math.min(12, $store.review.filas().length) + 30) + 'px'"><canvas id="rev-top"></canvas></div>
@@ -351,7 +359,7 @@
         <!-- Cada día: mapa de calor -->
         <div class="xl:col-span-6 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm min-w-0" data-tour="rev-dias">
           <div class="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 class="num text-xl sm:text-2xl font-semibold">Cada día</h2>
+            <h2 class="num text-xl sm:text-2xl font-semibold flex items-center gap-2">Cada día <button type="button" class="info-i" @click.stop="$store.info.abrir('rev-dias', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
             <span class="text-[11px] text-slate-500">gasto del día, sin fijos ni cuotas</span>
           </div>
           <div class="mt-4 flex gap-1.5">
@@ -368,7 +376,7 @@
         <!-- Cómo se mueve el gasto: área apilada -->
         <div class="xl:col-span-8 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm min-w-0" x-show="$store.review.data.periodo.n_meses > 1">
           <div class="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 class="num text-xl sm:text-2xl font-semibold">Cómo se mueve el gasto</h2>
+            <h2 class="num text-xl sm:text-2xl font-semibold flex items-center gap-2">Cómo se mueve el gasto <button type="button" class="info-i" @click.stop="$store.info.abrir('rev-area', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
             <span class="text-[11px] text-slate-500">cada tipo, mes a mes</span>
           </div>
           <div class="mt-4 h-64"><canvas id="rev-area"></canvas></div>
@@ -376,7 +384,7 @@
 
         <!-- Qué días gastan más: por día de la semana -->
         <div class="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm min-w-0" :class="$store.review.data.periodo.n_meses > 1 ? 'xl:col-span-4' : 'xl:col-span-12'">
-          <h2 class="num text-xl sm:text-2xl font-semibold">Qué días gastan más</h2>
+          <h2 class="num text-xl sm:text-2xl font-semibold flex items-center gap-2">Qué días gastan más <button type="button" class="info-i" @click.stop="$store.info.abrir('rev-semana', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
           <p class="text-[11px] text-slate-500 mt-1">Promedio por día de la semana, sin fijos ni cuotas</p>
           <div class="mt-4 h-56"><canvas id="rev-semana"></canvas></div>
           <div class="mt-3 rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-3 text-xs text-slate-600 dark:text-slate-300" id="rev-semana-txt"></div>
@@ -386,7 +394,7 @@
       <!-- Cada categoría, mes a mes: tarjetas con mini gráfica -->
       <div x-show="$store.review.miniCats().length">
         <div class="flex flex-wrap items-baseline justify-between gap-2 mb-3">
-          <h2 class="num text-xl sm:text-2xl font-semibold">Cada categoría, mes a mes</h2>
+          <h2 class="num text-xl sm:text-2xl font-semibold flex items-center gap-2">Cada categoría, mes a mes <button type="button" class="info-i" @click.stop="$store.info.abrir('rev-mini', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
           <span class="text-[11px] text-slate-500">toca una para ver el detalle</span>
         </div>
         <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
@@ -408,7 +416,7 @@
       <div class="bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm">
         <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
           <div>
-            <h2 class="num text-xl sm:text-2xl font-semibold">Ranking de categorías</h2>
+            <h2 class="num text-xl sm:text-2xl font-semibold flex items-center gap-2">Ranking de categorías <button type="button" class="info-i" @click.stop="$store.info.abrir('rev-ranking', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
             <div class="text-[11px] text-slate-500" x-show="$store.review.filtroTipo !== 'todos'">
               Solo <span x-text="$store.review.TIPOS[$store.review.filtroTipo] && $store.review.TIPOS[$store.review.filtroTipo].label"></span> ·
               <button class="underline" @click="$store.review.filtroTipo = 'todos'">ver todo</button></div>
@@ -481,7 +489,7 @@
 
       <!-- Dónde mejorar -->
       <div class="bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm">
-        <h2 class="num text-xl sm:text-2xl font-semibold mb-1">Dónde pueden mejorar</h2>
+        <h2 class="num text-xl sm:text-2xl font-semibold mb-1 flex items-center gap-2">Dónde pueden mejorar <button type="button" class="info-i" @click.stop="$store.info.abrir('rev-mejorar', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
         <p class="text-[11px] text-slate-500 mb-3">Lo que más pesa entre los gustos y el estilo de vida, con lo que ahorrarías si lo bajas.</p>
         <div class="space-y-2">
           <template x-for="c in $store.review.mejorables()" :key="'m' + c.key">
@@ -540,6 +548,7 @@
   <!-- ════════════════════════ ⚙️ AJUSTES ════════════════════════
        Todo lo que se configura, en un solo lugar (abre las mismas ventanas). -->
   <section x-show="view === 'ajustes'" x-cloak class="mb-4">
+    <div class="flex items-center gap-2 mb-3 text-xs text-slate-500">Todo lo que se configura, en un solo lugar <button type="button" class="info-i" @click.stop="$store.info.abrir('ajustes', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></div>
     <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4" data-tour="ajustes-grid">
       <template x-for="a in ajustes()" :key="a.key">
         <button @click="a.run()" x-show="a.show === undefined || a.show()"
@@ -564,7 +573,7 @@
     <section class="xl:col-span-7 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-7 shadow-sm fade min-w-0" data-tour="gastado">
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div class="min-w-0">
-          <div class="text-xs text-slate-500" x-text="gastadoLabel()"></div>
+          <div class="flex items-center gap-2"><span class="text-xs text-slate-500" x-text="gastadoLabel()"></span> <button type="button" class="info-i" @click.stop="$store.info.abrir('gastado', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></div>
           <div class="num text-5xl sm:text-6xl font-semibold mt-1 truncate" x-text="fmtUsd(summary.total_usd)"></div>
           <div class="text-xs text-slate-400 mt-1" x-text="fmtCop(summary.total_cop) + ' pesos · ' + (summary.count || 0) + ' gastos'"></div>
         </div>
@@ -606,7 +615,7 @@
     <!-- ── Próximos pagos: agenda ── -->
     <section class="xl:col-span-5 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm fade min-w-0" x-init="$store.reminders.load()" data-tour="pagos">
       <div class="flex items-baseline justify-between gap-2">
-        <h2 class="num text-xl sm:text-2xl font-semibold">Próximos pagos</h2>
+        <h2 class="num text-xl sm:text-2xl font-semibold flex items-center gap-2">Próximos pagos <button type="button" class="info-i" @click.stop="$store.info.abrir('pagos', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
         <div class="flex items-center gap-1 text-[11px]">
           <button @click="$store.reminders.openModal()" class="rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 px-2.5 py-1 font-medium">+ Agregar</button>
           <button @click="$store.reminders.openModal()" class="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 px-1.5 py-1">Gestionar</button>
@@ -661,7 +670,7 @@
   <!-- ── P&G del mes: compacto; los botones pasan a un menú ── -->
   <section class="bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm mb-4 fade">
     <div class="flex flex-wrap items-center gap-x-8 gap-y-3">
-      <h2 class="num text-xl font-semibold">P&amp;G</h2>
+      <h2 class="num text-xl font-semibold flex items-center gap-2">P&amp;G <button type="button" class="info-i" @click.stop="$store.info.abrir('pyg', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
       <div><div class="text-[11px] text-slate-500">Ingresos</div><div class="font-semibold" x-text="fmtUsd(pnl.income && pnl.income.total_usd)"></div></div>
       <div><div class="text-[11px] text-slate-500">Egresos</div><div class="font-semibold" x-text="fmtUsd(pnl.expenses && pnl.expenses.total_usd)"></div></div>
       <div><div class="text-[11px] text-slate-500">Neto</div>
@@ -778,7 +787,7 @@
     <div class="flex items-center justify-between mb-3">
       <div>
         <h2 class="text-sm font-semibold flex items-center gap-2">
-          📊 Vista contable
+          📊 Vista contable <button type="button" class="info-i" @click.stop="$store.info.abrir('contable', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button>
           <span class="text-[10px] text-slate-400 dark:text-slate-600 font-normal" x-text="windowSize === 1 ? monthLabel : rangeLabel"></span>
         </h2>
         <p class="text-[11px] text-slate-500 dark:text-slate-400">
@@ -829,7 +838,7 @@
   <section x-show="summary.count > 0" class="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-7 shadow-sm mb-4 fade" data-tour="explorador"
     x-effect="exRubro; exSub; summary; expenses; isDark; view; $nextTick(() => { if (view === 'resumen') ResumenDona.render($data); })">
     <div class="flex flex-wrap items-baseline justify-between gap-2">
-      <h2 class="num text-xl sm:text-2xl font-semibold">Dónde va la plata</h2>
+      <h2 class="num text-xl sm:text-2xl font-semibold flex items-center gap-2">Dónde va la plata <button type="button" class="info-i" @click.stop="$store.info.abrir('explorador', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
       <span class="text-[11px] text-slate-500" x-text="exSubObj() ? 'cada gasto · toca uno para editarlo' : 'toca una fila (o la dona) para entrar'"></span>
     </div>
     <div class="mt-2 flex flex-wrap items-center gap-1 text-sm">
@@ -900,7 +909,7 @@
   <!-- ── Por persona y por método (tocar filtra Movimientos) ── -->
   <div x-show="summary.count > 0" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
     <section class="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm fade">
-      <h2 class="num text-xl font-semibold">Por persona</h2>
+      <h2 class="num text-xl font-semibold flex items-center gap-2">Por persona <button type="button" class="info-i" @click.stop="$store.info.abrir('persona', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
       <div class="mt-3 space-y-1">
         <template x-for="u in (summary.by_user || [])" :key="'pu' + u.user">
           <button @click="userFilter = u.user; goMovimientos()" class="w-full text-left rounded-xl px-2 py-1.5 -mx-2 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition" :title="'Ver los gastos de ' + u.user">
@@ -912,7 +921,7 @@
       </div>
     </section>
     <section class="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm fade">
-      <h2 class="num text-xl font-semibold">Por método de pago</h2>
+      <h2 class="num text-xl font-semibold flex items-center gap-2">Por método de pago <button type="button" class="info-i" @click.stop="$store.info.abrir('metodo', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
       <div class="mt-3 space-y-1 max-h-80 overflow-y-auto scroll-area pr-1">
         <template x-for="m in (summary.by_payment_method || [])" :key="'pm' + m.method">
           <button @click="methodFilter = m.method; goMovimientos()" class="w-full text-left rounded-xl px-2 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition" :title="'Ver los gastos pagados con ' + m.method">
@@ -939,7 +948,7 @@
   </div>
   <section class="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 mb-4 fade shadow-sm" x-show="view === 'movimientos' && expenses.length">
     <div class="flex items-center justify-between mb-3">
-      <h2 class="num text-xl sm:text-2xl font-semibold movimientos-anchor">Cada gasto</h2>
+      <h2 class="num text-xl sm:text-2xl font-semibold movimientos-anchor flex items-center gap-2">Cada gasto <button type="button" class="info-i" @click.stop="$store.info.abrir('movimientos', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
       <a
         :href="'/api/export/csv_full?month=' + month"
         class="text-xs bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-full px-3 py-1.5 transition"
@@ -1205,7 +1214,7 @@
            class="bg-white dark:bg-slate-900 rounded-2xl p-5 mb-4 fade shadow-sm">
     <div class="flex items-center justify-between mb-3">
       <div>
-        <h2 class="text-sm font-semibold">📊 Análisis de gasto</h2>
+        <h2 class="text-sm font-semibold flex items-center gap-2">📊 Análisis de gasto <button type="button" class="info-i" @click.stop="$store.info.abrir('analisis', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
         <p class="text-[11px] text-slate-400 dark:text-slate-600">Gasto diario en USD, agrupado por categoría padre</p>
       </div>
       <button @click="analytics.open = false"
@@ -1464,6 +1473,23 @@
 <div x-data x-show="$store.quick.toast" x-cloak x-transition.opacity
   class="fixed left-1/2 -translate-x-1/2 z-[70] bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 rounded-full px-4 py-2.5 text-sm shadow-lg max-w-[92vw] text-center"
   style="bottom: calc(max(env(safe-area-inset-bottom), 12px) + 76px)" x-text="$store.quick.toast"></div>
+
+<!-- ──────────────── ⓘ Qué es cada módulo (una ventanita para toda la página) ──────────────── -->
+<div x-data x-show="$store.info.open" x-cloak @keydown.escape.window="$store.info.cerrar()">
+  <div class="fixed inset-0 z-[55]" @click="$store.info.cerrar()"></div>
+  <div id="info-pop" class="fixed z-[56] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-slate-800 p-4 sm:p-5"
+       :style="$store.info.style" role="dialog" aria-live="polite">
+    <div class="flex items-start justify-between gap-3">
+      <div class="flex items-center gap-2 min-w-0">
+        <span class="info-i !cursor-default !bg-slate-900 !text-white !border-slate-900 dark:!bg-slate-100 dark:!text-slate-900">i</span>
+        <span class="num text-lg font-semibold leading-tight" x-text="$store.info.item().t"></span>
+      </div>
+      <button @click="$store.info.cerrar()" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 -m-1" aria-label="Cerrar">✕</button>
+    </div>
+    <div class="mt-2 text-[13px] leading-relaxed text-slate-600 dark:text-slate-300 space-y-2" x-html="$store.info.item().h"></div>
+    <button @click="$store.info.cerrar(); $store.guide.open = true" class="mt-3 text-[11px] text-slate-500 underline hover:text-slate-800 dark:hover:text-slate-200">Abrir la guía completa</button>
+  </div>
+</div>
 
 <!-- ──────────────── 🧭 Recorrido guiado (primera vez de cada persona) ──────────────── -->
 <div x-data x-show="$store.tour.on" x-cloak @keydown.escape.window="$store.tour.on && $store.tour.end()">
@@ -3493,6 +3519,10 @@
             <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">La página se pone oscura sola de 6 pm a 6 am. Si prefieres fijarla, en Ajustes → <b>Tema</b> (o abajo del menú en el computador).</p>
           </div>
           <div class="rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-4">
+            <div class="font-semibold text-sm flex items-center gap-2"><span class="info-i !cursor-default">i</span> Explicación en cada módulo</div>
+            <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">Toca la <b><i>i</i></b> junto al título de cualquier módulo y te explica qué muestra y cómo usarlo.</p>
+          </div>
+          <div class="rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-4">
             <div class="font-semibold text-sm">📆 Período en el título</div>
             <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">En Resumen y Movimientos el título es el período: <b>‹ ›</b> para moverte, tocas el nombre para elegir cualquier mes, y al lado Mes, 3m, 6m, 12m o Año.</p>
           </div>
@@ -5378,6 +5408,54 @@ document.addEventListener('alpine:init', () => {
     },
   });
 
+  // ──────────────── ⓘ Qué es cada módulo ────────────────
+  // Un botón "i" junto al título de cada módulo abre esta explicación corta.
+  Alpine.store('info', {
+    open: false, key: null, style: '',
+    T: {
+      gastado: { t: 'Gastado', h: '<p>Todo lo gastado en el período que elegiste arriba.</p><p>La barra separa <b>fijos y cuotas</b> (oscuro: se anotan solos, como hipoteca, administración, suscripciones y cuotas de diferidos) del <b>día a día</b> (dorado: lo que anotan ustedes).</p><p><b>Comparar con</b> cambia la referencia: <b>Tope</b> (tope aspiracional del mes), <b>Plan</b> (ingreso esperado) o <b>Categorías</b> (suma del presupuesto de todas). Con 3, 6 o 12 meses la referencia se multiplica por los meses.</p><p>El <b>ritmo</b> solo mira el día a día: compara qué parte de lo disponible llevan contra qué parte del mes va.</p>' },
+      pagos: { t: 'Próximos pagos', h: '<p>Las fechas de pago de tarjetas y créditos. El color dice qué tan cerca está: <b>rojo</b> vencido o 3 días o menos, <b>naranja</b> hasta 7, <b>dorado</b> hasta 14 y <b>verde</b> más lejos.</p><p>Cuando paguen, toquen <b>Ya pagué</b>: sale de la lista y vuelve sola el mes siguiente con la nueva fecha. Si fue un error, en "pagados este mes" está <b>Deshacer</b>.</p><p>Tocar el nombre lo edita; <b>+ Agregar</b> y <b>Gestionar</b> crean, cambian o borran recordatorios. Solo avisa: no anota el gasto.</p>' },
+      pyg: { t: 'P&G', h: '<p>Ingresos contra egresos del período. <b>Neto</b> = ingresos − egresos.</p><p><b>Plan de gasto vs plan de ingreso</b> compara el presupuesto por categorías con el ingreso esperado: si pasa de 100%, el plan gasta más de lo que entra.</p><p>En el menú <b>Ingresos y CSV</b>: editar ingresos y bajar los CSV del mes (real o proyectado). <b>Ver por fuente</b> muestra de dónde vino cada ingreso.</p>' },
+      contable: { t: 'Vista contable', h: '<p>Separa el gasto corriente de las compras de bienes (muebles, equipos, vehículo). Solo aparece cuando hay alguna compra marcada como bien.</p><p>Se marca al editar el gasto, en <b>Tipo contable</b>. Tocar una fila abre Movimientos filtrado.</p>' },
+      explorador: { t: 'Dónde va la plata', h: '<p>Baja por niveles: <b>rubro → subcategoría → cada gasto</b>. Toca una fila o un pedazo de la dona para entrar y <b>Todas</b> (arriba) para volver.</p><p>La barra compara con el presupuesto del período: <b>verde</b> dentro, <b>dorado</b> cerca (90% o más), <b>rojo</b> pasado.</p><p>En el último nivel, tocar un gasto lo abre para editarlo. Colores de la dona: azules = esencial, lilas = estilo de vida, dorados = gusto.</p>' },
+      persona: { t: 'Por persona', h: '<p>Cuánto anotó cada uno en el período. Tocar un nombre abre Movimientos solo con sus gastos.</p>' },
+      metodo: { t: 'Por método de pago', h: '<p>Cuánto se pagó con cada tarjeta, cuenta o efectivo en el período. Tocar uno abre Movimientos filtrado por ese método, útil para cuadrar con el extracto.</p>' },
+      analisis: { t: 'Análisis de gasto diario', h: '<p>El gasto de cada día por categoría en el rango de fechas que elijas (7, 30, 90 días o personalizado), en columnas o acumulado.</p><p>La tabla muestra por categoría el total, el promedio y la mediana por gasto (la mediana se mueve menos con compras grandes).</p>' },
+      'rev-controles': { t: 'Qué estás viendo', h: '<p><b>Período</b>: Mes (el actual), 3m, 6m o 12m (meses completos hasta el mes pasado, para que el mes en curso no baje el promedio), Año o Elegir meses.</p><p><b>Quién</b>: Familia (sin Tuo), Daniel, Mado, Tuo o Todos.</p><p><b>Sin viajes</b> y <b>Sin compras grandes</b> (US$600 o más que no sean esenciales) los quitan para ver el gasto normal; lo quitado se lista al final. <b>USD/COP</b> cambia la moneda.</p>' },
+      'rev-kpis': { t: 'Lo clave', h: '<p><b>Por mes</b>: promedio mensual del período; el medidor lo compara con el presupuesto mensual (solo para Familia o Todos).</p><p><b>Gastaron</b>: total del período y el cambio contra el período anterior de igual duración.</p><p><b>En gustos</b>: qué parte del total fue gusto. <b>Si bajan los gustos 20%</b>: cuánto ahorrarían al mes y al año.</p>' },
+      'rev-mes': { t: 'Mes a mes', h: '<p>Cada barra es un mes, partida en esencial (azul), estilo de vida (lila) y gusto (dorado). La línea punteada es el presupuesto mensual.</p><p>Si el período es un solo mes, muestra el día a día (sin fijos ni cuotas). Pasa el dedo o el mouse por encima para ver los números.</p>' },
+      'rev-dona': { t: 'Necesario o gusto', h: '<p>Reparte el total en <b>esencial</b>, <b>estilo de vida</b> y <b>gusto</b>, con el cambio contra el período anterior.</p><p>Toca un tipo para que "En qué se fue" y el ranking muestren solo ese. Qué categoría es de qué tipo se cambia en <b>Editar tipos</b>.</p>' },
+      'rev-top': { t: 'En qué se fue', h: '<p>Las 12 categorías más grandes del período (respeta el tipo elegido y si ves subcategorías o categorías en el ranking).</p><p>Toca una barra para abrir su detalle en el ranking.</p>' },
+      'rev-dias': { t: 'Cada día', h: '<p>Un cuadrito por día: entre más oscuro, más gastaron. No cuenta fijos ni cuotas, para ver solo el día a día.</p><p>Pasa el mouse (o mantén el dedo) sobre un cuadrito para ver la fecha y el valor.</p>' },
+      'rev-area': { t: 'Cómo se mueve el gasto', h: '<p>Lo mismo de "Mes a mes" como áreas apiladas, para ver si cada tipo de gasto sube o baja con el tiempo.</p>' },
+      'rev-semana': { t: 'Qué días gastan más', h: '<p>El promedio de gasto de cada día de la semana en el período, sin fijos ni cuotas. Dorado = gustos, gris = lo demás.</p>' },
+      'rev-mini': { t: 'Cada categoría, mes a mes', h: '<p>Las 8 categorías más grandes con su curva de cada mes. Toca una para abrir su detalle en el ranking.</p>' },
+      'rev-ranking': { t: 'Ranking de categorías', h: '<p>Todas las categorías de mayor a menor, con su % del total, su curva y el cambio contra el período anterior. Cambia entre <b>Subcategoría</b> y <b>Categoría</b> arriba a la derecha.</p><p>Toca una para ver promedio por mes, cuántas veces, ticket típico y los gastos que más pesan. Ahí mismo le puedes cambiar el tipo.</p>' },
+      'rev-mejorar': { t: 'Dónde pueden mejorar', h: '<p>Los gustos y gastos de estilo de vida que más pesan, con lo que ahorrarían bajándolos.</p><p>El <b>simulador</b> calcula el ahorro al mes y al año si bajan una categoría (o todos los gustos) el porcentaje que elijas.</p><p class="text-slate-400">Es una guía general, no asesoría financiera.</p>' },
+      movimientos: { t: 'Cada gasto', h: '<p>Todos los gastos del período elegido arriba, del más nuevo al más viejo. Filtra por persona, tipo contable o categoría; con un filtro activo aparece el total filtrado.</p><p>Toca un gasto para editarlo o borrarlo. 🔁 = fijo que se anota solo · 📅 2/12 = cuota de un diferido (agrupadas al final). <b>CSV completo</b> baja el mes.</p>' },
+      ajustes: { t: 'Ajustes', h: '<p>Todo lo que se configura: fijos y diferidos, categorías y presupuesto, tipos de gasto, ingresos, tasas de cambio, fechas de pago, conciliación de extractos, el tema y la guía.</p><p>También puedes repetir el recorrido guiado.</p>' },
+    },
+    item() { return this.T[this.key] || { t: '', h: '' }; },
+    abrir(key, el) {
+      if (this.open && this.key === key) { this.cerrar(); return; }
+      this.key = key; this.open = true;
+      const r = el.getBoundingClientRect(), W = innerWidth, H = innerHeight;
+      if (W < 640) { this.style = 'left:12px;right:12px;bottom:92px;max-height:70vh;overflow:auto'; return; }
+      const w = 360, left = Math.round(Math.min(Math.max(12, r.left - 16), W - w - 12));
+      this.style = 'left:' + left + 'px;top:' + Math.round(r.bottom + 8) + 'px;width:' + w + 'px';
+      // Si no cabe abajo, se abre arriba del botón (se mide cuando ya se ve)
+      const ajustar = () => {
+        const pop = document.getElementById('info-pop'); if (!pop || !this.open) return;
+        const h = pop.offsetHeight; if (!h) return;
+        if (r.bottom + 8 + h > H - 12) this.style = 'left:' + left + 'px;top:' + Math.round(Math.max(12, r.top - 8 - h)) + 'px;width:' + w + 'px';
+      };
+      requestAnimationFrame(() => requestAnimationFrame(ajustar));
+      setTimeout(ajustar, 120);
+      if (!this._sc) { this._sc = () => { if (this.open && innerWidth >= 640) this.cerrar(); }; addEventListener('scroll', this._sc, { passive: true }); }
+    },
+    cerrar() { this.open = false; },
+  });
+
   // ──────────────── 🧭 Recorrido guiado ────────────────
   // Sale solo la primera vez que cada persona (por PIN) entra a la versión
   // nueva (/api/tour). Se repite desde Ajustes o desde la guía.
@@ -5386,7 +5464,7 @@ document.addEventListener('alpine:init', () => {
     on: false, i: 0, user: null, rect: null, cardStyle: '', _mv: null,
     steps: [
       { title: (u) => '¡Hola' + (u ? ' ' + u : '') + '! 👋',
-        text: 'Renovamos la página de gastos: más clara, con gráficas nuevas, modo de noche automático y un botón para anotar gastos desde aquí. Te muestro lo nuevo en un minuto.' },
+        text: 'Renovamos la página de gastos: más clara, con gráficas nuevas, un Resumen más fácil de revisar, modo de noche automático, un botón para anotar gastos y una <b><i>i</i></b> de ayuda en cada módulo. Te muestro lo nuevo en un minuto.' },
       { sel: ['[data-tour=nav]', '[data-tour=nav-movil]'], view: 'resumen', title: 'Las 4 secciones',
         text: '<b>Resumen</b> es el mes en curso. <b>Revisión</b> son las gráficas de dónde se va la plata. <b>Movimientos</b> es cada gasto (tócalo para editarlo). <b>Ajustes</b> es todo lo que se configura.' },
       { sel: ['[data-tour=add]', '[data-tour=add-movil]'], view: 'resumen', title: 'Anotar un gasto',
@@ -5395,6 +5473,8 @@ document.addEventListener('alpine:init', () => {
         text: 'El título es el período: con <b>‹ ›</b> pasas de un mes a otro y tocando el nombre eliges cualquier mes. Al lado eliges Mes, 3, 6 o 12 meses, o el Año.' },
       { sel: ['[data-tour=gastado]'], view: 'resumen', title: 'Cuánto llevan',
         text: 'Separa los <b>fijos y cuotas</b> (se anotan solos) del <b>día a día</b>, y lo compara con el tope, el plan o el presupuesto por categoría. El ritmo se mide solo con el día a día.' },
+      { sel: ['[data-tour=gastado] .info-i'], view: 'resumen', title: 'La i de cada módulo',
+        text: 'Junto al título de cada módulo hay una <b><i>i</i></b>. Tócala y te explica qué muestra ese módulo y cómo usarlo.' },
       { sel: ['[data-tour=pagos]'], view: 'resumen', title: 'Próximos pagos',
         text: 'Cuando pagues una tarjeta o un crédito, toca <b>Ya pagué</b>: sale de la lista y vuelve solo el mes siguiente con la nueva fecha. Si te equivocas, lo deshaces.' },
       { sel: ['[data-tour=explorador]'], view: 'resumen', title: 'Dónde va la plata',
@@ -5412,7 +5492,7 @@ document.addEventListener('alpine:init', () => {
       { sel: ['[data-tour=ajustes-grid]'], view: 'ajustes', title: 'Ajustes',
         text: 'Fijos y diferidos, categorías y presupuesto, tipos de gasto, tasas, fechas de pago y conciliación. El <b>tema</b> está en automático (claro de día, oscuro de 6 pm a 6 am) y aquí lo puedes fijar.' },
       { sel: ['[data-tour=guia]', '[data-tour=guia-movil]'], view: 'resumen', title: 'Siempre hay ayuda',
-        text: 'El botón <b>?</b> abre la guía de uso. Y en Ajustes → <b>Ver el recorrido otra vez</b> lo repites cuando quieras.' },
+        text: 'Cada módulo tiene un botón <b><i>i</i></b> junto al título que explica qué muestra. El botón <b>?</b> abre la guía completa, y en Ajustes → <b>Ver el recorrido otra vez</b> lo repites cuando quieras.' },
     ],
     step() { return this.steps[this.i] || {}; },
     titulo() { const t = this.step().title; return typeof t === 'function' ? t(this.user) : (t || ''); },
