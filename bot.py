@@ -1547,7 +1547,7 @@ def load_config():
         so that historical rows with custom/recovered categories don't crash
         BUDGET[cat] direct-access sites.
     """
-    global BUDGET, PAYMENT_METHODS, TRM, BOB_RATE, AED_RATE, CLP_RATE, ARS_RATE, TOTAL_BUDGET_USD
+    global BUDGET, PAYMENT_METHODS, TRM, BOB_RATE, AED_RATE, CLP_RATE, ARS_RATE, TOTAL_BUDGET_USD, BUDGET_LIMIT_USD
     conn = sqlite3.connect(DB_PATH)
     rows = dict(conn.execute("SELECT key, value FROM config").fetchall())
 
@@ -1583,6 +1583,9 @@ def load_config():
 
     # Recompute TOTAL_BUDGET_USD
     TOTAL_BUDGET_USD = sum(v.get("usd", 0) for v in BUDGET.values())
+    # El tope del mes (mensajes del bot y "presupuesto" del dashboard) es el
+    # presupuesto ideal: la suma de las categorías. Antes era un fijo de 5.000.
+    BUDGET_LIMIT_USD = round(TOTAL_BUDGET_USD) if TOTAL_BUDGET_USD > 0 else 5000
 
     # Also register unknown categories in ALIASES so resolve_category() returns
     # them rather than None.
