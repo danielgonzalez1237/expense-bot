@@ -81,6 +81,7 @@
   x-data="dashboard()"
   x-cloak
   @expenses-changed.window="reload()"
+  @tipos-changed.window="refreshNaturalezas()"
   class="lg:flex min-h-screen"
 >
 
@@ -139,9 +140,49 @@
         <span class="text-[11px] text-slate-400" x-show="$store.auth.user" x-text="'· ' + $store.auth.user"></span>
       </div>
       <div class="text-xs text-slate-500" x-text="viewSub()"></div>
-      <h1 class="num text-[2rem] leading-tight sm:text-4xl lg:text-5xl font-semibold truncate" x-text="viewTitle()"></h1>
+      <!-- Resumen y Movimientos: el título ES el período (flechas + selector de mes) -->
+      <div x-show="esPeriodo()" class="relative flex items-center gap-0.5 -ml-2" data-tour="periodo">
+        <button @click="periodMove(-1)" class="w-9 h-9 shrink-0 rounded-full hover:bg-white dark:hover:bg-slate-900 grid place-items-center text-2xl leading-none text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition" title="Período anterior" aria-label="Período anterior">‹</button>
+        <button @click="periodPicker = !periodPicker; pickerYear = Number(month.slice(0, 4))" class="min-w-0 flex items-baseline gap-2 hover:opacity-80 transition" title="Elegir mes">
+          <h1 class="num text-[1.9rem] leading-tight sm:text-4xl lg:text-5xl font-semibold truncate" x-text="periodTitle()"></h1>
+          <span class="text-sm text-slate-400 shrink-0">▾</span></button>
+        <button @click="periodMove(1)" :disabled="!periodCanMove(1)" class="w-9 h-9 shrink-0 rounded-full hover:bg-white dark:hover:bg-slate-900 grid place-items-center text-2xl leading-none text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 disabled:opacity-25 disabled:hover:bg-transparent transition" title="Período siguiente" aria-label="Período siguiente">›</button>
+        <!-- selector de mes -->
+        <div x-show="periodPicker" x-cloak @click.outside="periodPicker = false" @keydown.escape.window="periodPicker = false" x-transition
+             class="absolute z-40 top-full mt-2 left-0 bg-white dark:bg-slate-900 rounded-3xl shadow-xl border border-slate-100 dark:border-slate-800 p-4 w-[300px]">
+          <div class="flex items-center justify-between mb-3">
+            <button @click="pickerYear--" class="w-8 h-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Año anterior">‹</button>
+            <span class="font-semibold text-sm" x-text="pickerYear"></span>
+            <button @click="pickerYear++" :disabled="pickerYear >= new Date().getFullYear()" class="w-8 h-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-25" aria-label="Año siguiente">›</button>
+          </div>
+          <div class="grid grid-cols-4 gap-1.5 text-sm">
+            <template x-for="(nm, i) in MESES_CORTOS" :key="'pk' + i">
+              <button @click="pickMonth(pickerYear, i)" :disabled="esFuturo(pickerYear, i)"
+                class="py-2 rounded-xl transition capitalize disabled:text-slate-300 dark:disabled:text-slate-700"
+                :class="ymDe(pickerYear, i) === month ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-semibold'
+                  : (monthIsInRange(ymDe(pickerYear, i)) ? 'bg-slate-100 dark:bg-slate-800' : 'hover:bg-slate-100 dark:hover:bg-slate-800')"
+                x-text="nm"></button>
+            </template>
+          </div>
+          <div class="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
+            <span x-text="windowSize === 1 ? 'Elige el mes' : 'Elige el último mes del período'"></span>
+            <button @click="pickMonth(new Date().getFullYear(), new Date().getMonth())" class="underline hover:text-slate-700 dark:hover:text-slate-200">Este mes</button>
+          </div>
+        </div>
+      </div>
+      <h1 x-show="!esPeriodo()" class="num text-[2rem] leading-tight sm:text-4xl lg:text-5xl font-semibold truncate" x-text="viewTitle()"></h1>
     </div>
-    <div class="absolute right-0 top-0 lg:static lg:ml-auto flex items-center gap-1.5">
+    <!-- Mes · 3m · 6m · 12m · Año (igual que en Revisión) -->
+    <div x-show="esPeriodo()" class="w-full lg:w-auto lg:ml-auto order-last lg:order-none">
+      <div class="inline-flex rounded-full bg-white dark:bg-slate-900 p-1 shadow-sm text-xs">
+        <template x-for="w in windowOptions" :key="'w' + w.value">
+          <button @click="selectWindow(w.value)" :title="w.title" class="px-3 py-1.5 rounded-full font-medium transition whitespace-nowrap"
+            :class="windowSize === w.value ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'"
+            x-text="w.label"></button>
+        </template>
+      </div>
+    </div>
+    <div class="absolute right-0 top-0 lg:static flex items-center gap-1.5" :class="esPeriodo() ? '' : 'lg:ml-auto'">
       <button @click="$store.guide.open = true" data-tour="guia-movil"
         class="lg:hidden w-9 h-9 rounded-full bg-white dark:bg-slate-900 shadow-sm grid place-items-center text-sm font-semibold text-slate-600 dark:text-slate-300"
         title="Guía de uso" aria-label="Guía de uso">?</button>
@@ -155,119 +196,6 @@
         <span class="text-base leading-none">+</span> Anotar gasto</button>
     </div>
   </header>
-
-  <!-- ──────────────── Próximos pagos (recordatorios de fechas de pago) ────────────────
-       Tarjetas de crédito, créditos, hipoteca… El color dice qué tan cerca está
-       la fecha (lo calcula el navegador con la fecha local). -->
-  <div x-show="view === 'resumen'">
-  <section x-data x-init="$store.reminders.load()" class="mb-4">
-    <div class="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 mb-2">
-      <div class="flex flex-wrap items-baseline gap-x-2">
-        <div class="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 font-semibold">📅 Próximos pagos</div>
-        <span x-show="$store.reminders.urgentCount" class="text-[10px] font-semibold text-rose-600 dark:text-rose-400"
-              x-text="$store.reminders.urgentCount + ($store.reminders.urgentCount === 1 ? ' vence esta semana' : ' vencen esta semana')"></span>
-        <span x-show="$store.reminders.summary" class="text-[10px] text-slate-400 dark:text-slate-500" x-text="$store.reminders.summary"></span>
-      </div>
-      <div class="flex items-center gap-1">
-        <button @click="$store.reminders.openModal()"
-          class="text-[11px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg px-2.5 py-1 font-medium transition">+ Agregar</button>
-        <button @click="$store.reminders.openModal()"
-          class="text-[11px] text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 px-1.5 py-1" title="Gestionar fechas de pago">Gestionar</button>
-      </div>
-    </div>
-
-    <div x-show="$store.reminders.loaded && !$store.reminders.cards.length"
-         class="text-xs text-slate-500 dark:text-slate-400 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl p-3 text-center">
-      Agrega tus tarjetas y créditos para ver aquí cuánto falta para cada pago.
-    </div>
-
-    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-      <template x-for="c in $store.reminders.visible()" :key="c.id">
-        <div @click="$store.reminders.openModal(c.id)"
-             class="rounded-xl border p-2.5 cursor-pointer transition hover:shadow-sm flex flex-col gap-1 min-w-0"
-             :class="c.tone.card"
-             :title="'Toca para editar ' + c.label">
-          <div class="text-[12px] font-semibold truncate">
-            <span x-text="$store.reminders.icon(c.kind)"></span> <span x-text="c.label"></span>
-          </div>
-          <div class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0">
-            <span class="text-[10px] font-bold rounded-full px-2 py-0.5 whitespace-nowrap" :class="c.tone.pill" x-text="c.badge"></span>
-            <span class="text-[10px] text-slate-500 dark:text-slate-400 whitespace-nowrap" x-text="c.subline"></span>
-          </div>
-          <div class="flex items-end justify-between gap-1 min-w-0">
-            <span class="text-sm font-bold truncate" x-text="$store.reminders.fmtAmount(c)"></span>
-            <button x-show="c.st.state !== 'nodate'"
-                    @click.stop="$store.reminders.togglePaid(c)" :disabled="$store.reminders.busy"
-                    class="text-[10px] font-semibold rounded-md px-1.5 py-0.5 border whitespace-nowrap transition"
-                    :class="c.st.state === 'paid'
-                      ? 'border-slate-300 dark:border-slate-600 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-                      : 'border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400 bg-white/70 dark:bg-slate-900/60 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'"
-                    :title="c.st.state === 'paid' ? 'Marcar como NO pagado' : 'Marcar este pago como hecho'"
-                    :aria-label="c.st.state === 'paid' ? 'Deshacer pagado' : 'Marcar pagado'"><span
-                    x-text="c.st.state === 'paid' ? '↺' : '✓'"></span><span class="hidden sm:inline"
-                    x-text="c.st.state === 'paid' ? ' Deshacer' : ' Pagado'"></span></button>
-          </div>
-          <div class="h-1 rounded-full bg-slate-200/70 dark:bg-slate-700/60 overflow-hidden">
-            <div class="h-1 rounded-full transition-all" :class="c.tone.bar" :style="'width:' + c.progress + '%'"></div>
-          </div>
-        </div>
-      </template>
-    </div>
-    <button x-show="$store.reminders.cards.length > $store.reminders.LIMIT"
-            @click="$store.reminders.expanded = !$store.reminders.expanded"
-            class="mt-1.5 text-[11px] text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-            x-text="$store.reminders.expanded ? 'Ver menos' : 'Ver todos (' + $store.reminders.cards.length + ')'"></button>
-  </section>
-  </div>
-  <!-- END Próximos pagos (solo en Resumen) -->
-
-  <!-- ──────────────── Month + window selectors (Resumen y Movimientos) ──────────────── -->
-  <section x-show="view === 'resumen' || view === 'movimientos'"
-           class="mb-4 sticky top-0 bg-papel/95 dark:bg-slate-950/95 backdrop-blur z-20 py-2 border-b border-slate-200/70 dark:border-slate-900">
-    <div class="flex items-center justify-between mb-1.5">
-      <div class="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600 font-semibold">Mes</div>
-      <!-- Window pills -->
-      <div class="flex gap-1 text-[10px]">
-        <template x-for="w in windowOptions" :key="w.value">
-          <button
-            @click="selectWindow(w.value)"
-            :class="windowSize === w.value
-              ? 'bg-sky-100 text-sky-900 dark:bg-sky-900/40 dark:text-sky-300 border-sky-300 dark:border-sky-700'
-              : 'bg-white text-slate-500 dark:bg-slate-900 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 border-slate-200 dark:border-slate-800'"
-            class="px-2 py-1 rounded-md font-semibold whitespace-nowrap border transition"
-            :title="w.title"
-            x-text="w.label"
-          ></button>
-        </template>
-      </div>
-    </div>
-    <div
-      id="month-bar"
-      class="flex gap-1.5 overflow-x-auto pb-1"
-      style="scroll-behavior: smooth;"
-    >
-      <template x-for="m in months" :key="m.value">
-        <button
-          @click="selectMonth(m.value)"
-          :data-month="m.value"
-          :class="monthIsInRange(m.value)
-            ? (month === m.value
-                ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 border-slate-900 dark:border-slate-100 shadow-sm'
-                : 'bg-sky-100 text-sky-900 dark:bg-sky-900/30 dark:text-sky-300 border-sky-300 dark:border-sky-700')
-              : 'bg-white text-slate-600 dark:bg-slate-900 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800'"
-          class="px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap border transition flex-shrink-0"
-          x-text="m.shortLabel"
-        ></button>
-      </template>
-    </div>
-    <div
-      x-show="windowSize > 1"
-      class="text-[10px] text-sky-700 dark:text-sky-400 mt-1"
-    >
-      📊 Rango activo: <span class="font-semibold" x-text="rangeLabel"></span>
-      · <span x-text="windowSize"></span> meses · budget prorrateado ×<span x-text="windowSize"></span>
-    </div>
-  </section>
 
   <!-- ──────────────── Error state ──────────────── -->
   <div
@@ -624,91 +552,140 @@
     </div>
   </section>
 
-  <!-- ════════════════════════ 📊 RESUMEN ════════════════════════ -->
+  <!-- ════════════════════════ 📊 RESUMEN ════════════════════════
+       Rediseño nov-2026: el período vive en el título (flechas + selector),
+       "Gastado" separa fijos/cuotas del día a día, Próximos pagos es una
+       agenda ("Ya pagué" la saca de la lista hasta el mes siguiente) y
+       "Dónde va la plata" baja rubro → subcategoría → cada gasto. -->
   <div x-show="view === 'resumen'">
-  <!--
-    ═══════════════════════════════════════════════════════════════
-    DASHBOARD LAYOUT
-    ═══════════════════════════════════════════════════════════════
-    On mobile (< md): everything stacks vertically in source order
-    (natural reading: P&G card → Objetivos → Gastos → Movimientos).
+  <div class="grid grid-cols-1 xl:grid-cols-12 gap-4 mb-4">
 
-    On desktop (md+): wraps the top two cards (P&G == Ingresos zone,
-    and Objetivos gauge == goals zone) into a 2-column grid so the
-    screen width is used. The 'Gastos' section below uses a 3-col
-    subgrid for users / payment methods / categories.
-  -->
-  <div class="md:grid md:grid-cols-2 md:gap-4">
-
-  <!-- ──────────────── P&L card (bitácora familiar) ──────────────── -->
-  <section class="bg-white dark:bg-slate-900 rounded-2xl p-5 mb-4 fade shadow-sm">
-    <div class="flex items-start justify-between mb-3">
-      <div>
-        <div class="text-xs text-slate-500 uppercase tracking-wide">💼 P&G del mes · <span x-text="monthLabel"></span></div>
-        <div class="text-[11px] text-slate-400 dark:text-slate-600">Bitácora familiar — ingresos vs egresos</div>
+    <!-- ── Gastado: fijos y cuotas vs día a día, contra la referencia elegida ── -->
+    <section class="xl:col-span-7 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-7 shadow-sm fade min-w-0" data-tour="gastado">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="text-xs text-slate-500" x-text="gastadoLabel()"></div>
+          <div class="num text-5xl sm:text-6xl font-semibold mt-1 truncate" x-text="fmtUsd(summary.total_usd)"></div>
+          <div class="text-xs text-slate-400 mt-1" x-text="fmtCop(summary.total_cop) + ' pesos · ' + (summary.count || 0) + ' gastos'"></div>
+        </div>
+        <div class="sm:text-right" x-show="refOptions().length">
+          <div class="text-[11px] text-slate-400 mb-1">Comparar con</div>
+          <div class="inline-flex flex-wrap rounded-full bg-slate-100 dark:bg-slate-800 p-1 text-[11px]">
+            <template x-for="o in refOptions()" :key="o.k">
+              <button @click="setRef(o.k)" :title="o.title" class="px-2.5 py-1 rounded-full transition whitespace-nowrap"
+                :class="refActual().k === o.k ? 'bg-white dark:bg-slate-900 shadow-sm font-semibold' : 'text-slate-500'"
+                x-text="o.label + ' ' + fmtUsd(o.v)"></button>
+            </template>
+          </div>
+        </div>
       </div>
-      <div class="flex items-center gap-2 flex-wrap justify-end">
-        <a
-          :href="'/api/export/csv_full?month=' + month"
-          download
-          title="CSV del mes con datos REALES (ingresos + gastos ya registrados, detallados por categoría/sub/método/cuotas)"
-          class="text-xs bg-sky-600 hover:bg-sky-700 text-white rounded-lg px-3 py-1.5 font-medium transition"
-        >📥 CSV real</a>
-        <a
-          :href="'/api/export/csv_projected?month=' + month"
-          download
-          title="CSV del mes con PROYECCIONES (presupuesto por categoría con overrides + ingresos esperados por fuente). Para comparar plan vs ejecutado."
-          class="text-xs bg-violet-600 hover:bg-violet-700 text-white rounded-lg px-3 py-1.5 font-medium transition"
-        >🎯 CSV proyectado</a>
-        <button
-          @click="openIncomeEditor()"
-          class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-1.5 font-medium transition"
-        >✏️ Editar ingresos</button>
+      <!-- barra: fijos (oscuro) + día a día (dorado); la raya marca la referencia si se pasaron -->
+      <div class="relative mt-6">
+        <div class="h-4 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden flex">
+          <div class="h-full bg-slate-700 dark:bg-slate-300 bar" :style="'width:' + barPct(fijosUsd) + '%'"></div>
+          <div class="h-full bg-gusto bar" :style="'width:' + barPct(diaUsd) + '%'"></div>
+        </div>
+        <div x-show="refActual().v && summary.total_usd > refActual().v" class="absolute -top-1 -bottom-1 w-0.5 bg-alerta rounded"
+             :style="{ left: barPct(refActual().v) + '%' }" title="Referencia"></div>
+      </div>
+      <div class="mt-3 grid grid-cols-3 gap-3 text-xs">
+        <div class="min-w-0"><div class="flex items-center gap-1.5 text-slate-500"><span class="w-2.5 h-2.5 rounded-sm bg-slate-700 dark:bg-slate-300 shrink-0"></span>Fijos y cuotas</div>
+          <div class="font-semibold text-sm mt-0.5" x-text="fmtUsd(fijosUsd)"></div>
+          <div class="text-[11px] text-slate-400">se anotan solos</div></div>
+        <div class="min-w-0"><div class="flex items-center gap-1.5 text-slate-500"><span class="w-2.5 h-2.5 rounded-sm bg-gusto shrink-0"></span>Día a día</div>
+          <div class="font-semibold text-sm mt-0.5" x-text="fmtUsd(diaUsd)"></div>
+          <div class="text-[11px] text-slate-400" x-show="refActual().v" x-text="'de ' + fmtUsd(Math.max(0, refActual().v - fijosUsd)) + ' disponibles'"></div></div>
+        <div class="min-w-0" x-show="refActual().v"><div class="flex items-center gap-1.5 text-slate-500"><span class="w-2.5 h-2.5 rounded-sm bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shrink-0"></span><span x-text="queda() >= 0 ? 'Queda' : 'Se pasaron'"></span></div>
+          <div class="font-semibold text-sm mt-0.5" :class="queda() < 0 ? 'text-alerta-fuerte dark:text-alerta' : 'text-ahorro dark:text-emerald-400'" x-text="fmtUsd(Math.abs(queda()))"></div>
+          <div class="text-[11px] text-slate-400" x-show="windowSize === 1 && daysLeft > 0 && queda() > 0" x-text="fmtUsd(queda() / daysLeft) + ' por día · ' + daysLeft + ' días'"></div></div>
+      </div>
+      <div class="mt-5 rounded-2xl px-4 py-3 text-xs" :class="ritmo().cls" x-show="ritmo().texto" x-html="ritmo().texto"></div>
+      <div x-show="pnl && pnl.budget_was_dynamic" class="mt-2 text-[11px] text-slate-400">Este período incluye presupuestos ajustados mes a mes.</div>
+    </section>
+
+    <!-- ── Próximos pagos: agenda ── -->
+    <section class="xl:col-span-5 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm fade min-w-0" x-init="$store.reminders.load()" data-tour="pagos">
+      <div class="flex items-baseline justify-between gap-2">
+        <h2 class="num text-xl sm:text-2xl font-semibold">Próximos pagos</h2>
+        <div class="flex items-center gap-1 text-[11px]">
+          <button @click="$store.reminders.openModal()" class="rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 px-2.5 py-1 font-medium">+ Agregar</button>
+          <button @click="$store.reminders.openModal()" class="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 px-1.5 py-1">Gestionar</button>
+        </div>
+      </div>
+      <div class="text-[11px] mt-0.5 flex flex-wrap gap-x-2">
+        <span x-show="$store.reminders.urgentCount" class="font-semibold text-alerta-fuerte dark:text-alerta"
+              x-text="$store.reminders.urgentCount + ($store.reminders.urgentCount === 1 ? ' vence esta semana' : ' vencen esta semana')"></span>
+        <span class="text-slate-500" x-text="$store.reminders.summary || ($store.reminders.loaded && !$store.reminders.pendientes().length && $store.reminders.cards.length ? 'Todo pagado por ahora ✓' : '')"></span>
+      </div>
+      <div x-show="$store.reminders.loaded && !$store.reminders.cards.length"
+           class="mt-3 text-xs text-slate-500 border border-dashed border-slate-300 dark:border-slate-700 rounded-2xl p-4 text-center">
+        Agrega tus tarjetas y créditos para ver aquí cuánto falta para cada pago.
+      </div>
+      <div class="mt-2 divide-y divide-slate-100 dark:divide-slate-800">
+        <template x-for="c in $store.reminders.pendientes()" :key="'rp' + c.id">
+          <div class="py-2.5 flex items-center gap-3">
+            <span class="shrink-0 min-w-[64px] px-2 text-center rounded-full text-[10px] font-bold py-1 whitespace-nowrap" :class="c.tone.pill" x-text="c.badge"></span>
+            <button @click="$store.reminders.openModal(c.id)" class="min-w-0 flex-1 text-left" :title="'Editar ' + c.label">
+              <div class="text-sm font-medium truncate"><span x-text="$store.reminders.icon(c.kind)"></span> <span x-text="c.label"></span></div>
+              <div class="text-[11px] text-slate-400 truncate" x-text="c.subline + ' · ' + $store.reminders.fmtAmount(c)"></div>
+            </button>
+            <button x-show="c.st.state !== 'nodate'" @click="$store.reminders.marcarPagado(c)" :disabled="$store.reminders.busy"
+              class="shrink-0 flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-slate-700 hover:border-ahorro hover:text-ahorro dark:hover:text-emerald-400 px-2.5 py-1.5 text-[11px] text-slate-500 transition disabled:opacity-50"
+              title="Marcar como pagado: sale de la lista hasta el mes siguiente">
+              <span class="w-3.5 h-3.5 rounded-full border-2 border-current"></span> Ya pagué</button>
+            <button x-show="c.st.state === 'nodate'" @click="$store.reminders.openModal(c.id)"
+              class="shrink-0 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-1.5 text-[11px] text-slate-600 dark:text-slate-300">Poner fecha</button>
+          </div>
+        </template>
+      </div>
+      <div x-show="$store.reminders.pagados().length" class="mt-1 pt-3 border-t border-slate-100 dark:border-slate-800">
+        <button @click="$store.reminders.verPagados = !$store.reminders.verPagados" class="w-full flex items-center justify-between text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">
+          <span>✓ <span x-text="$store.reminders.pagados().length"></span> <span x-text="$store.reminders.pagados().length === 1 ? 'pagado' : 'pagados'"></span> este mes</span>
+          <span x-text="$store.reminders.verPagados ? 'Ocultar' : 'Ver'"></span></button>
+        <div x-show="$store.reminders.verPagados" class="mt-2 space-y-1.5">
+          <template x-for="c in $store.reminders.pagados()" :key="'rpp' + c.id">
+            <div class="flex items-center gap-2 text-xs text-slate-400">
+              <span class="text-ahorro dark:text-emerald-400">✓</span>
+              <span class="flex-1 truncate line-through" x-text="c.label"></span>
+              <span class="whitespace-nowrap" x-text="'vuelve el ' + $store.reminders.vuelve(c)"></span>
+              <button @click="$store.reminders.togglePaid(c)" :disabled="$store.reminders.busy" class="underline hover:text-slate-700 dark:hover:text-slate-200">Deshacer</button>
+            </div>
+          </template>
+        </div>
+      </div>
+      <p class="mt-3 text-[11px] text-slate-400" x-show="$store.reminders.cards.length">"Ya pagué" lo saca de la lista; vuelve solo el mes siguiente con la nueva fecha.</p>
+      <div x-show="$store.reminders.error" class="mt-2 text-[11px] text-red-600 dark:text-red-400" x-text="$store.reminders.error"></div>
+    </section>
+  </div>
+
+  <!-- ── P&G del mes: compacto; los botones pasan a un menú ── -->
+  <section class="bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm mb-4 fade">
+    <div class="flex flex-wrap items-center gap-x-8 gap-y-3">
+      <h2 class="num text-xl font-semibold">P&amp;G</h2>
+      <div><div class="text-[11px] text-slate-500">Ingresos</div><div class="font-semibold" x-text="fmtUsd(pnl.income && pnl.income.total_usd)"></div></div>
+      <div><div class="text-[11px] text-slate-500">Egresos</div><div class="font-semibold" x-text="fmtUsd(pnl.expenses && pnl.expenses.total_usd)"></div></div>
+      <div><div class="text-[11px] text-slate-500">Neto</div>
+        <div class="font-semibold" :class="netPos ? 'text-ahorro dark:text-emerald-400' : 'text-alerta-fuerte dark:text-alerta'" x-text="(netPos ? '+' : '') + fmtUsd(pnl.net && pnl.net.usd)"></div></div>
+      <div class="text-[11px] text-slate-400" x-show="!pnl.income || !pnl.income.total_usd">Aún no hay ingresos anotados en este período</div>
+      <div class="text-[11px] text-slate-500" x-show="pnl.net && pnl.net.pct_of_income !== null && pnl.net.pct_of_income !== undefined && pnl.income && pnl.income.total_usd"
+           x-text="Math.round(((pnl.net && pnl.net.pct_of_income) || 0) * 100) + '% del ingreso'"></div>
+      <div class="text-[11px] text-slate-500" x-show="planIncome > 0 && configuredBudget > 0">Plan de gasto vs plan de ingreso:
+        <span class="font-semibold" :class="configuredBudget <= planIncome ? 'text-ahorro dark:text-emerald-400' : 'text-alerta-fuerte dark:text-alerta'" x-text="Math.round(configuredBudget / planIncome * 100) + '%'"></span></div>
+      <div class="ml-auto flex items-center gap-2">
+        <button x-show="pnl.income && pnl.income.by_source && pnl.income.by_source.length" @click="verFuentes = !verFuentes"
+          class="rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 px-3 py-1.5 text-xs" x-text="verFuentes ? 'Ocultar fuentes' : 'Ver por fuente'"></button>
+        <div class="relative" x-data="{ m: false }">
+          <button @click="m = !m" class="rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 px-3 py-1.5 text-xs">Ingresos y CSV ⋯</button>
+          <div x-show="m" @click.outside="m = false" x-transition class="absolute right-0 mt-2 z-30 bg-white dark:bg-slate-900 rounded-2xl shadow-xl p-1.5 w-56 text-sm border border-slate-100 dark:border-slate-800">
+            <button @click="m = false; openIncomeEditor()" class="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800">✏️ Editar ingresos</button>
+            <a :href="'/api/export/csv_full?month=' + month" download @click="m = false" class="block px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800" title="Datos reales del mes: ingresos y gastos">📥 CSV real del mes</a>
+            <a :href="'/api/export/csv_projected?month=' + month" download @click="m = false" class="block px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800" title="Presupuesto e ingresos esperados del mes">🎯 CSV proyectado del mes</a>
+          </div>
+        </div>
       </div>
     </div>
-
-    <div class="grid grid-cols-3 gap-3">
-      <!-- Ingresos -->
-      <div class="bg-emerald-50 dark:bg-emerald-950/30 rounded-xl p-3 border border-emerald-200 dark:border-emerald-900">
-        <div class="text-[10px] uppercase tracking-wide text-emerald-700 dark:text-emerald-400 font-semibold">Ingresos</div>
-        <div class="text-lg font-bold mt-0.5" x-text="fmtUsd(pnl.income && pnl.income.total_usd)"></div>
-        <div class="text-[10px] text-slate-500 mt-0.5">
-          <span x-text="(pnl.income && pnl.income.by_source && pnl.income.by_source.length) || 0"></span> fuentes
-        </div>
-      </div>
-
-      <!-- Egresos -->
-      <div class="bg-rose-50 dark:bg-rose-950/30 rounded-xl p-3 border border-rose-200 dark:border-rose-900">
-        <div class="text-[10px] uppercase tracking-wide text-rose-700 dark:text-rose-400 font-semibold">Egresos</div>
-        <div class="text-lg font-bold mt-0.5" x-text="fmtUsd(pnl.expenses && pnl.expenses.total_usd)"></div>
-        <div class="text-[10px] text-slate-500 mt-0.5">
-          <span x-text="summary.count || 0"></span> gastos
-        </div>
-      </div>
-
-      <!-- Neto -->
-      <div
-        class="rounded-xl p-3 border"
-        :class="netPos
-          ? 'bg-sky-50 dark:bg-sky-950/30 border-sky-200 dark:border-sky-900'
-          : 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900'"
-      >
-        <div
-          class="text-[10px] uppercase tracking-wide font-semibold"
-          :class="netPos ? 'text-sky-700 dark:text-sky-400' : 'text-red-700 dark:text-red-400'"
-        >Neto</div>
-        <div class="text-lg font-bold mt-0.5" x-text="(netPos ? '+' : '') + fmtUsd(pnl.net && pnl.net.usd)"></div>
-        <div class="text-[10px] text-slate-500 mt-0.5" x-show="pnl.net && pnl.net.pct_of_income !== null && pnl.net.pct_of_income !== undefined">
-          <span x-text="Math.round(((pnl.net && pnl.net.pct_of_income) || 0) * 100)"></span>% del ingreso
-        </div>
-        <div class="text-[10px] text-slate-500 mt-0.5" x-show="!pnl.income || !pnl.income.total_usd">
-          sin ingresos aún
-        </div>
-      </div>
-    </div>
-
     <!-- Mini breakdown by income source -->
-    <div class="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800" x-show="pnl.income && pnl.income.by_source && pnl.income.by_source.length">
+    <div class="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800" x-show="verFuentes && pnl.income && pnl.income.by_source && pnl.income.by_source.length">
       <div class="text-[10px] text-slate-500 uppercase tracking-wide mb-1.5">Por fuente</div>
 
       <!-- Donut de ingresos por fuente (hover resalta segmento + centro) -->
@@ -787,186 +764,6 @@
     </div>
   </section>
 
-  <!-- ──────────────── Overall gauge — dual reference (Ideal + Configurado) ──────────────── -->
-  <section class="bg-white dark:bg-slate-900 rounded-2xl p-5 mb-4 fade shadow-sm">
-    <!-- Top row: month label + big total spent + pace -->
-    <div class="flex items-start justify-between">
-      <div>
-        <div class="text-xs text-slate-500 uppercase tracking-wide">
-          <span x-text="windowSize === 1 ? monthLabel : rangeLabel"></span>
-          <span x-show="windowSize !== 1" class="text-sky-600 dark:text-sky-400 font-semibold ml-1">(<span x-text="summary.n_months || 1"></span>m)</span>
-        </div>
-        <div class="text-3xl font-bold mt-1" x-text="fmtUsd(summary.total_usd)"></div>
-        <div class="text-xs text-slate-500 mt-0.5" x-text="fmtCop(summary.total_cop) + ' COP'"></div>
-      </div>
-      <div class="text-right">
-        <div class="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600 font-semibold">Ritmo</div>
-        <div class="text-xs mt-0.5" :class="paceColor" x-text="windowSize === 1 ? paceLabel : '—'"></div>
-      </div>
-    </div>
-
-    <!--
-      Three reference gauges, stacked VERTICALLY inside the Objetivos card.
-      Each gauge gets the full card width so the "$X tope / libre $Y" row
-      never truncates. Prior version used grid-cols-3 which crammed them
-      into ~120px each on md:grid-cols-2 parents and cut off labels.
-    -->
-    <div class="space-y-2.5 mt-4">
-
-      <!-- 🎯 IDEAL — hardcoded $5,000/mo aspirational cap -->
-      <div class="bg-slate-50 dark:bg-slate-800/40 rounded-xl px-3.5 py-3 border border-slate-200 dark:border-slate-800">
-        <div class="flex items-center justify-between gap-3">
-          <div class="min-w-0">
-            <div class="flex items-baseline gap-2 flex-wrap">
-              <span class="text-xs uppercase tracking-wide text-slate-700 dark:text-slate-200 font-bold">🎯 Ideal</span>
-              <span class="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">Tope aspiracional fijo</span>
-            </div>
-          </div>
-          <div class="text-xl font-bold leading-none shrink-0" :class="idealTextColor" x-text="Math.round(pctIdeal * 100) + '%'"></div>
-        </div>
-        <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden mt-2">
-          <div
-            class="h-full rounded-full bar"
-            :class="catBarColor(pctIdeal)"
-            :style="'width:' + Math.min(Math.max(pctIdeal, 0) * 100, 100) + '%'"
-          ></div>
-        </div>
-        <div class="flex items-baseline justify-between text-[11px] mt-1.5 gap-2">
-          <span class="text-slate-500 dark:text-slate-400" x-text="fmtUsd(summary.budget_limit_usd) + ' tope'"></span>
-          <span class="font-medium" :class="idealTextColor">
-            <span x-show="pctIdeal <= 1">libre <span x-text="fmtUsd(summary.budget_limit_usd - summary.total_usd)"></span></span>
-            <span x-show="pctIdeal > 1">sobre <span x-text="fmtUsd(summary.total_usd - summary.budget_limit_usd)"></span></span>
-          </span>
-        </div>
-      </div>
-
-      <!-- 💰 PLAN — sum of expected_usd across income sources -->
-      <div class="bg-slate-50 dark:bg-slate-800/40 rounded-xl px-3.5 py-3 border border-slate-200 dark:border-slate-800">
-        <div class="flex items-center justify-between gap-3">
-          <div class="min-w-0">
-            <div class="flex items-baseline gap-2 flex-wrap">
-              <span class="text-xs uppercase tracking-wide text-slate-700 dark:text-slate-200 font-bold">💰 Plan</span>
-              <span class="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">Gasto vs ingreso esperado</span>
-            </div>
-          </div>
-          <div class="text-xl font-bold leading-none shrink-0" :class="planIncomeTextColor" x-text="planIncome > 0 ? Math.round(pctPlan * 100) + '%' : '—'"></div>
-        </div>
-        <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden mt-2">
-          <div
-            class="h-full rounded-full bar"
-            :class="catBarColor(pctPlan)"
-            :style="'width:' + Math.min(Math.max(pctPlan, 0) * 100, 100) + '%'"
-          ></div>
-        </div>
-        <div class="flex items-baseline justify-between text-[11px] mt-1.5 gap-2">
-          <span class="text-slate-500 dark:text-slate-400">
-            <span x-show="planIncome > 0" x-text="fmtUsd(planIncome) + ' plan'"></span>
-            <span x-show="planIncome === 0" class="italic">sin plan</span>
-          </span>
-          <span class="font-medium" :class="planIncomeTextColor">
-            <span x-show="planIncome > 0 && pctPlan <= 1">libre <span x-text="fmtUsd(planIncome - summary.total_usd)"></span></span>
-            <span x-show="planIncome > 0 && pctPlan > 1">sobre <span x-text="fmtUsd(summary.total_usd - planIncome)"></span></span>
-            <span x-show="planIncome === 0" class="italic text-slate-400 dark:text-slate-600">—</span>
-          </span>
-        </div>
-      </div>
-
-      <!-- ⚙️ CONFIG — sum of per-category budgets -->
-      <div class="bg-slate-50 dark:bg-slate-800/40 rounded-xl px-3.5 py-3 border border-slate-200 dark:border-slate-800">
-        <div class="flex items-center justify-between gap-3">
-          <div class="min-w-0">
-            <div class="flex items-baseline gap-2 flex-wrap">
-              <span class="text-xs uppercase tracking-wide text-slate-700 dark:text-slate-200 font-bold">⚙️ Config</span>
-              <span class="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">Plan por categoría</span>
-            </div>
-          </div>
-          <div class="text-xl font-bold leading-none shrink-0" :class="configuredTextColor" x-text="configuredBudget > 0 ? Math.round(pctConfigured * 100) + '%' : '—'"></div>
-        </div>
-        <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 overflow-hidden mt-2">
-          <div
-            class="h-full rounded-full bar"
-            :class="catBarColor(pctConfigured)"
-            :style="'width:' + Math.min(Math.max(pctConfigured, 0) * 100, 100) + '%'"
-          ></div>
-        </div>
-        <div class="flex items-baseline justify-between text-[11px] mt-1.5 gap-2">
-          <span class="text-slate-500 dark:text-slate-400">
-            <span x-show="configuredBudget > 0" x-text="fmtUsd(configuredBudget) + ' plan'"></span>
-            <span x-show="configuredBudget === 0" class="italic">sin config</span>
-          </span>
-          <span class="font-medium" :class="configuredTextColor">
-            <span x-show="configuredBudget > 0 && pctConfigured <= 1">libre <span x-text="fmtUsd(configuredBudget - summary.total_usd)"></span></span>
-            <span x-show="configuredBudget > 0 && pctConfigured > 1">sobre <span x-text="fmtUsd(summary.total_usd - configuredBudget)"></span></span>
-            <span x-show="configuredBudget === 0" class="italic text-slate-400 dark:text-slate-600">—</span>
-          </span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Motivational sobrante line — prominent when spending is under the Ideal cap.
-         This is the visual signal Daniel asked for: 'gastar menos cada mes' → see
-         the leftover turn into potential savings. -->
-    <div
-      x-show="pctIdeal < 1"
-      class="mt-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-lg px-3 py-2 flex items-center justify-between gap-2"
-    >
-      <div class="flex items-center gap-2">
-        <span class="text-lg">✨</span>
-        <div>
-          <div class="text-[10px] uppercase tracking-wide text-emerald-700 dark:text-emerald-400 font-semibold">Sobrante vs ideal</div>
-          <div class="text-[11px] text-slate-600 dark:text-slate-400">Si no gastas más, esto se ahorra este mes</div>
-        </div>
-      </div>
-      <div class="text-xl font-bold text-emerald-700 dark:text-emerald-400" x-text="'+' + fmtUsd(summary.budget_limit_usd - summary.total_usd)"></div>
-    </div>
-    <!-- Over-ideal warning (when pctIdeal > 1) -->
-    <div
-      x-show="pctIdeal > 1"
-      class="mt-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-lg px-3 py-2 flex items-center justify-between gap-2"
-    >
-      <div class="flex items-center gap-2">
-        <span class="text-lg">⚠️</span>
-        <div>
-          <div class="text-[10px] uppercase tracking-wide text-red-700 dark:text-red-400 font-semibold">Por encima del ideal</div>
-          <div class="text-[11px] text-slate-600 dark:text-slate-400">Estás gastando más que tu tope aspiracional</div>
-        </div>
-      </div>
-      <div class="text-xl font-bold text-red-700 dark:text-red-400" x-text="'−' + fmtUsd(summary.total_usd - summary.budget_limit_usd)"></div>
-    </div>
-
-    <!-- Context line: plan vs plan + days remaining -->
-    <div class="flex justify-between text-xs mt-3 text-slate-500">
-      <span x-show="planIncome === 0 && configuredBudget > 0" class="italic text-slate-400 dark:text-slate-600">
-        Define ingresos en 💼 Fuentes
-      </span>
-      <span x-show="planIncome > 0 && configuredBudget > 0">
-        Plan gasto vs plan ingreso:
-        <span
-          class="font-medium"
-          :class="configuredBudget <= planIncome
-            ? 'text-emerald-600 dark:text-emerald-400'
-            : 'text-red-600 dark:text-red-400'"
-          x-text="Math.round((configuredBudget / planIncome) * 100) + '%'"
-        ></span>
-      </span>
-      <span x-show="daysLeft > 0">
-        <span x-text="daysLeft"></span> días →
-        <span class="text-slate-900 dark:text-slate-100 font-medium" x-text="fmtUsd(perDay)"></span>/día
-      </span>
-    </div>
-    <!-- Dynamic budget indicator: shown when any month in the active range has per-month overrides -->
-    <div
-      x-show="pnl && pnl.budget_was_dynamic"
-      class="mt-2 text-[10px] text-amber-700 dark:text-amber-400 flex items-center gap-1"
-    >
-      <span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-      <span>Este rango incluye presupuestos dinámicos mes a mes</span>
-    </div>
-  </section>
-
-  </div>
-  <!-- END 2-col wrapper for Ingresos + Objetivos -->
-
   <!-- ═══════════════════════════════════════════════════════════════
        VISTA CONTABLE — OPEX vs CAPEX split
        Solo se muestra cuando el usuario haya marcado al menos un gasto
@@ -1028,330 +825,117 @@
     </div>
   </section>
 
-  <!-- ═══════════════════════════════════════════════════════════════
-       PIE CHART · Distribución de gastos por rubro (categoría top-level)
-       Cada slice = una categoría top-level (rollup parent + subs).
-       Si la categoría tiene CAPEX, dentro del slice se dibuja un overlay
-       con stripe pattern del color CAPEX correspondiente — eso es el
-       "shadowing" que pidió Daniel para distinguir visualmente cuáles
-       rubros contienen compras de bienes/equipos.
-       Click en un slice → setea categoryFilter y scrolea a Movimientos.
-       ═══════════════════════════════════════════════════════════════ -->
-  <section
-    x-show="pieChartData && pieChartData.length"
-    class="bg-white dark:bg-slate-900 rounded-2xl p-5 mb-4 fade shadow-sm"
-  >
-    <div class="flex items-center justify-between mb-3">
-      <div>
-        <h2 class="text-sm font-semibold flex items-center gap-2">
-          🥧 Distribución por rubro
-          <span class="text-[10px] text-slate-400 dark:text-slate-600 font-normal" x-text="windowSize === 1 ? monthLabel : rangeLabel"></span>
-        </h2>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400">
-          Tap en un slice para filtrar Movimientos por ese rubro. Las rayas indican qué fracción es bien o equipo.
-        </p>
+  <!-- ── Dónde va la plata: rubro → subcategoría → cada gasto ── -->
+  <section x-show="summary.count > 0" class="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-7 shadow-sm mb-4 fade" data-tour="explorador"
+    x-effect="exRubro; exSub; summary; expenses; isDark; view; $nextTick(() => { if (view === 'resumen') ResumenDona.render($data); })">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <h2 class="num text-xl sm:text-2xl font-semibold">Dónde va la plata</h2>
+      <span class="text-[11px] text-slate-500" x-text="exSubObj() ? 'cada gasto · toca uno para editarlo' : 'toca una fila (o la dona) para entrar'"></span>
+    </div>
+    <div class="mt-2 flex flex-wrap items-center gap-1 text-sm">
+      <button @click="exRubro = null; exSub = null" class="rounded-full px-2.5 py-1 transition" :class="!exRubro ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700'">Todas</button>
+      <template x-if="exRubroObj()">
+        <span class="contents"><span class="text-slate-300 dark:text-slate-600">›</span>
+          <button @click="exSub = (exRubroObj().hoja ? exSub : null)" class="rounded-full px-2.5 py-1 transition"
+            :class="!exSub || exRubroObj().hoja ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700'"
+            x-text="exRubroObj().icon + ' ' + exRubroObj().label"></button></span>
+      </template>
+      <template x-if="exSubObj() && !exRubroObj().hoja">
+        <span class="contents"><span class="text-slate-300 dark:text-slate-600">›</span>
+          <span class="rounded-full px-2.5 py-1 bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900" x-text="exSubObj().icon + ' ' + exSubObj().label"></span></span>
+      </template>
+    </div>
+    <div class="mt-5 grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div class="lg:col-span-4">
+        <div class="relative h-56 sm:h-64 max-w-[320px] mx-auto"><canvas id="res-dona"></canvas>
+          <div class="absolute inset-0 grid place-items-center pointer-events-none"><div class="text-center px-10">
+            <div class="num text-2xl font-semibold" x-text="fmtUsd(exTotal())"></div>
+            <div class="text-[11px] text-slate-500 truncate" x-text="exSubObj() ? exSubObj().label : (exRubroObj() ? exRubroObj().label : periodTitle())"></div></div></div>
+        </div>
+      </div>
+      <div class="lg:col-span-8 min-w-0">
+        <!-- Filas: rubros o subcategorías -->
+        <div x-show="!exSubObj()" class="divide-y divide-slate-100 dark:divide-slate-800">
+          <template x-for="(f, i) in exFilas()" :key="(exRubro || '') + '/' + f.key">
+            <button @click="exEntrar(f)" class="w-full text-left py-3 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 -mx-2 px-2 rounded-xl transition">
+              <span class="w-9 h-9 rounded-full grid place-items-center shrink-0" :style="'background:' + ResumenDona.color(f, i, exFilas()) + '33'" x-text="f.icon"></span>
+              <span class="min-w-0 flex-1">
+                <span class="flex items-baseline gap-2 min-w-0"><span class="font-medium text-sm truncate" x-text="f.label"></span>
+                  <span class="text-[10px] text-slate-400 shrink-0" x-text="f.count + (f.count === 1 ? ' gasto' : ' gastos') + (f.children && f.children.length > 1 ? ' · ' + f.children.length + ' subcategorías' : '')"></span></span>
+                <span class="mt-1.5 block h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden" x-show="f.budget > 0">
+                  <span class="block h-full rounded-full bar" :class="f.usd > f.budget ? 'bg-alerta' : (f.usd > 0.9 * f.budget ? 'bg-gusto' : 'bg-ahorro-medio')" :style="'width:' + Math.min(100, 100 * f.usd / f.budget) + '%'"></span></span>
+                <span class="mt-1 block text-[10px] text-slate-400" x-show="!(f.budget > 0)">sin presupuesto</span>
+              </span>
+              <span class="text-right shrink-0">
+                <span class="block font-semibold text-sm" x-text="fmtUsd(f.usd)"></span>
+                <span class="block text-[10px]" :class="f.budget > 0 && f.usd > f.budget ? 'text-alerta-fuerte dark:text-alerta' : 'text-slate-400'" x-text="f.budget > 0 ? 'de ' + fmtUsd(f.budget) : ''"></span>
+              </span>
+              <span class="text-slate-300 dark:text-slate-600 shrink-0">›</span>
+            </button>
+          </template>
+        </div>
+        <!-- Cada gasto de la subcategoría -->
+        <div x-show="exSubObj()">
+          <div class="text-xs text-slate-500 mb-2" x-show="exSubObj()" x-text="exSubObj() && (exSubObj().count + (exSubObj().count === 1 ? ' gasto' : ' gastos') + ' · ' + fmtUsd(exSubObj().usd) + (exSubObj().budget > 0 ? ' de ' + fmtUsd(exSubObj().budget) : ''))"></div>
+          <div class="divide-y divide-slate-100 dark:divide-slate-800">
+            <template x-for="g in exGastos()" :key="'eg' + g.id">
+              <button @click="openEdit(g)" class="w-full text-left py-2.5 flex items-center gap-3 text-sm hover:bg-slate-50 dark:hover:bg-slate-800/50 -mx-2 px-2 rounded-xl transition" title="Toca para editar">
+                <span class="w-14 text-xs text-slate-400 shrink-0" x-text="formatDate(g.fecha)"></span>
+                <span class="flex-1 min-w-0"><span class="block truncate font-medium" x-text="g.nota || catLabel(g.categoria)"></span>
+                  <span class="block text-[11px] text-slate-400 truncate" x-text="g.user_name + ' · ' + (g.metodo_pago || '') + (g.recurring_id ? ' · 🔁 fijo' : '') + (g.deferred_total > 1 ? ' · 📅 cuota ' + g.deferred_index + '/' + g.deferred_total : '')"></span></span>
+                <span class="text-right shrink-0"><span class="block font-semibold" x-text="fmtUsd(g.monto_usd)"></span>
+                  <span class="block text-[10px] text-slate-400" x-text="'$' + Math.round(g.monto_cop || 0).toLocaleString('de-DE')"></span></span>
+              </button>
+            </template>
+          </div>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button @click="exAtras()" class="rounded-full bg-slate-100 dark:bg-slate-800 px-3 py-1.5 text-xs">‹ Volver</button>
+            <button @click="categoryFilter = exSub; goMovimientos()" class="rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-3 py-1.5 text-xs">Ver en Movimientos</button>
+          </div>
+        </div>
       </div>
     </div>
+  </section>
 
-    <div class="md:grid md:grid-cols-2 md:gap-6 items-center">
-      <!-- ─── Pie chart SVG ───
-           Montado via x-html porque Alpine v3 NO procesa <template x-for>
-           dentro de SVG namespaces (quirk conocido). El getter svgPieChart
-           construye el markup completo como string. Click handlers se
-           agregan via @click delegado en el wrapper. -->
-      <div
-        class="flex justify-center"
-        x-html="svgPieChart"
-        @click="(e) => {
-          const path = e.target.closest('[data-pie-key]');
-          if (!path) return;
-          const k = path.getAttribute('data-pie-key');
-          categoryFilter = (categoryFilter === k ? null : k);
-          goMovimientos();
-        }"
-      ></div>
-
-      <!-- ─── Leyenda ─── -->
-      <div class="space-y-1.5 mt-4 md:mt-0 max-h-80 overflow-y-auto scroll-area pr-2">
-        <template x-for="slice in pieChartData" :key="slice.key">
-          <button
-            @click="categoryFilter = (categoryFilter === slice.key ? null : slice.key); goMovimientos()"
-            :class="categoryFilter === slice.key ? 'bg-sky-50 dark:bg-sky-950/40 ring-1 ring-sky-300 dark:ring-sky-700' : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'"
-            class="w-full text-left rounded-md px-2 py-1.5 transition flex items-center gap-2"
-          >
-            <!-- Color swatch -->
-            <span class="inline-block w-3 h-3 rounded shrink-0" :style="'background-color: ' + slice.color"></span>
-            <span class="text-base shrink-0" x-text="slice.icon"></span>
-            <span class="flex-1 min-w-0">
-              <div class="flex items-baseline justify-between gap-2">
-                <span class="text-xs font-medium truncate" x-text="slice.label"></span>
-                <span class="text-xs font-semibold whitespace-nowrap" x-text="fmtUsd(slice.total)"></span>
-              </div>
-              <div class="flex items-baseline justify-between gap-2 text-[10px] text-slate-500 dark:text-slate-400">
-                <span>
-                  <span x-text="Math.round(slice.percentage * 10) / 10 + '%'"></span>
-                  <span class="text-slate-400 dark:text-slate-600" x-text="' · ' + slice.count + (slice.count === 1 ? ' gasto' : ' gastos')"></span>
-                </span>
-                <!-- CAPEX badges si hay -->
-                <span class="flex gap-0.5">
-                  <span x-show="slice.byClase.mobiliario > 0"
-                        :title="'Mobiliario: $' + Math.round(slice.byClase.mobiliario)"
-                        class="bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 rounded px-1 text-[9px] font-semibold">🛋️</span>
-                  <span x-show="slice.byClase.equipos > 0"
-                        :title="'Equipos: $' + Math.round(slice.byClase.equipos)"
-                        class="bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 rounded px-1 text-[9px] font-semibold">💻</span>
-                  <span x-show="slice.byClase.vehiculo > 0"
-                        :title="'Vehículo: $' + Math.round(slice.byClase.vehiculo)"
-                        class="bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 rounded px-1 text-[9px] font-semibold">🚗</span>
-                </span>
-              </div>
-            </span>
+  <!-- ── Por persona y por método (tocar filtra Movimientos) ── -->
+  <div x-show="summary.count > 0" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+    <section class="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm fade">
+      <h2 class="num text-xl font-semibold">Por persona</h2>
+      <div class="mt-3 space-y-1">
+        <template x-for="u in (summary.by_user || [])" :key="'pu' + u.user">
+          <button @click="userFilter = u.user; goMovimientos()" class="w-full text-left rounded-xl px-2 py-1.5 -mx-2 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition" :title="'Ver los gastos de ' + u.user">
+            <div class="flex justify-between text-sm"><span x-text="u.user"></span><span class="font-semibold" x-text="fmtUsd(u.spent_usd)"></span></div>
+            <div class="mt-1 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden"><div class="h-full rounded-full bg-slate-700 dark:bg-slate-300 bar" :style="'width:' + (summary.total_usd ? 100 * u.spent_usd / summary.total_usd : 0) + '%'"></div></div>
+            <div class="text-[10px] text-slate-400 mt-0.5" x-text="u.count + (u.count === 1 ? ' gasto' : ' gastos')"></div>
           </button>
         </template>
       </div>
-    </div>
-
-    <!-- Mini-leyenda de patrones CAPEX, solo si hay alguno -->
-    <div
-      x-show="(summary.total_capex_usd || 0) > 0"
-      class="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-3 flex-wrap"
-    >
-      <span class="font-semibold">Patrón CAPEX:</span>
-      <span class="flex items-center gap-1">
-        <svg width="14" height="14" class="rounded">
-          <rect width="14" height="14" fill="#94a3b8"/>
-          <rect width="14" height="14" fill="url(#stripe-mobiliario)"/>
-        </svg>
-        🛋️ Mobiliario
-      </span>
-      <span class="flex items-center gap-1">
-        <svg width="14" height="14" class="rounded">
-          <rect width="14" height="14" fill="#94a3b8"/>
-          <rect width="14" height="14" fill="url(#stripe-equipos)"/>
-        </svg>
-        💻 Equipos
-      </span>
-      <span class="flex items-center gap-1">
-        <svg width="14" height="14" class="rounded">
-          <rect width="14" height="14" fill="#94a3b8"/>
-          <rect width="14" height="14" fill="url(#stripe-vehiculo)"/>
-        </svg>
-        🚗 Vehículo
-      </span>
-    </div>
-  </section>
-
-  <!-- ═══════════════════════════════════════════════════════════════
-       ZONA GASTOS: per-user + por método de pago + por categoría
-       On desktop this is a 3-column grid. On mobile everything stacks.
-       ═══════════════════════════════════════════════════════════════ -->
-
-  <!-- Zona header (only on mobile — desktop gets the individual section headers) -->
-  <div class="md:hidden text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600 font-semibold mt-2 mb-2 px-1">
-    💸 Gastos · detalle
+    </section>
+    <section class="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm fade">
+      <h2 class="num text-xl font-semibold">Por método de pago</h2>
+      <div class="mt-3 space-y-1 max-h-80 overflow-y-auto scroll-area pr-1">
+        <template x-for="m in (summary.by_payment_method || [])" :key="'pm' + m.method">
+          <button @click="methodFilter = m.method; goMovimientos()" class="w-full text-left rounded-xl px-2 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition" :title="'Ver los gastos pagados con ' + m.method">
+            <div class="flex justify-between text-sm gap-2"><span class="truncate"><span x-text="m.flag"></span> <span x-text="m.method"></span></span><span class="font-semibold shrink-0" x-text="fmtUsd(m.total_usd)"></span></div>
+            <div class="mt-1 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden"><div class="h-full rounded-full bg-esencial bar" :style="'width:' + (summary.by_payment_method[0].total_usd ? 100 * m.total_usd / summary.by_payment_method[0].total_usd : 0) + '%'"></div></div>
+            <div class="text-[10px] text-slate-400 mt-0.5" x-text="m.count + (m.count === 1 ? ' gasto' : ' gastos') + ' · $' + Math.round(m.total_cop || 0).toLocaleString('de-DE') + ' COP'"></div>
+          </button>
+        </template>
+      </div>
+    </section>
   </div>
 
-  <div class="md:grid md:grid-cols-3 md:gap-4">
-
-  <!-- ──────────────── Col 1: Usuario + Método de pago stacked ──────────────── -->
-  <!-- Daniel's layout request 2026-04-15: stack Usuario on top of Método inside
-       a single narrow column, so Categorías (the most-read section) can take
-       the other 2 cols and breathe wider. -->
-  <div class="md:col-span-1 space-y-4">
-
-  <!-- ──────────────── Per user ──────────────── -->
-  <section class="bg-white dark:bg-slate-900 rounded-2xl p-4 mb-0 fade shadow-sm" x-show="summary.by_user && summary.by_user.length">
-    <div class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-3">Por usuario</div>
-    <div class="space-y-2">
-      <template x-for="u in summary.by_user" :key="u.user">
-        <div class="flex items-baseline justify-between border-b border-slate-100 dark:border-slate-800 pb-2 last:border-0 last:pb-0">
-          <div>
-            <div class="text-sm font-semibold" x-text="u.user"></div>
-            <div class="text-[10px] text-slate-500">
-              <span x-text="u.count"></span> gastos
-            </div>
-          </div>
-          <div class="text-lg font-bold" x-text="fmtUsd(u.spent_usd)"></div>
-        </div>
-      </template>
-    </div>
+  <!-- Sin gastos en el período -->
+  <section x-show="!loading && summary.count === 0" class="bg-white dark:bg-slate-900 rounded-2xl p-8 text-center mb-4 shadow-sm text-sm text-slate-500">
+    No hay gastos en <span x-text="periodTitle()"></span>. Anota uno con el botón <b>+</b> o por Telegram.
   </section>
-
-  <!-- ──────────────── Por método de pago ──────────────── -->
-  <section
-    x-show="summary.by_payment_method && summary.by_payment_method.length"
-    class="bg-white dark:bg-slate-900 rounded-2xl p-4 mb-0 fade shadow-sm"
-  >
-    <div class="flex items-center justify-between mb-3">
-      <div class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Por método de pago</div>
-      <button
-        @click="methodFilter = null"
-        x-show="methodFilter"
-        class="text-[9px] text-sky-600 dark:text-sky-400 hover:underline"
-      >limpiar filtro</button>
-    </div>
-    <div class="space-y-2 max-h-80 overflow-y-auto scroll-area -mx-1 px-1">
-      <template x-for="m in summary.by_payment_method" :key="m.method">
-        <button
-          @click="methodFilter = methodFilter === m.method ? null : m.method"
-          :class="methodFilter === m.method
-            ? 'bg-sky-50 dark:bg-sky-950/40 border-sky-300 dark:border-sky-700'
-            : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'"
-          class="w-full text-left border rounded-lg p-2 transition block"
-          :title="'Toca para filtrar movimientos por ' + m.method"
-        >
-          <div class="flex items-baseline justify-between gap-2">
-            <div class="flex items-baseline gap-1.5 min-w-0">
-              <span class="text-sm" x-text="m.flag"></span>
-              <span class="text-xs font-medium truncate" x-text="m.method"></span>
-            </div>
-            <span class="text-xs text-slate-400 dark:text-slate-600 whitespace-nowrap"><span x-text="m.count"></span> gastos</span>
-          </div>
-          <div class="flex items-baseline justify-between mt-1 gap-2">
-            <div class="text-[10px] text-slate-500">
-              <span x-show="m.bank_currency && m.bank_currency !== 'MIXED'" x-text="m.bank_currency"></span>
-              <span x-show="!m.bank_currency || m.bank_currency === 'MIXED'" class="italic">mixta</span>
-            </div>
-            <div class="text-right">
-              <div class="text-sm font-semibold" x-text="fmtUsd(m.total_usd)"></div>
-              <div class="text-[10px] text-slate-500" x-text="'$' + Math.round(m.total_cop).toLocaleString('de-DE') + ' COP'"></div>
-            </div>
-          </div>
-        </button>
-      </template>
-    </div>
-    <div x-show="methodFilter" class="mt-2 text-[10px] text-sky-600 dark:text-sky-400 italic">
-      ℹ️ Movimientos abajo filtrados por <span class="font-semibold" x-text="methodFilter"></span>
-    </div>
-  </section>
-
-  </div>
-  <!-- END col 1 wrapper (Usuario + Método stacked) -->
-
-  <!-- ──────────────── Empty state (full width inside the gastos 3-col grid) ──────────────── -->
-  <section
-    x-show="!loading && summary.count === 0"
-    class="bg-white dark:bg-slate-900 rounded-2xl p-8 text-center mb-4 shadow-sm md:col-span-3"
-  >
-    <div class="text-4xl mb-2">🪙</div>
-    <div class="text-sm text-slate-500">No hay gastos registrados en <span x-text="monthLabel"></span></div>
-    <div class="text-xs text-slate-400 dark:text-slate-600 mt-1">Abre Telegram y registra uno con <code>@gastos_gg_bot</code></div>
-  </section>
-
-  <!-- ──────────────── Categories (rollup: parents with indented children) ──────────────── -->
-  <!-- Spans cols 2-3 on md+ so Categorías (most-read panel) has plenty of
-       horizontal room next to the narrower Usuario+Método stack. -->
-  <section
-    x-show="summary.categories && summary.categories.length"
-    class="bg-white dark:bg-slate-900 rounded-2xl p-5 mb-4 fade shadow-sm md:col-span-2"
-  >
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-sm font-semibold">Categorías con gasto</h2>
-      <span class="text-xs text-slate-400 dark:text-slate-600">
-        <span x-text="rolledCategories.length"></span> agrupadas · <span x-text="summary.categories.length"></span> activas
-      </span>
-    </div>
-    <div class="space-y-4">
-      <template x-for="group in rolledCategories" :key="group.key">
-        <div>
-          <!-- Parent / top-level row — shows rolled-up total (direct + all subs) -->
-          <div class="flex justify-between text-sm">
-            <span class="truncate min-w-0 mr-2">
-              <span x-text="group.icon"></span>
-              <span class="font-medium" x-text="group.label"></span>
-              <span class="text-slate-400 dark:text-slate-600 text-xs" x-text="' · ' + group.totalCount + (group.totalCount === 1 ? ' gasto' : ' gastos')"></span>
-              <span
-                x-show="group.children && group.children.length"
-                class="text-[10px] text-slate-400 dark:text-slate-600 ml-1"
-              >▾ <span x-text="group.children.length"></span> subs</span>
-            </span>
-            <span class="whitespace-nowrap">
-              <span class="font-semibold" x-text="fmtUsd(group.totalSpent)"></span>
-              <span class="text-slate-400 dark:text-slate-600 text-xs" x-show="group.totalBudget > 0">
-                / <span x-text="fmtUsd(group.totalBudget)"></span>
-              </span>
-            </span>
-          </div>
-          <!-- Parent progress bar -->
-          <div
-            class="mt-1.5 w-full bg-slate-100 dark:bg-slate-800/80 rounded-full h-1.5 overflow-hidden"
-            x-show="group.totalBudget > 0"
-          >
-            <div
-              class="h-full rounded-full bar"
-              :class="catBarColor(group.totalSpent / group.totalBudget)"
-              :style="'width:' + Math.min((group.totalSpent / group.totalBudget) * 100, 100) + '%'"
-            ></div>
-          </div>
-          <div
-            class="mt-1 text-[10px] text-slate-400 dark:text-slate-600 italic"
-            x-show="!group.totalBudget"
-          >sin presupuesto asignado</div>
-
-          <!-- Children rows: direct + each sub. Only render when group has >=1 sub. -->
-          <div
-            x-show="group.children && group.children.length"
-            class="mt-2 ml-4 pl-3 border-l-2 border-slate-100 dark:border-slate-800 space-y-2"
-          >
-            <!-- Direct parent spending (if any) — shown as its own child row when parent also has direct gastos -->
-            <template x-if="group.directSpent > 0 || group.directCount > 0">
-              <div class="text-xs">
-                <div class="flex justify-between">
-                  <span class="text-slate-500 dark:text-slate-500">
-                    <span class="text-[10px]">↳</span>
-                    <span x-text="group.icon"></span>
-                    <span x-text="group.label"></span>
-                    <span class="text-slate-400 dark:text-slate-600 text-[10px]">(directo · <span x-text="group.directCount"></span>)</span>
-                  </span>
-                  <span class="text-slate-600 dark:text-slate-400" x-text="fmtUsd(group.directSpent)"></span>
-                </div>
-              </div>
-            </template>
-            <!-- Each sub -->
-            <template x-for="child in group.children" :key="child.categoria">
-              <div class="text-xs">
-                <div class="flex justify-between">
-                  <span class="text-slate-500 dark:text-slate-500 truncate min-w-0 mr-2">
-                    <span class="text-[10px]">↳</span>
-                    <span x-text="child.icon"></span>
-                    <span x-text="child.label"></span>
-                    <span class="text-slate-400 dark:text-slate-600 text-[10px]" x-text="' · ' + child.count"></span>
-                  </span>
-                  <span class="whitespace-nowrap">
-                    <span class="text-slate-600 dark:text-slate-400 font-medium" x-text="fmtUsd(child.spent_usd)"></span>
-                    <span class="text-slate-400 dark:text-slate-600 text-[10px]" x-show="child.budget_usd > 0">
-                      / <span x-text="fmtUsd(child.budget_usd)"></span>
-                    </span>
-                  </span>
-                </div>
-                <!-- Sub progress bar (mini) -->
-                <div
-                  class="mt-1 w-full bg-slate-100 dark:bg-slate-800/80 rounded-full h-1 overflow-hidden"
-                  x-show="child.budget_usd > 0"
-                >
-                  <div
-                    class="h-full rounded-full bar"
-                    :class="catBarColor(child.pct_of_budget)"
-                    :style="'width:' + Math.min((child.pct_of_budget || 0) * 100, 100) + '%'"
-                  ></div>
-                </div>
-              </div>
-            </template>
-          </div>
-        </div>
-      </template>
-    </div>
-  </section>
-
-  </div>
-  <!-- END 3-col wrapper for Gastos detalle -->
   </div>
   <!-- END 📊 RESUMEN -->
 
   <!-- ──────────────── History (pestaña 🧾 Movimientos) ──────────────── -->
   <div x-show="view === 'movimientos' && !loading && !expenses.length" x-cloak
        class="bg-white dark:bg-slate-900 rounded-2xl p-8 text-center mb-4 shadow-sm text-sm text-slate-500">
-    No hay movimientos en <span x-text="monthLabel"></span>.
+    No hay movimientos en <span x-text="periodTitle()"></span>.
   </div>
   <section class="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 mb-4 fade shadow-sm" x-show="view === 'movimientos' && expenses.length">
     <div class="flex items-center justify-between mb-3">
@@ -1673,11 +1257,11 @@
     <div class="relative mb-2" x-show="analytics.data">
       <div x-html="chartSvg" @mousemove="onChartHover($event)" @mouseleave="analytics.hover = null"></div>
       <!-- Guía vertical -->
-      <div x-show="analytics.hover" class="absolute top-0 bottom-5 w-px bg-slate-400/40 dark:bg-slate-500/40 pointer-events-none" :style="'left:' + hoverGuideLeft"></div>
+      <div x-show="analytics.hover" class="absolute top-0 bottom-5 w-px bg-slate-400/40 dark:bg-slate-500/40 pointer-events-none" :style="{ left: hoverGuideLeft }"></div>
       <!-- Tooltip que sigue el cursor -->
       <div x-show="hoverDay" x-cloak
            class="absolute z-30 top-1 pointer-events-none bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg px-3 py-2 text-[11px] min-w-[150px] max-w-[230px]"
-           :style="'left:' + (analytics.hover ? analytics.hover.frac * 100 : 0) + '%; transform: translateX(' + ((hoverDay && hoverDay.flip) ? 'calc(-100% - 10px)' : '10px') + ')'">
+           :style="{ left: (analytics.hover ? analytics.hover.frac * 100 : 0) + '%', transform: 'translateX(' + ((hoverDay && hoverDay.flip) ? 'calc(-100% - 10px)' : '10px') + ')' }">
         <template x-if="hoverDay">
           <div>
             <div class="font-semibold text-slate-700 dark:text-slate-200 mb-1" x-text="hoverDay.day"></div>
@@ -3909,8 +3493,20 @@
             <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">La página se pone oscura sola de 6 pm a 6 am. Si prefieres fijarla, en Ajustes → <b>Tema</b> (o abajo del menú en el computador).</p>
           </div>
           <div class="rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-4">
+            <div class="font-semibold text-sm">📆 Período en el título</div>
+            <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">En Resumen y Movimientos el título es el período: <b>‹ ›</b> para moverte, tocas el nombre para elegir cualquier mes, y al lado Mes, 3m, 6m, 12m o Año.</p>
+          </div>
+          <div class="rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-4">
+            <div class="font-semibold text-sm">📊 Resumen</div>
+            <p class="text-xs text-slate-600 dark:text-slate-400 mt-1"><b>Gastado</b> separa fijos y cuotas del día a día y lo compara con el tope, el plan o las categorías. <b>Dónde va la plata</b> baja de rubro a subcategoría y a cada gasto.</p>
+          </div>
+          <div class="rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-4">
+            <div class="font-semibold text-sm">📅 Próximos pagos</div>
+            <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">Al pagar, toca <b>Ya pagué</b>: sale de la lista y vuelve solo el mes siguiente. "Gestionar" sigue guardando todos tus recordatorios.</p>
+          </div>
+          <div class="rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-4">
             <div class="font-semibold text-sm">🧾 Movimientos</div>
-            <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">Toca cualquier gasto para editarlo o borrarlo. Arriba eliges el mes y si quieres ver 1, 3, 6 o 12 meses.</p>
+            <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">Toca cualquier gasto para editarlo o borrarlo. Muestra todos los gastos del período elegido.</p>
           </div>
           <div class="rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-4">
             <div class="font-semibold text-sm">🔐 Cada uno con su PIN</div>
@@ -4102,7 +3698,7 @@
         <div>
           <div class="font-semibold mb-1">Cambiar de mes</div>
           <p class="text-slate-600 dark:text-slate-400 text-xs">
-            Barra de meses arriba de Resumen y Movimientos (los últimos 18 meses), con 1, 3, 6, 12 meses o el año.
+            En Resumen y Movimientos el título es el período: flechas ‹ › para moverte, toca el nombre para elegir cualquier mes, y al lado Mes, 3m, 6m, 12m o Año.
           </p>
         </div>
 
@@ -5456,6 +5052,43 @@ document.addEventListener('alpine:init', () => {
     },
   };
   window.addEventListener('theme-changed', () => { if (Alpine.store('review').data) setTimeout(() => RevCharts.render(), 30); });
+
+  // ──────────────── Dona de "Dónde va la plata" (Resumen) ────────────────
+  // Fuera de Alpine (una gráfica reactiva no se dibuja). Colores por tipo de
+  // gasto: azules = esencial, lilas = estilo de vida, dorados = gusto.
+  window.ResumenDona = {
+    chart: null,
+    TONOS: { esencial: ['#2d6187', '#4f8bb8', '#6aa3cc', '#94bfdc', '#bcd6e8', '#dce9f3'],
+             estilo:   ['#5b4b9a', '#8a79c4', '#a99bd6', '#c7bde6', '#e0d9f3'],
+             gusto:    ['#9a6413', '#c98a2e', '#e5a54b', '#f0c88a', '#f7e0bb'],
+             sin:      ['#7e786e', '#a9a297', '#d7d1c6'] },
+    color(f, i, filas) {
+      const t = this.TONOS[f.tipo] || this.TONOS.sin;
+      const k = (filas || []).filter((x, j) => j < i && (x.tipo || 'sin') === (f.tipo || 'sin')).length;
+      return t[k % t.length];
+    },
+    render(D) {
+      const el = document.getElementById('res-dona');
+      if (!el || !window.Chart || !D) return;
+      const sub = D.exSubObj();
+      const filas = sub ? [sub] : D.exFilas();
+      const colores = sub ? [this.color(sub, D.exFilas().findIndex(x => x.key === sub.key), D.exFilas())] : filas.map((f, i) => this.color(f, i, filas));
+      const dark = document.documentElement.classList.contains('dark');
+      if (this.chart) { try { this.chart.destroy(); } catch (e) {} this.chart = null; }
+      if (!filas.length) return;
+      try {
+        this.chart = new Chart(el, { type: 'doughnut',
+          data: { labels: filas.map(f => f.label), datasets: [{ data: filas.map(f => Math.max(0, f.usd)), backgroundColor: colores,
+            borderWidth: 3, borderColor: dark ? '#1e1c19' : '#ffffff', hoverOffset: 6 }] },
+          options: { maintainAspectRatio: false, cutout: '70%', animation: { duration: 350 },
+            onClick: (e, els) => { if (els.length && !sub) D.exEntrar(filas[els[0].index]); },
+            onHover: (e, els) => { if (e.native) e.native.target.style.cursor = els.length && !sub ? 'pointer' : 'default'; },
+            plugins: { legend: { display: false }, tooltip: { backgroundColor: dark ? '#f3f1ec' : '#1e1c19', titleColor: dark ? '#1e1c19' : '#faf9f6',
+              bodyColor: dark ? '#1e1c19' : '#faf9f6', padding: 10, cornerRadius: 10,
+              callbacks: { label: c => ' ' + c.label + ': ' + D.fmtUsd(c.parsed) } } } } });
+      } catch (e) { console.warn('dona resumen', e); }
+    },
+  };
   const revYm = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
   Alpine.store('review', {
     loaded: false, loading: false, error: null, data: null,
@@ -5654,6 +5287,7 @@ document.addEventListener('alpine:init', () => {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ naturaleza: t }) });
         if (!r.ok) { const x = await r.json().catch(() => ({})); throw new Error(x.detail || ('No se pudo guardar (' + r.status + ')')); }
         const it = this.tiposCats.find(c => c.key === key); if (it) it.naturaleza = t;
+        window.dispatchEvent(new CustomEvent('tipos-changed'));
         if (this.loaded) await this.load(true);
       } catch (e) { this.tiposError = e.message || String(e); if (!this.openTipos) this.error = this.tiposError; }
       finally { this.tiposBusy = false; }
@@ -5757,6 +5391,14 @@ document.addEventListener('alpine:init', () => {
         text: '<b>Resumen</b> es el mes en curso. <b>Revisión</b> son las gráficas de dónde se va la plata. <b>Movimientos</b> es cada gasto (tócalo para editarlo). <b>Ajustes</b> es todo lo que se configura.' },
       { sel: ['[data-tour=add]', '[data-tour=add-movil]'], view: 'resumen', title: 'Anotar un gasto',
         text: 'Con el botón <b>+</b> anotas un gasto aquí mismo: monto, moneda, categoría y listo. Queda igual que si lo mandaras al bot de Telegram, que sigue funcionando como siempre.' },
+      { sel: ['[data-tour=periodo]'], view: 'resumen', title: 'Elige el período',
+        text: 'El título es el período: con <b>‹ ›</b> pasas de un mes a otro y tocando el nombre eliges cualquier mes. Al lado eliges Mes, 3, 6 o 12 meses, o el Año.' },
+      { sel: ['[data-tour=gastado]'], view: 'resumen', title: 'Cuánto llevan',
+        text: 'Separa los <b>fijos y cuotas</b> (se anotan solos) del <b>día a día</b>, y lo compara con el tope, el plan o el presupuesto por categoría. El ritmo se mide solo con el día a día.' },
+      { sel: ['[data-tour=pagos]'], view: 'resumen', title: 'Próximos pagos',
+        text: 'Cuando pagues una tarjeta o un crédito, toca <b>Ya pagué</b>: sale de la lista y vuelve solo el mes siguiente con la nueva fecha. Si te equivocas, lo deshaces.' },
+      { sel: ['[data-tour=explorador]'], view: 'resumen', title: 'Dónde va la plata',
+        text: 'Toca un rubro para ver sus subcategorías, y una subcategoría para ver cada gasto (y editarlo). Arriba vuelves con <b>Todas</b>.' },
       { sel: ['[data-tour=rev-controles]'], view: 'revision', title: 'Revisión: qué quieres ver',
         text: 'Escoge el período (mes, 3, 6 o 12 meses, o el año), de quién (familia, Daniel, Mado o Tuo) y si lo ves en dólares o en pesos.' },
       { sel: ['[data-tour=rev-kpis]'], view: 'revision', title: 'Lo clave, arriba',
@@ -6003,13 +5645,13 @@ document.addEventListener('alpine:init', () => {
   // Clases completas (no armadas por partes) para que Tailwind las compile.
   const REMINDER_TONES = {
     red:    { card: 'bg-rose-50 border-rose-300 dark:bg-rose-950/40 dark:border-rose-800',
-              pill: 'bg-rose-600 text-white', bar: 'bg-rose-500' },
+              pill: 'bg-alerta text-white', bar: 'bg-alerta' },
     orange: { card: 'bg-orange-50 border-orange-300 dark:bg-orange-950/40 dark:border-orange-800',
-              pill: 'bg-orange-500 text-white', bar: 'bg-orange-500' },
+              pill: 'bg-orange-400 text-white', bar: 'bg-orange-400' },
     amber:  { card: 'bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800',
-              pill: 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300', bar: 'bg-amber-400' },
+              pill: 'bg-gusto-suave text-gusto-fuerte dark:bg-amber-900/50 dark:text-amber-300', bar: 'bg-gusto' },
     green:  { card: 'bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-800',
-              pill: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300', bar: 'bg-emerald-400' },
+              pill: 'bg-ahorro-suave text-ahorro dark:bg-emerald-900/40 dark:text-emerald-300', bar: 'bg-ahorro-medio' },
     paid:   { card: 'bg-slate-50 border-slate-200 dark:bg-slate-900/60 dark:border-slate-800 opacity-75',
               pill: 'bg-emerald-600 text-white', bar: 'bg-emerald-500' },
     nodate: { card: 'bg-white border-dashed border-slate-300 dark:bg-slate-900 dark:border-slate-700',
@@ -6137,6 +5779,18 @@ document.addEventListener('alpine:init', () => {
         : '';
     },
     visible() { return this.expanded ? this.cards : this.cards.slice(0, this.LIMIT); },
+    // Agenda del Resumen: lo pagado del ciclo sale de la lista y vuelve solo el mes siguiente
+    verPagados: false,
+    pendientes() { return this.cards.filter(c => c.st.state !== 'paid'); },
+    pagados() { return this.cards.filter(c => c.st.state === 'paid'); },
+    vuelve(c) { return c.st.due ? this._fmtDate(c.st.due, false) : ''; },
+    async marcarPagado(c) {
+      if (this.busy) return;
+      await this.togglePaid(c);
+      if (this.error) return;
+      const n = this.cards.find(x => x.id === c.id);
+      Alpine.store('quick').aviso('✓ ' + c.label + ' pagado' + (n && n.st.state === 'paid' ? ' · vuelve el ' + this.vuelve(n) : ''));
+    },
     fmtAmount(c) {
       if (c.amount === null || c.amount === undefined || c.amount === '') return '—';
       const v = Number(c.amount);
@@ -7058,9 +6712,9 @@ function dashboard() {
       return (this.views.find(v => v.key === this.view) || {}).label || '';
     },
     viewSub() {
-      if (this.view === 'resumen') return 'Resumen del mes · familia';
+      if (this.view === 'resumen') return 'Resumen · familia';
       if (this.view === 'revision') { const r = Alpine.store('review'); return r.data ? r.periodoCorto() + ' · ' + r.personaLabel() : 'Dónde se va la plata'; }
-      if (this.view === 'movimientos') { const m = this.months.find(x => x.value === this.month); return (m ? m.label : '') + (this.windowSize !== 1 ? ' · ' + this.rangeLabel : ''); }
+      if (this.view === 'movimientos') return 'Movimientos · cada gasto';
       return 'Todo lo que se configura';
     },
     // Tema: auto (claro de día, oscuro de 18:00 a 6:00) · claro · oscuro
@@ -7090,6 +6744,139 @@ function dashboard() {
       try { localStorage.setItem('theme_mode', m); } catch (e) {}
       this.applyTheme();
     },
+    // ── Período (Resumen y Movimientos): el título es el período ──
+    periodPicker: false, pickerYear: new Date().getFullYear(),
+    MESES_CORTOS: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'],
+    MESES_LARGOS: ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'],
+    esPeriodo() { return this.view === 'resumen' || this.view === 'movimientos'; },
+    ymDe(y, i) { return y + '-' + String(i + 1).padStart(2, '0'); },
+    _hoyYm() { const d = new Date(); return this.ymDe(d.getFullYear(), d.getMonth()); },
+    esFuturo(y, i) { return this.ymDe(y, i) > this._hoyYm(); },
+    _sumarMeses(ym, k) { const [y, m] = ym.split('-').map(Number); const d = new Date(y, m - 1 + k, 1); return this.ymDe(d.getFullYear(), d.getMonth()); },
+    _mesLargo(ym) { if (!ym) return ''; const [y, m] = ym.split('-').map(Number); return this.MESES_LARGOS[m - 1] + ' ' + y; },
+    _mesCorto(ym, conAnio) { const [y, m] = ym.split('-').map(Number); const c = this.MESES_CORTOS[m - 1]; return (c.charAt(0).toUpperCase() + c.slice(1)) + (conAnio ? ' ' + String(y).slice(2) : ''); },
+    periodTitle() {
+      if (!this.month) return '';
+      const b = this.rangeBounds;
+      if (this.windowSize === 1) return this._mesLargo(this.month);
+      if (this.windowSize === 'ytd') return 'Año ' + this.month.slice(0, 4);
+      return b.from.slice(0, 4) === b.to.slice(0, 4)
+        ? this._mesCorto(b.from) + ' – ' + this._mesCorto(b.to) + ' ' + b.to.slice(0, 4)
+        : this._mesCorto(b.from, true) + ' – ' + this._mesCorto(b.to, true);
+    },
+    _periodTarget(k) {
+      if (this.windowSize === 'ytd') {
+        const y = Number(this.month.slice(0, 4)) + k;
+        return y === new Date().getFullYear() ? this._hoyYm() : y + '-12';
+      }
+      return this._sumarMeses(this.month, k * this.windowSize);
+    },
+    periodCanMove(k) { return !!this.month && this._periodTarget(k) <= this._hoyYm(); },
+    async periodMove(k) {
+      if (!this.periodCanMove(k)) return;
+      this.periodPicker = false;
+      this.month = this._periodTarget(k); this.exRubro = null; this.exSub = null;
+      await this.reload();
+    },
+    async pickMonth(y, i) {
+      this.periodPicker = false;
+      const v = this.ymDe(y, i);
+      if (v > this._hoyYm() || v === this.month) return;
+      this.month = v; this.exRubro = null; this.exSub = null;
+      await this.reload();
+    },
+    // ── Gastado: fijos y cuotas vs día a día, contra la referencia elegida ──
+    resumenRef: (() => { try { return localStorage.getItem('resumen_ref') || 'ideal'; } catch (e) { return 'ideal'; } })(),
+    verFuentes: false,
+    refOptions() {
+      return [
+        { k: 'ideal',  label: 'Tope',       v: this.idealBudget,      title: 'Tope aspiracional fijo' },
+        { k: 'plan',   label: 'Plan',       v: this.planIncome,       title: 'Gasto vs ingreso esperado' },
+        { k: 'config', label: 'Categorías', v: this.configuredBudget, title: 'Suma del presupuesto de todas las categorías' },
+      ].filter(o => o.v > 0);
+    },
+    refActual() { const o = this.refOptions(); return o.find(x => x.k === this.resumenRef) || o[0] || { k: '', v: 0, label: '' }; },
+    setRef(k) { this.resumenRef = k; try { localStorage.setItem('resumen_ref', k); } catch (e) {} },
+    get fijosUsd() {
+      return (this.expenses || []).reduce((s, e) => s + ((e.recurring_id || (e.deferred_total || 1) > 1) ? (Number(e.monto_usd) || 0) : 0), 0);
+    },
+    get diaUsd() { return Math.max(0, (Number(this.summary.total_usd) || 0) - this.fijosUsd); },
+    barPct(x) { const esc = Math.max(this.refActual().v || 0, Number(this.summary.total_usd) || 0, 1); return Math.max(0, Math.min(100, 100 * (x || 0) / esc)); },
+    queda() { return (this.refActual().v || 0) - (Number(this.summary.total_usd) || 0); },
+    gastadoLabel() {
+      if (this.windowSize === 1) return 'Gastado en ' + this.MESES_LARGOS[Number(this.month.slice(5)) - 1].toLowerCase();
+      return 'Gastado en ' + this.periodTitle().replace(/^Año /, '') + ' · ' + (this.summary.n_months || 1) + ' meses';
+    },
+    ritmo() {
+      const ref = this.refActual(), total = Number(this.summary.total_usd) || 0;
+      if (!ref.v || !total) return { texto: '', cls: '' };
+      const del = { ideal: 'del tope', plan: 'del plan', config: 'del presupuesto por categoría' }[ref.k];
+      const al = { ideal: 'al tope', plan: 'al plan', config: 'al presupuesto por categoría' }[ref.k];
+      if (this.windowSize === 1 && this.daysLeft > 0) {   // mes en curso: el ritmo se mide solo con el día a día
+        const disp = ref.v - this.fijosUsd;
+        if (disp <= 0) return { cls: 'bg-alerta-suave text-alerta-fuerte dark:bg-red-950/40 dark:text-red-300',
+          texto: '<b>Los fijos y cuotas ya llegan ' + al + '.</b> El día a día no tiene margen este mes.' };
+        const [y, m] = this.month.split('-').map(Number), ult = new Date(y, m, 0).getDate(), hoy = new Date().getDate();
+        const usado = this.diaUsd / disp, mes = hoy / ult;
+        const est = usado > mes + 0.1 ? 'rapido' : (usado < mes - 0.1 ? 'bien' : 'linea');
+        const cls = { rapido: 'bg-gusto-suave text-gusto-fuerte dark:bg-amber-950/40 dark:text-amber-300',
+                      bien: 'bg-ahorro-suave text-ahorro dark:bg-emerald-950/40 dark:text-emerald-300',
+                      linea: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200' }[est];
+        const tit = { rapido: 'Día a día: va rápido.', bien: 'Día a día: buen ritmo.', linea: 'Día a día: en línea.' }[est];
+        return { cls, texto: '<b>' + tit + '</b> Llevan ' + this.fmtUsd(this.diaUsd) + ' de ' + this.fmtUsd(disp) + ' disponibles ('
+          + Math.round(100 * usado) + '%) y va el ' + Math.round(100 * mes) + '% del mes. <span class="opacity-75">Los fijos y cuotas no cuentan para el ritmo.</span>' };
+      }
+      const pct = Math.round(100 * total / ref.v), dentro = total <= ref.v;
+      const cls = dentro ? 'bg-ahorro-suave text-ahorro dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-alerta-suave text-alerta-fuerte dark:bg-red-950/40 dark:text-red-300';
+      const n = this.summary.n_months || 1;
+      const enCurso = this.month === this._hoyYm();
+      return { cls, texto: '<b>' + (this.windowSize === 1 ? 'Cerró en ' : (enCurso ? 'Van en ' : 'Cerró en ')) + pct + '% ' + del + '.</b> '
+        + (dentro ? 'Sobraron ' : 'Se pasaron ') + this.fmtUsd(Math.abs(ref.v - total)) + (n > 1 ? ' · promedio ' + this.fmtUsd(total / n) + ' por mes.' : '.') };
+    },
+    // ── Dónde va la plata: rubro → subcategoría → cada gasto ──
+    exRubro: null, exSub: null,
+    naturalezas: {},
+    _tipoDe(k) { return this.naturalezas[k] || 'sin'; },
+    async refreshNaturalezas() {
+      try { const r = await fetch('/api/budget'); if (r.ok) { const bj = await r.json(); this.naturalezas = bj.naturalezas || {}; } } catch (e) {}
+    },
+    exRubros() {
+      const n = this.summary.n_months || 1;
+      return (this.rolledCategories || []).map(g => {
+        const kids = (g.children || []).map(c => ({ key: c.categoria, label: c.label, icon: c.icon, usd: c.spent_usd || 0, count: c.count || 0, budget: c.budget_usd || 0, tipo: this._tipoDe(c.categoria) }));
+        if (kids.length && (g.directSpent > 0 || g.directCount > 0))
+          kids.push({ key: g.key, label: g.label + ' (directo)', icon: g.icon, usd: g.directSpent, count: g.directCount, budget: 0, tipo: this._tipoDe(g.key) });
+        kids.sort((a, b) => b.usd - a.usd);
+        // Presupuesto del rubro: todas sus subcategorías, también las que no tuvieron gasto
+        let budget = g.totalBudget || 0;
+        if ((g.children || []).length) {
+          const activos = new Set(g.children.map(c => c.categoria));
+          for (const [k, v] of Object.entries(this.budget || {})) if (v && v.parent === g.key && !activos.has(k)) budget += (Number(v.usd) || 0) * n;
+        }
+        return { key: g.key, label: g.label, icon: g.icon, usd: g.totalSpent || 0, count: g.totalCount || 0, budget, tipo: this._tipoDe(g.key), children: kids, hoja: !kids.length };
+      }).filter(r => r.usd > 0 || r.count > 0).sort((a, b) => b.usd - a.usd);
+    },
+    exRubroObj() { return this.exRubro ? (this.exRubros().find(r => r.key === this.exRubro) || null) : null; },
+    exSubObj() {
+      const r = this.exRubroObj();
+      if (!r || !this.exSub) return null;
+      return r.hoja ? (this.exSub === r.key ? r : null) : (r.children.find(c => c.key === this.exSub) || null);
+    },
+    exFilas() { const r = this.exRubroObj(); return r ? r.children : this.exRubros(); },
+    exTotal() { const s = this.exSubObj(), r = this.exRubroObj(); return s ? s.usd : (r ? r.usd : (Number(this.summary.total_usd) || 0)); },
+    exEntrar(f) {
+      if (!this.exRubroObj()) {
+        this.exRubro = f.key; this.exSub = null;
+        if (f.hoja) this.exSub = f.key;
+        else if (f.children.length === 1) this.exSub = f.children[0].key;
+      } else this.exSub = f.key;
+    },
+    exAtras() {
+      const r = this.exRubroObj();
+      if (r && (r.hoja || r.children.length === 1)) { this.exRubro = null; this.exSub = null; }
+      else this.exSub = null;
+    },
+    exGastos() { const k = this.exSub; return k ? (this.expenses || []).filter(e => e.categoria === k) : []; },
     // Datos para la ventana "Anotar gasto": categorías, métodos, tasas y las más usadas del mes
     quickCtx() {
       const cuenta = {};
@@ -7135,11 +6922,11 @@ function dashboard() {
     claseFilter: null,    // when set, filters Movimientos to this clase_contable
     windowSize: 1,  // 1 | 3 | 6 | 12, or 'ytd'
     windowOptions: [
-      { value: 1,  label: '1m',  title: 'Solo el mes activo' },
-      { value: 3,  label: '3m',  title: 'Últimos 3 meses (trimestre)' },
-      { value: 6,  label: '6m',  title: 'Últimos 6 meses (semestre)' },
-      { value: 12, label: '12m', title: 'Últimos 12 meses' },
-      { value: 'ytd', label: 'YTD', title: 'Año en curso hasta hoy' },
+      { value: 1,  label: 'Mes', title: 'Solo el mes elegido' },
+      { value: 3,  label: '3m',  title: 'Los 3 meses que terminan en el mes elegido' },
+      { value: 6,  label: '6m',  title: 'Los 6 meses que terminan en el mes elegido' },
+      { value: 12, label: '12m', title: 'Los 12 meses que terminan en el mes elegido' },
+      { value: 'ytd', label: 'Año', title: 'De enero al mes elegido' },
     ],
     loading: false,
     error: null,
@@ -7385,7 +7172,7 @@ function dashboard() {
           fetch('/api/rates'),
           fetch('/api/payment-methods'),
         ]);
-        if (budgetResp.ok) this.budget = (await budgetResp.json()).categories || {};
+        if (budgetResp.ok) { const bj = await budgetResp.json(); this.budget = bj.categories || {}; this.naturalezas = bj.naturalezas || {}; }
         if (ratesResp.ok) this.rates = await ratesResp.json();
         if (payResp.ok) this.paymentMethods = (await payResp.json()).methods || {};
       } catch (e) { /* non-fatal */ }
@@ -7457,7 +7244,7 @@ function dashboard() {
         // After save, reload budget + summary so the UI reflects the new config
         try {
           const r = await fetch('/api/budget');
-          if (r.ok) this.budget = (await r.json()).categories || {};
+          if (r.ok) { const bj = await r.json(); this.budget = bj.categories || {}; this.naturalezas = bj.naturalezas || {}; }
         } catch {}
         await this.reload();
       };
@@ -7547,11 +7334,7 @@ function dashboard() {
     get rangeLabel() {
       const b = this.rangeBounds;
       if (b.from === b.to) return this.monthLabel;
-      const lf = this.months.find(x => x.value === b.from);
-      const lt = this.months.find(x => x.value === b.to);
-      const fromLabel = lf ? lf.shortLabel : b.from;
-      const toLabel = lt ? lt.shortLabel : b.to;
-      return fromLabel + ' → ' + toLabel;
+      return this._mesCorto(b.from, true) + ' → ' + this._mesCorto(b.to, true);
     },
 
     monthIsInRange(mValue) {
@@ -7562,6 +7345,11 @@ function dashboard() {
     async selectWindow(value) {
       if (this.windowSize === value) return;
       this.windowSize = value;
+      if (value === 'ytd' && this.month) {
+        const y = Number(this.month.slice(0, 4));
+        this.month = y === new Date().getFullYear() ? this._hoyYm() : y + '-12';
+      }
+      this.exRubro = null; this.exSub = null;
       await this.reload();
     },
 
@@ -7591,11 +7379,12 @@ function dashboard() {
         const rangeQs = (b.from === b.to)
           ? 'month=' + encodeURIComponent(b.to)
           : 'from=' + encodeURIComponent(b.from) + '&to=' + encodeURIComponent(b.to);
-        // The expenses endpoint still takes month only — show the active month's
-        // expenses even when the gauge/aggregates use a wider window.
+        // Gastos de TODO el período (Movimientos, fijos vs día a día y el explorador).
         const [sumR, expR, pnlR, incR] = await Promise.all([
           this._fetchRetry('/api/summary?' + rangeQs),
-          this._fetchRetry('/api/expenses?month=' + encodeURIComponent(this.month) + '&limit=500'),
+          this._fetchRetry(b.from === b.to
+            ? '/api/expenses?month=' + encodeURIComponent(this.month) + '&limit=1000'
+            : '/api/expenses?from=' + encodeURIComponent(b.from) + '&to=' + encodeURIComponent(b.to) + '&limit=5000'),
           this._fetchRetry('/api/pnl?' + rangeQs),
           this._fetchRetry('/api/income/entries?month=' + encodeURIComponent(this.month)),
         ]);
@@ -7831,10 +7620,7 @@ function dashboard() {
 
     get pct() { return this.summary.pct_of_budget || 0; },
 
-    get monthLabel() {
-      const m = this.months.find(x => x.value === this.month);
-      return m ? m.label : this.month;
-    },
+    get monthLabel() { return this._mesLargo(this.month); },
 
     get daysLeft() {
       if (!this.month) return 0;
