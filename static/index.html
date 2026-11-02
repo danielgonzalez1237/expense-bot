@@ -272,8 +272,29 @@
           <option value="">+ Otra categoría…</option>
           <template x-for="c in $store.review.catsTop.filter(c => !$store.review.excluir.includes(c.key))" :key="'opt' + c.key"><option :value="c.key" x-text="c.icon + ' ' + c.label"></option></template>
         </select>
-        <button x-show="$store.review.excluir.length || $store.review.sinGrandes" @click="$store.review.excluir = []; $store.review.sinGrandes = false; $store.review._guardarFiltros(); $store.review.load(true)"
-          class="text-[11px] text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 underline ml-1">Incluir todo</button>
+      </div>
+      <div class="flex flex-wrap items-center gap-1.5 text-xs">
+        <span class="text-slate-500 mr-0.5">Ver solo:</span>
+        <template x-for="k in $store.review.solo" :key="'so' + k">
+          <button @click="$store.review.alternarSolo(k)" class="rounded-full px-3 py-1 bg-esencial-suave text-esencial-fuerte dark:bg-sky-950/60 dark:text-sky-300" :title="'Quitar ' + $store.review.catInfo(k).label">
+            <span x-text="$store.review.catInfo(k).icon + ' ' + $store.review.catInfo(k).label"></span> <span class="opacity-70">✕</span></button>
+        </template>
+        <select x-model="$store.review.agregarSolo" @change="if ($store.review.agregarSolo) { $store.review.alternarSolo($store.review.agregarSolo); $store.review.agregarSolo = ''; }"
+          class="rounded-full border border-dashed border-slate-300 dark:border-slate-600 bg-transparent px-3 py-1 text-slate-500" aria-label="Ver solo una categoría">
+          <option value="" x-text="$store.review.solo.length ? '+ Otra…' : 'Todas las categorías'"></option>
+          <template x-for="c in $store.review.catsTop.filter(c => !$store.review.solo.includes(c.key))" :key="'sopt' + c.key"><option :value="c.key" x-text="c.icon + ' ' + c.label"></option></template>
+        </select>
+        <span class="text-slate-500 ml-2 mr-0.5">Valor por gasto:</span>
+        <span class="inline-flex items-center rounded-full border border-slate-200 dark:border-slate-700 px-2 py-0.5">
+          <span class="text-slate-400">US$</span>
+          <input type="text" inputmode="numeric" placeholder="desde" :value="$store.review.minUsd" @change="$store.review.cambiarRango('min', $event.target.value)" @keydown.enter="$event.target.blur()"
+            class="w-14 bg-transparent px-1 py-0.5 focus:outline-none" aria-label="Valor mínimo por gasto en dólares">
+          <span class="text-slate-400">–</span>
+          <input type="text" inputmode="numeric" placeholder="hasta" :value="$store.review.maxUsd" @change="$store.review.cambiarRango('max', $event.target.value)" @keydown.enter="$event.target.blur()"
+            class="w-14 bg-transparent px-1 py-0.5 focus:outline-none" aria-label="Valor máximo por gasto en dólares">
+        </span>
+        <button x-show="$store.review.hayFiltros()" @click="$store.review.limpiarFiltros()"
+          class="text-[11px] text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 underline ml-1">Quitar filtros</button>
       </div>
       <div class="text-[11px] text-amber-700 dark:text-amber-400" x-show="$store.review.data && !$store.review.data.anterior.completo">
         El período anterior tiene datos incompletos (el bot registra desde el <span x-text="$store.review.fechaCorta($store.review.data && $store.review.data.datos_desde)"></span>): la comparación no es confiable.
@@ -537,31 +558,61 @@
             </div>
           </template>
         </div>
-        <!-- Simulador -->
-        <div class="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
-          <div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-2">Simulador</div>
-          <div class="flex flex-wrap items-center gap-2 text-xs">
-            <span>Si bajo</span>
-            <select x-model="$store.review.simCat" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1">
-              <option value="__gustos">todos los gustos</option>
-              <template x-for="c in $store.review.mejorables(20)" :key="'s' + c.key">
-                <option :value="c.key" x-text="c.label"></option>
-              </template>
-            </select>
-            <span>un</span>
-            <input type="range" min="5" max="100" step="5" x-model.number="$store.review.simPct" class="w-28 accent-emerald-600">
-            <span class="font-semibold w-10" x-text="$store.review.simPct + '%'"></span>
+        <!-- Simulador: recortes por categoría o tipo + tope por compra -->
+        <div class="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800" data-tour="rev-simulador">
+          <div class="flex items-center justify-between gap-2 mb-3">
+            <div class="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-2">Simulador <button type="button" class="info-i" @click.stop="$store.info.abrir('rev-simulador', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></div>
+            <button @click="$store.review.simReset()" class="text-[11px] text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 underline">Reiniciar</button>
           </div>
-          <div class="mt-2 text-sm">ahorro <span class="font-bold text-emerald-600 dark:text-emerald-400" x-text="$store.review.fmt($store.review.sim()) + ' al mes'"></span>
-            · <span class="font-semibold" x-text="$store.review.fmt(12 * $store.review.sim()) + ' al año'"></span></div>
+          <div class="space-y-2">
+            <template x-for="(l, i) in $store.review.escenario" :key="'sim' + i">
+              <div class="flex flex-wrap items-center gap-2 text-xs">
+                <span class="text-slate-500 w-12" x-text="i === 0 ? 'Si bajo' : 'y bajo'"></span>
+                <select x-model="l.cat" @change="$store.review.simGuardar()" class="bg-slate-100 dark:bg-slate-800 rounded-full px-3 py-1.5 max-w-[220px]">
+                  <option value="__gustos">💛 Todos los gustos</option>
+                  <option value="__estilo">💜 Todo estilo de vida</option>
+                  <template x-for="c in $store.review.simOpciones()" :key="'so' + i + c.key"><option :value="c.key" :selected="l.cat === c.key" x-text="c.icon + ' ' + c.label"></option></template>
+                </select>
+                <input type="range" min="5" max="100" step="5" x-model.number="l.pct" @change="$store.review.simGuardar()" class="w-28 accent-emerald-700" :aria-label="'Porcentaje a bajar'">
+                <span class="font-semibold w-10" x-text="l.pct + '%'"></span>
+                <span class="text-slate-400" x-text="'= ' + $store.review.fmt($store.review.simLinea(l)) + '/mes'"></span>
+                <button x-show="$store.review.escenario.length > 1" @click="$store.review.escenario.splice(i, 1); $store.review.simGuardar()" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 px-1" aria-label="Quitar este recorte">✕</button>
+              </div>
+            </template>
+            <button @click="$store.review.escenario.push({ cat: '__estilo', pct: 15 }); $store.review.simGuardar()" class="text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">+ Agregar otro recorte</button>
+            <label class="flex flex-wrap items-center gap-2 text-xs pt-1">
+              <input type="checkbox" x-model="$store.review.simTopeOn" @change="$store.review.simGuardar()" class="accent-emerald-700">
+              <span>y ninguna compra suelta pasa de US$</span>
+              <input type="text" inputmode="numeric" :value="$store.review.simTope" @change="$store.review.simTope = Number($event.target.value.replace(/[^0-9]/g, '')) || 1000; $store.review.simGuardar()"
+                class="w-16 bg-slate-100 dark:bg-slate-800 rounded-full px-2 py-1 font-semibold" aria-label="Tope por compra en dólares">
+              <span class="text-slate-400" x-show="$store.review.simTopeOn" x-text="'(' + $store.review.simCompras().length + (($store.review.simCompras().length === 1) ? ' compra' : ' compras') + ' lo pasaron)'"></span>
+            </label>
+          </div>
+          <div class="mt-4 rounded-2xl bg-ahorro-suave dark:bg-emerald-950/40 px-4 py-3">
+            <div class="text-sm text-ahorro dark:text-emerald-300">Ahorrarían <b class="num text-xl" x-text="$store.review.fmt($store.review.simular().mes)"></b> al mes
+              · <b x-text="$store.review.fmt(12 * $store.review.simular().mes)"></b> al año</div>
+            <div class="text-[11px] text-ahorro-medio dark:text-emerald-400 mt-1"
+                 x-text="'El gasto del mes quedaría en ' + $store.review.fmt($store.review.v($store.review.data.totales) / $store.review.data.periodo.n_meses - $store.review.simular().mes)
+                   + ($store.review.pctIngreso() !== null ? ' (' + Math.round(100 * ($store.review.v($store.review.data.totales) - $store.review.simular().mes * $store.review.data.periodo.n_meses) / $store.review.v($store.review.data.ingresos)) + '% de lo que entra)' : '')"></div>
+          </div>
         </div>
       </div>
 
       <!-- Lo que quedó por fuera -->
-      <div x-show="($store.review.data.excluidos.categorias || []).length || $store.review.data.filtros.sin_grandes"
+      <div x-show="($store.review.data.excluidos.categorias || []).length || $store.review.data.filtros.sin_grandes || ($store.review.data.excluidos.por_valor || {}).count || ($store.review.data.excluidos.fuera_de_solo || {}).count"
            class="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm text-xs">
         <h2 class="num text-lg font-semibold mb-1">Quedó por fuera de esta vista</h2>
-        <p class="text-[11px] text-slate-500 mb-3" x-text="'En total ' + $store.review.fmt(($store.review.data.excluidos.categorias || []).reduce((s, e) => s + $store.review.v(e), 0) + $store.review.v($store.review.data.excluidos.grandes)) + ' que no cuentan en las gráficas de arriba.'"></p>
+        <p class="text-[11px] text-slate-500 mb-3" x-text="'En total ' + $store.review.fmt(($store.review.data.excluidos.categorias || []).reduce((s, e) => s + $store.review.v(e), 0) + $store.review.v($store.review.data.excluidos.grandes) + $store.review.v($store.review.data.excluidos.por_valor) + $store.review.v($store.review.data.excluidos.fuera_de_solo)) + ' que no cuentan en las gráficas de arriba.'"></p>
+        <div class="space-y-1.5 mb-1.5">
+          <div x-show="($store.review.data.excluidos.fuera_de_solo || {}).count" class="flex items-center justify-between gap-2">
+            <span x-text="'🔎 Fuera de \'' + $store.review.solo.map(k => $store.review.catInfo(k).label).join(', ') + '\''"></span>
+            <span><span class="font-semibold" x-text="$store.review.fmt($store.review.v($store.review.data.excluidos.fuera_de_solo))"></span> <span class="text-slate-400" x-text="'(' + (($store.review.data.excluidos.fuera_de_solo || {}).count || 0) + ')'"></span></span>
+          </div>
+          <div x-show="($store.review.data.excluidos.por_valor || {}).count" class="flex items-center justify-between gap-2">
+            <span x-text="'💲 Fuera del rango de valor' + ($store.review.minUsd ? ' (desde US$' + $store.review.minUsd + ')' : '') + ($store.review.maxUsd ? ' (hasta US$' + $store.review.maxUsd + ')' : '')"></span>
+            <span><span class="font-semibold" x-text="$store.review.fmt($store.review.v($store.review.data.excluidos.por_valor))"></span> <span class="text-slate-400" x-text="'(' + (($store.review.data.excluidos.por_valor || {}).count || 0) + ')'"></span></span>
+          </div>
+        </div>
         <div class="space-y-1.5">
           <template x-for="e in ($store.review.data.excluidos.categorias || [])" :key="'qe' + e.key">
             <div class="flex items-center justify-between gap-2">
@@ -1195,6 +1246,21 @@
         <label class="flex items-center gap-1.5 text-slate-500">Hasta <input type="date" x-model="busq.hasta" @change="busqBuscar()" class="bg-white dark:bg-slate-900 rounded-full px-3 py-1 text-slate-800 dark:text-slate-100"></label>
         <span class="text-[11px] text-slate-400" x-text="busq.desde || busq.hasta ? '' : 'Sin fechas busca en todo el historial.'"></span>
         <button @click="busqCerrar()" class="ml-auto rounded-full bg-white dark:bg-slate-900 px-3 py-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white">Cerrar búsqueda ✕</button>
+      </div>
+      <div class="flex flex-wrap items-center gap-2 text-xs">
+        <select x-model="busq.categoria" @change="busqBuscar()" class="bg-white dark:bg-slate-900 rounded-full px-3 py-1 max-w-[220px]" aria-label="Categoría">
+          <option value="">Todas las categorías</option>
+          <template x-for="opt in categoryOptions" :key="'bc' + opt.key"><option :value="opt.key" x-text="opt.label"></option></template>
+        </select>
+        <span class="inline-flex items-center gap-1 bg-white dark:bg-slate-900 rounded-full pl-1 pr-3 py-0.5">
+          <span class="inline-flex rounded-full bg-slate-100 dark:bg-slate-800 p-0.5 text-[10px]">
+            <button @click="busq.moneda = 'usd'; busqBuscar()" class="px-2 py-0.5 rounded-full" :class="busq.moneda === 'usd' ? 'bg-white dark:bg-slate-900 shadow-sm font-semibold' : 'text-slate-500'">US$</button>
+            <button @click="busq.moneda = 'cop'; busqBuscar()" class="px-2 py-0.5 rounded-full" :class="busq.moneda === 'cop' ? 'bg-white dark:bg-slate-900 shadow-sm font-semibold' : 'text-slate-500'">COP</button>
+          </span>
+          <input type="text" inputmode="numeric" x-model="busq.min" @input.debounce.500ms="busqBuscar()" placeholder="monto desde" class="w-24 bg-transparent px-1 py-0.5 focus:outline-none" aria-label="Monto mínimo">
+          <span class="text-slate-400">–</span>
+          <input type="text" inputmode="numeric" x-model="busq.max" @input.debounce.500ms="busqBuscar()" placeholder="hasta" class="w-20 bg-transparent px-1 py-0.5 focus:outline-none" aria-label="Monto máximo">
+        </span>
       </div>
       <div x-show="busq.error" class="text-xs text-red-700 dark:text-red-300" x-text="busq.error"></div>
       <div x-show="busq.res" class="text-xs text-slate-600 dark:text-slate-300">
@@ -5472,9 +5538,25 @@ document.addEventListener('alpine:init', () => {
     excluir: (() => { try { return JSON.parse(localStorage.getItem('rev_excluir') || '[]'); } catch (e) { return []; } })(),
     sinGrandes: (() => { try { return localStorage.getItem('rev_sin_grandes') === '1'; } catch (e) { return false; } })(),
     umbral: (() => { try { return Number(localStorage.getItem('rev_umbral')) || 600; } catch (e) { return 600; } })(),
-    catsTop: [], agregarCat: '',
+    catsTop: [], agregarCat: '', agregarSolo: '',
+    solo: (() => { try { return JSON.parse(localStorage.getItem('rev_solo') || '[]'); } catch (e) { return []; } })(),
+    minUsd: (() => { try { return localStorage.getItem('rev_min') || ''; } catch (e) { return ''; } })(),
+    maxUsd: (() => { try { return localStorage.getItem('rev_max') || ''; } catch (e) { return ''; } })(),
+    alternarSolo(k) {
+      this.solo = this.solo.includes(k) ? this.solo.filter(x => x !== k) : [...this.solo, k];
+      this._guardarFiltros(); this.load(true);
+    },
+    cambiarRango(cual, v) {
+      const t = String(v || '').replace(/[^0-9]/g, '');
+      if (cual === 'min') this.minUsd = t; else this.maxUsd = t;
+      if (this.minUsd && this.maxUsd && Number(this.minUsd) > Number(this.maxUsd)) { this.error = 'El valor mínimo debe ser menor que el máximo'; return; }
+      this._guardarFiltros(); this.load(true);
+    },
+    hayFiltros() { return this.excluir.length || this.sinGrandes || this.solo.length || this.minUsd || this.maxUsd; },
+    limpiarFiltros() { this.excluir = []; this.sinGrandes = false; this.solo = []; this.minUsd = ''; this.maxUsd = ''; this._guardarFiltros(); this.load(true); },
     get sinViajes() { return this.excluir.includes('viaje'); },
-    _guardarFiltros() { try { localStorage.setItem('rev_excluir', JSON.stringify(this.excluir)); localStorage.setItem('rev_sin_grandes', this.sinGrandes ? '1' : '0'); localStorage.setItem('rev_umbral', String(this.umbral)); } catch (e) {} },
+    _guardarFiltros() { try { localStorage.setItem('rev_excluir', JSON.stringify(this.excluir)); localStorage.setItem('rev_sin_grandes', this.sinGrandes ? '1' : '0'); localStorage.setItem('rev_umbral', String(this.umbral));
+      localStorage.setItem('rev_solo', JSON.stringify(this.solo)); localStorage.setItem('rev_min', this.minUsd || ''); localStorage.setItem('rev_max', this.maxUsd || ''); } catch (e) {} },
     alternarExcluir(k) {
       this.excluir = this.excluir.includes(k) ? this.excluir.filter(x => x !== k) : [...this.excluir, k];
       this._guardarFiltros(); this.load(true);
@@ -5499,6 +5581,40 @@ document.addEventListener('alpine:init', () => {
     ingresosAplican() { const d = this.data; return !!(d && d.ingresos && d.ingresos.aplica); },
     pctIngreso() { const d = this.data; if (!this.ingresosAplican() || !this.v(d.ingresos)) return null; return Math.round(100 * this.v(d.totales) / this.v(d.ingresos)); },
     nivel: 'sub', filtroTipo: 'todos', abiertos: {}, simCat: '__gustos', simPct: 20, verTodas: false, LIMITE: 15,
+    escenario: (() => { try { const e = JSON.parse(localStorage.getItem('rev_sim') || 'null'); return Array.isArray(e) && e.length ? e : [{ cat: '__gustos', pct: 20 }]; } catch (e) { return [{ cat: '__gustos', pct: 20 }]; } })(),
+    simTopeOn: (() => { try { return localStorage.getItem('rev_sim_tope_on') === '1'; } catch (e) { return false; } })(),
+    simTope: (() => { try { return Number(localStorage.getItem('rev_sim_tope')) || 1000; } catch (e) { return 1000; } })(),
+    simGuardar() { try { localStorage.setItem('rev_sim', JSON.stringify(this.escenario)); localStorage.setItem('rev_sim_tope_on', this.simTopeOn ? '1' : '0'); localStorage.setItem('rev_sim_tope', String(this.simTope)); } catch (e) {} },
+    simReset() { this.escenario = [{ cat: '__gustos', pct: 20 }]; this.simTopeOn = false; this.simTope = 1000; this.simGuardar(); },
+    simOpciones() {
+      if (!this.data) return [];
+      const padres = (this.data.padres || []).map(p => ({ key: p.key, label: p.label + ' (todo)', icon: p.icon, v: this.v(p) }));
+      const vistos = new Set(padres.map(p => p.key));
+      const cats = this.data.categorias.filter(c => this.v(c) > 0 && !vistos.has(c.key)).map(c => ({ key: c.key, label: c.label, icon: c.icon, v: this.v(c) }));
+      const out = [], ya = new Set();
+      for (const o of [...padres, ...cats].sort((a, b) => b.v - a.v)) if (!ya.has(o.key)) { ya.add(o.key); out.push(o); }
+      return out;
+    },
+    // Compras sueltas que pasan del tope (solo si el tope está activo)
+    simCompras() { return (this.simTopeOn && this.simTope > 0 && this.data) ? (this.data.compras || []).filter(c => c.usd > this.simTope) : []; },
+    _simCatsDe(cat) {
+      const d = this.data;
+      if (cat === '__gustos' || cat === '__estilo') { const t = cat === '__gustos' ? 'gusto' : 'estilo'; return d.categorias.filter(c => c.naturaleza === t); }
+      return d.categorias.filter(c => c.key === cat || c.parent === cat);
+    },
+    // Ahorro mensual: primero el tope por compra, luego el % más alto que aplique a cada categoría (sin contar dos veces)
+    simular() {
+      const d = this.data; if (!d) return { mes: 0 };
+      const n = d.periodo.n_meses || 1, cop = this.moneda === 'cop';
+      const tope = {};
+      for (const c of this.simCompras()) { const exceso = cop ? c.cop * (c.usd - this.simTope) / c.usd : c.usd - this.simTope; tope[c.categoria] = (tope[c.categoria] || 0) + exceso; }
+      const pct = {};
+      for (const l of this.escenario) for (const c of this._simCatsDe(l.cat)) pct[c.key] = Math.max(pct[c.key] || 0, Number(l.pct) || 0);
+      let total = 0;
+      for (const c of d.categorias) { const base = this.v(c), t = Math.min(base, tope[c.key] || 0); total += t + (base - t) * (pct[c.key] || 0) / 100; }
+      return { mes: total / n };
+    },
+    simLinea(l) { const n = (this.data && this.data.periodo.n_meses) || 1; return this._simCatsDe(l.cat).reduce((s, c) => s + this.v(c), 0) * (Number(l.pct) || 0) / 100 / n; },
     openTipos: false, tiposBusy: false, tiposError: null, tiposCats: [],
     presets: [
       { key: 'mes', label: 'Este mes', corto: 'Mes' }, { key: '3m', label: 'Últimos 3 meses', corto: '3m' }, { key: '6m', label: 'Últimos 6 meses', corto: '6m' },
@@ -5565,7 +5681,9 @@ document.addEventListener('alpine:init', () => {
       if (this.desde > this.hasta) { this.error = 'El mes "desde" debe ser anterior o igual a "hasta"'; return; }
       this.loading = !this.data; this.error = null;
       const q = new URLSearchParams({ desde: this.desde, hasta: this.hasta, persona: this.persona,
-        sin_grandes: this.sinGrandes ? 1 : 0, umbral_usd: this.umbral, excluir: this.excluir.join(',') });
+        sin_grandes: this.sinGrandes ? 1 : 0, umbral_usd: this.umbral, excluir: this.excluir.join(','), solo: this.solo.join(',') });
+      if (this.minUsd) q.set('min_usd', this.minUsd);
+      if (this.maxUsd) q.set('max_usd', this.maxUsd);
       try {
         const r = await fetch('/api/review?' + q);
         if (!r.ok) { const t = await r.json().catch(() => ({})); throw new Error(t.detail || ('No se pudo cargar la revisión (' + r.status + ')')); }
@@ -5832,7 +5950,8 @@ document.addEventListener('alpine:init', () => {
       persona: { t: 'Por persona', h: '<p>Cuánto anotó cada uno en el período. Tocar un nombre abre Movimientos solo con sus gastos.</p>' },
       metodo: { t: 'Por método de pago', h: '<p>Cuánto se pagó con cada tarjeta, cuenta o efectivo en el período. Tocar uno abre Movimientos filtrado por ese método, útil para cuadrar con el extracto.</p>' },
       analisis: { t: 'Análisis de gasto diario', h: '<p>El gasto de cada día por categoría en el rango de fechas que elijas (7, 30, 90 días o personalizado), en columnas o acumulado.</p><p>La tabla muestra por categoría el total, el promedio y la mediana por gasto (la mediana se mueve menos con compras grandes).</p>' },
-      'rev-controles': { t: 'Qué estás viendo', h: '<p><b>Período</b>: Mes (el actual), 3m, 6m o 12m (meses completos hasta el mes pasado, para que el mes en curso no baje el promedio), Año o Elegir meses. <b>Quién</b>: Familia (sin Tuo), Daniel, Mado, Tuo o Todos. <b>USD/COP</b> cambia la moneda.</p><p><b>Dejar por fuera</b>: toca <b>Viajes</b>, activa <b>Compras desde US$</b> y escribe el monto desde el que una compra cuenta como grande (no quita fijos, cuotas ni esenciales), o agrega cualquier otra categoría con <b>+ Otra categoría</b> (incluye sus subcategorías). Lo que quites se lista al final y se recuerda en este dispositivo.</p>' },
+      'rev-controles': { t: 'Qué estás viendo', h: '<p><b>Período</b>: Mes (el actual), 3m, 6m o 12m (meses completos hasta el mes pasado), Año o Elegir meses. <b>Quién</b>: Familia (sin Tuo), Daniel, Mado, Tuo o Todos. <b>USD/COP</b> cambia la moneda.</p><p><b>Dejar por fuera</b>: Viajes, <b>Compras desde US$</b> (el monto que escribas; no quita fijos, cuotas ni esenciales) o cualquier categoría con <b>+ Otra categoría</b>.</p><p><b>Ver solo</b>: deja únicamente las categorías que elijas (un rubro incluye sus subcategorías). <b>Valor por gasto</b>: solo gastos entre los montos que escribas, por ejemplo hasta US$50 para ver los gastos hormiga.</p><p>Todo lo que quede por fuera se lista al final, y los filtros se recuerdan en este dispositivo. <b>Quitar filtros</b> vuelve a verlo todo.</p>' },
+      'rev-simulador': { t: 'Simulador', h: '<p>Arma un escenario: elige una categoría, un rubro completo, todos los gustos o todo el estilo de vida, y cuánto bajarlo. Puedes sumar varios recortes; si dos tocan la misma categoría, cuenta el mayor (no se suma dos veces).</p><p><b>Ninguna compra suelta pasa de US$…</b> simula un tope por compra: lo que pasó de ese monto se cuenta como ahorro (no aplica a fijos ni cuotas).</p><p>Abajo: cuánto ahorrarían al mes y al año, y en cuánto quedaría el gasto mensual frente a lo que entra. Usa los filtros de arriba.</p>' },
       'rev-ingresos': { t: 'Contra lo que entró', h: '<p>Qué parte de los ingresos del período se fue en gastos: <b>verde</b> hasta 85%, <b>dorado</b> hasta 100%, <b>rojo</b> si gastaron más de lo que entró. Abajo, cuánto sobró o faltó.</p><p>Los ingresos salen de la sección Ingresos y son de la familia: solo se compara con <b>Familia</b> o <b>Todos</b>. Si quitas viajes u otras categorías, se compara el gasto que queda.</p>' },
       'rev-kpis': { t: 'Lo clave', h: '<p><b>Por mes</b>: promedio mensual del período; el medidor lo compara con el presupuesto mensual (solo para Familia o Todos).</p><p><b>Gastaron</b>: total del período y el cambio contra el período anterior de igual duración.</p><p><b>En gustos</b>: qué parte del total fue gusto. <b>Si bajan los gustos 20%</b>: cuánto ahorrarían al mes y al año.</p>' },
       'rev-mes': { t: 'Mes a mes', h: '<p>Cada barra es un mes, partida en esencial (azul), estilo de vida (lila) y gusto (dorado). La línea punteada es el <b>presupuesto ideal</b> y la línea verde, lo que <b>entró</b> ese mes (Familia o Todos).</p><p>Si el período es un solo mes, muestra el día a día (sin fijos ni cuotas). Pasa el dedo o el mouse por encima para ver los números y qué parte del ingreso se gastó.</p>' },
@@ -5844,7 +5963,7 @@ document.addEventListener('alpine:init', () => {
       'rev-mini': { t: 'Cada categoría, mes a mes', h: '<p>Las 8 categorías más grandes con su curva de cada mes. Toca una para abrir su detalle en el ranking.</p>' },
       'rev-ranking': { t: 'Ranking de categorías', h: '<p>Todas las categorías de mayor a menor, con su % del total, su curva y el cambio contra el período anterior. Cambia entre <b>Subcategoría</b> y <b>Categoría</b> arriba a la derecha.</p><p>Toca una para ver promedio por mes, cuántas veces, ticket típico y los gastos que más pesan. Ahí mismo le puedes cambiar el tipo.</p>' },
       'rev-mejorar': { t: 'Dónde pueden mejorar', h: '<p>Los gustos y gastos de estilo de vida que más pesan, con lo que ahorrarían bajándolos.</p><p>El <b>simulador</b> calcula el ahorro al mes y al año si bajan una categoría (o todos los gustos) el porcentaje que elijas.</p><p class="text-slate-400">Es una guía general, no asesoría financiera.</p>' },
-      movimientos: { t: 'Cada gasto', h: '<p>Todos los gastos del período elegido arriba, del más nuevo al más viejo. Filtra por persona, tipo contable o categoría; con un filtro activo aparece el total filtrado.</p><p>La <b>lupa</b> busca en todo el historial por palabra (sin importar tildes ni mayúsculas), categoría, método, persona o monto, y si quieres entre dos fechas.</p><p>Toca un gasto para editarlo o borrarlo. 🔁 = fijo que se anota solo · 📅 2/12 = cuota de un diferido (agrupadas al final). <b>CSV completo</b> baja el mes.</p>' },
+      movimientos: { t: 'Cada gasto', h: '<p>Todos los gastos del período elegido arriba, del más nuevo al más viejo. Filtra por persona, tipo contable o categoría; con un filtro activo aparece el total filtrado.</p><p>La <b>lupa</b> busca en todo el historial por palabra (sin importar tildes ni mayúsculas), categoría, método, persona o monto, y puedes combinarla con <b>fechas</b>, una <b>categoría</b> y un <b>rango de monto</b> en dólares o pesos.</p><p>Toca un gasto para editarlo o borrarlo. 🔁 = fijo que se anota solo · 📅 2/12 = cuota de un diferido (agrupadas al final). <b>CSV completo</b> baja el mes.</p>' },
       ajustes: { t: 'Ajustes', h: '<p>Todo lo que se configura: fijos y diferidos, categorías y presupuesto, tipos de gasto, fuentes de ingreso, tasas de cambio, fechas de pago, conciliación de extractos, el tema y la guía.</p><p>También puedes repetir el recorrido guiado.</p>' },
     },
     item() { return this.T[this.key] || { t: '', h: '' }; },
@@ -5898,9 +6017,11 @@ document.addEventListener('alpine:init', () => {
       { sel: ['[data-tour=rev-kpis]'], view: 'revision', title: 'Lo clave, arriba',
         text: 'Cuánto gastan por mes frente al presupuesto, el total del período, qué parte se va en gustos y cuánto ahorrarían bajando los gustos un 20%.' },
       { sel: ['[data-tour=rev-excluir]'], view: 'revision', title: 'Dejar por fuera',
-        text: 'Quita viajes, las compras desde el monto que tú elijas o cualquier categoría, para ver el gasto normal. Lo que quites se lista al final.' },
+        text: 'Quita viajes, las compras desde el monto que elijas o cualquier categoría; o mira <b>solo</b> algunas categorías o un rango de valor por gasto. Lo que quede por fuera se lista al final.' },
       { sel: ['[data-tour=rev-ingresos]'], view: 'revision', title: 'Contra lo que entró',
         text: 'Qué parte de los ingresos se fue en gastos, y cuánto sobró o faltó. En "Mes a mes" la línea verde es lo que entró cada mes.' },
+      { sel: ['[data-tour=rev-simulador]'], view: 'revision', title: 'Simulador',
+        text: 'Prueba escenarios: bajar restaurantes 30%, todos los gustos 20% o poner un tope por compra, y mira cuánto ahorrarían al mes y al año.' },
       { sel: ['[data-tour=rev-mes]'], view: 'revision', title: 'Mes a mes',
         text: 'Cada barra es un mes, partida en <b style="color:#4f8bb8">esencial</b>, <b style="color:#8a79c4">estilo de vida</b> y <b style="color:#c98a2e">gusto</b>. La línea punteada es el presupuesto. Pasa el dedo o el mouse por encima para ver los números.' },
       { sel: ['[data-tour=rev-dona]'], view: 'revision', title: 'Necesario o gusto',
@@ -7341,21 +7462,27 @@ function dashboard() {
         + (dentro ? 'Sobraron ' : 'Se pasaron ') + this.fmtUsd(Math.abs(ref.v - total)) + (n > 1 ? ' · promedio ' + this.fmtUsd(total / n) + ' por mes.' : '.') };
     },
     // ── 🔎 Búsqueda en Movimientos ──
-    busq: { abierta: false, q: '', desde: '', hasta: '', cargando: false, res: null, error: null, _n: 0 },
+    busq: { abierta: false, q: '', desde: '', hasta: '', categoria: '', min: '', max: '', moneda: 'usd', cargando: false, res: null, error: null, _n: 0 },
     busqAbrir() {
       if (this.busq.abierta) return this.busqCerrar();
       this.busq.abierta = true;
       setTimeout(() => document.getElementById('busq-q')?.focus(), 80);
     },
-    busqCerrar() { this.busq = { abierta: false, q: '', desde: '', hasta: '', cargando: false, res: null, error: null, _n: this.busq._n + 1 }; },
+    busqCerrar() { this.busq = { abierta: false, q: '', desde: '', hasta: '', categoria: '', min: '', max: '', moneda: 'usd', cargando: false, res: null, error: null, _n: this.busq._n + 1 }; },
     async busqBuscar() {
       const b = this.busq, q = (b.q || '').trim();
-      if (!q && !b.desde && !b.hasta) { b.res = null; b.error = null; return; }
+      const num = (t) => { const v = String(t || '').replace(/[^0-9]/g, ''); return v ? Number(v) : null; };
+      const mn = num(b.min), mx = num(b.max);
+      if (!q && !b.desde && !b.hasta && !b.categoria && mn === null && mx === null) { b.res = null; b.error = null; return; }
       if (b.desde && b.hasta && b.desde > b.hasta) { b.error = 'La fecha "desde" debe ser anterior a "hasta".'; return; }
+      if (mn !== null && mx !== null && mn > mx) { b.error = 'El monto mínimo debe ser menor que el máximo.'; return; }
       const n = ++b._n; b.cargando = true; b.error = null;
       try {
         const qs = new URLSearchParams({ limit: '500' });
         if (q) qs.set('q', q); if (b.desde) qs.set('desde', b.desde); if (b.hasta) qs.set('hasta', b.hasta);
+        if (b.categoria) qs.set('categoria', b.categoria);
+        if (mn !== null) qs.set('min', mn); if (mx !== null) qs.set('max', mx);
+        if (mn !== null || mx !== null) qs.set('moneda', b.moneda);
         const r = await fetch('/api/expenses/search?' + qs);
         const d = await r.json().catch(() => ({}));
         if (n !== this.busq._n) return;   // llegó una búsqueda más nueva

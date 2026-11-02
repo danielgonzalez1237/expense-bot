@@ -1196,6 +1196,10 @@ def make_api_app() -> FastAPI:
         q: str = Query("", description="palabra clave: nota, categoría, método, persona o monto"),
         desde: Optional[str] = Query(None, description="YYYY-MM-DD"),
         hasta: Optional[str] = Query(None, description="YYYY-MM-DD"),
+        categoria: str = Query("", description="categoría (un padre incluye sus subcategorías)"),
+        min_v: Optional[float] = Query(None, alias="min", description="monto mínimo"),
+        max_v: Optional[float] = Query(None, alias="max", description="monto máximo"),
+        moneda: str = Query("usd", description="moneda del rango de monto: usd o cop"),
         limit: int = Query(300, ge=1, le=2000),
     ):
         """Busca en todo el historial (o entre dos fechas). Sin tildes ni mayúsculas."""
@@ -1213,8 +1217,16 @@ def make_api_app() -> FastAPI:
         if desde and hasta and desde > hasta:
             raise HTTPException(400, "desde debe ser ≤ hasta")
         q = (q or "").strip()
-        if not q and not desde and not hasta:
-            raise HTTPException(400, "escribe algo para buscar o elige fechas")
+        moneda = (moneda or "usd").lower()
+        if moneda not in ("usd", "cop"):
+            raise HTTPException(400, "moneda debe ser usd o cop")
+        if (min_v is not None and min_v < 0) or (max_v is not None and max_v < 0) or (min_v is not None and max_v is not None and min_v > max_v):
+            raise HTTPException(400, "rango de monto inválido")
+        cats = set()
+        if categoria:
+            cats = {categoria} | {k for k, v in bot.BUDGET.items() if (v or {}).get("parent") == categoria}
+        if not q and not desde and not hasta and not cats and min_v is None and max_v is None:
+            raise HTTPException(400, "escribe algo para buscar o elige un filtro")
         where, params = [], []
         if desde:
             where.append("substr(fecha, 1, 10) >= ?"); params.append(desde)
@@ -1232,6 +1244,11 @@ def make_api_app() -> FastAPI:
         digitos = "".join(ch for ch in q if ch.isdigit()) if q and all(ch.isdigit() or ch in ".,$ " for ch in q) else ""
         out = []
         for r in rows:
+            if cats and r["categoria"] not in cats:
+                continue
+            valor = (r["monto_usd"] if moneda == "usd" else r["monto_cop"]) or 0
+            if (min_v is not None and valor < min_v) or (max_v is not None and valor > max_v):
+                continue
             if q:
                 if digitos:
                     ok = digitos in str(int(round(r["monto_cop"] or 0))) or digitos == str(int(round(r["monto_usd"] or 0)))
@@ -1244,7 +1261,8 @@ def make_api_app() -> FastAPI:
                 if not ok:
                     continue
             out.append(r)
-        return {"q": q, "desde": desde, "hasta": hasta, "count": len(out), "expenses": out[:limit],
+        return {"q": q, "desde": desde, "hasta": hasta, "categoria": categoria, "min": min_v, "max": max_v, "moneda": moneda,
+                "count": len(out), "expenses": out[:limit],
                 "total_usd": round(sum(r["monto_usd"] or 0 for r in out), 2),
                 "total_cop": round(sum(r["monto_cop"] or 0 for r in out))}
 
@@ -4466,6 +4484,9 @@ def make_api_app() -> FastAPI:
         sin_grandes: int = 0,
         umbral_usd: float = 600.0,
         excluir: str = Query("", description="categorías a dejar por fuera, separadas por coma (un padre incluye sus subcategorías)"),
+        solo: str = Query("", description="ver solo estas categorías (coma; un padre incluye sus subcategorías)"),
+        min_usd: Optional[float] = Query(None, description="solo gastos de este valor o más (US$)"),
+        max_usd: Optional[float] = Query(None, description="solo gastos de este valor o menos (US$)"),
     ):
         """Gasto del período por tipo (esencial/estilo/gusto), por categoría y
         por mes, comparado con el período anterior de igual duración.
@@ -4482,6 +4503,10 @@ def make_api_app() -> FastAPI:
             raise HTTPException(400, "desde debe ser ≤ hasta")
         if sin_grandes and not (umbral_usd > 0):
             raise HTTPException(400, "el umbral de compras grandes debe ser mayor que cero")
+        if (min_usd is not None and min_usd < 0) or (max_usd is not None and max_usd <= 0):
+            raise HTTPException(400, "el rango de valor debe ser positivo")
+        if min_usd is not None and max_usd is not None and min_usd > max_usd:
+            raise HTTPException(400, "el valor mínimo debe ser menor que el máximo")
         meses = list(_iter_months(desde, hasta))
         if len(meses) > REVIEW_MAX_MONTHS:
             raise HTTPException(400, f"máximo {REVIEW_MAX_MONTHS} meses")
@@ -4523,15 +4548,29 @@ def make_api_app() -> FastAPI:
         for k, info in bot.BUDGET.items():
             if (info or {}).get("parent") in pedidas:
                 excluidas.add(k)
+        solo_pedidas = {k.strip() for k in (solo or "").split(",") if k.strip()}
+        solo_set = set(solo_pedidas)
+        for k, info in bot.BUDGET.items():
+            if (info or {}).get("parent") in solo_pedidas:
+                solo_set.add(k)
         excl = {"viajes": {"usd": 0.0, "cop": 0.0, "count": 0},
                 "grandes": {"usd": 0.0, "cop": 0.0, "count": 0, "items": []},
-                "categorias": {}}
+                "categorias": {}, "por_valor": {"usd": 0.0, "cop": 0.0, "count": 0}, "fuera_de_solo": {"usd": 0.0, "cop": 0.0, "count": 0}}
+        compras = []   # gastos sueltos (sin fijos ni cuotas) de US$100 o más, para el simulador
         cur, prev = [], []
         por_dia: dict[str, dict] = {}
         for (eid, fecha, cop, usd, cat, nota, user, met, rec_id, grp_id) in rows:
             if not incluye_persona(user, cat):
                 continue
             en_periodo = fecha[:7] >= desde
+            if solo_set and cat not in solo_set:
+                if en_periodo:
+                    f = excl["fuera_de_solo"]; f["usd"] += usd; f["cop"] += cop; f["count"] += 1
+                continue
+            if (min_usd is not None and usd < min_usd) or (max_usd is not None and usd > max_usd):
+                if en_periodo:
+                    f = excl["por_valor"]; f["usd"] += usd; f["cop"] += cop; f["count"] += 1
+                continue
             if cat in excluidas:
                 if en_periodo:
                     raiz = cat if cat in pedidas else (bot.BUDGET.get(cat) or {}).get("parent") or cat
@@ -4550,6 +4589,9 @@ def make_api_app() -> FastAPI:
                                        "usd": round(usd, 2), "cop": round(cop)})
                 continue
             (cur if en_periodo else prev).append((fecha, cop, usd, cat, nota))
+            if en_periodo and usd >= 100 and not rec_id and not grp_id:
+                compras.append({"id": eid, "fecha": fecha, "categoria": cat, "nota": nota, "usd": round(usd, 2), "cop": round(cop),
+                                "naturaleza": bot.naturaleza_de(cat)})
             # Día a día (calendario y días de la semana): sin fijos ni cuotas,
             # que caen siempre el mismo día y no dicen nada del hábito.
             if en_periodo and not rec_id and not grp_id:
@@ -4656,6 +4698,9 @@ def make_api_app() -> FastAPI:
             excl[k]["usd"] = r2(excl[k]["usd"]); excl[k]["cop"] = round(excl[k]["cop"])
         excl["categorias"] = sorted(({**v, "usd": r2(v["usd"]), "cop": round(v["cop"])} for v in excl["categorias"].values()),
                                     key=lambda v: -v["usd"])
+        for k in ("por_valor", "fuera_de_solo"):
+            excl[k]["usd"] = r2(excl[k]["usd"]); excl[k]["cop"] = round(excl[k]["cop"])
+        compras.sort(key=lambda x: -x["usd"])
 
         # Ingresos del período (para comparar el gasto con lo que entró). Son de la
         # familia: solo tienen sentido con persona=familia o todos.
@@ -4682,7 +4727,9 @@ def make_api_app() -> FastAPI:
             "anterior": {"desde": p_from, "hasta": p_to, "completo": bool(primer_mes) and p_from > primer_mes},
             "datos_desde": datos_desde,
             "filtros": {"persona": persona, "sin_viajes": "viaje" in pedidas, "sin_grandes": bool(sin_grandes),
-                        "umbral_usd": umbral_usd, "excluir": sorted(pedidas)},
+                        "umbral_usd": umbral_usd, "excluir": sorted(pedidas), "solo": sorted(solo_pedidas),
+                        "min_usd": min_usd, "max_usd": max_usd},
+            "compras": compras[:400],
             "ingresos": ingresos,
             "totales": redondear_tot(totales),
             "totales_anterior": redondear_tot(totales_prev),
