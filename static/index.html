@@ -667,108 +667,98 @@
     </section>
   </div>
 
-  <!-- ── P&G del mes: compacto; los botones pasan a un menú ── -->
-  <section class="bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm mb-4 fade">
-    <div class="flex flex-wrap items-center gap-x-8 gap-y-3">
-      <h2 class="num text-xl font-semibold flex items-center gap-2">P&amp;G <button type="button" class="info-i" @click.stop="$store.info.abrir('pyg', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
-      <div><div class="text-[11px] text-slate-500">Ingresos</div><div class="font-semibold" x-text="fmtUsd(pnl.income && pnl.income.total_usd)"></div></div>
-      <div><div class="text-[11px] text-slate-500">Egresos</div><div class="font-semibold" x-text="fmtUsd(pnl.expenses && pnl.expenses.total_usd)"></div></div>
-      <div><div class="text-[11px] text-slate-500">Neto</div>
-        <div class="font-semibold" :class="netPos ? 'text-ahorro dark:text-emerald-400' : 'text-alerta-fuerte dark:text-alerta'" x-text="(netPos ? '+' : '') + fmtUsd(pnl.net && pnl.net.usd)"></div></div>
-      <div class="text-[11px] text-slate-400" x-show="!pnl.income || !pnl.income.total_usd">Aún no hay ingresos anotados en este período</div>
-      <div class="text-[11px] text-slate-500" x-show="pnl.net && pnl.net.pct_of_income !== null && pnl.net.pct_of_income !== undefined && pnl.income && pnl.income.total_usd"
-           x-text="Math.round(((pnl.net && pnl.net.pct_of_income) || 0) * 100) + '% del ingreso'"></div>
-      <div class="text-[11px] text-slate-500" x-show="planIncome > 0 && configuredBudget > 0">Plan de gasto vs plan de ingreso:
-        <span class="font-semibold" :class="configuredBudget <= planIncome ? 'text-ahorro dark:text-emerald-400' : 'text-alerta-fuerte dark:text-alerta'" x-text="Math.round(configuredBudget / planIncome * 100) + '%'"></span></div>
-      <div class="ml-auto flex items-center gap-2">
-        <button x-show="pnl.income && pnl.income.by_source && pnl.income.by_source.length" @click="verFuentes = !verFuentes"
-          class="rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 px-3 py-1.5 text-xs" x-text="verFuentes ? 'Ocultar fuentes' : 'Ver por fuente'"></button>
+  <!-- ── P&G: ingresos contra gastos, neto y mes a mes ── -->
+  <section class="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-7 shadow-sm mb-4 fade" data-tour="pyg"
+    x-effect="pnlSerie; isDark; view; $nextTick(() => { if (view === 'resumen') PygCharts.render($data); })">
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h2 class="num text-xl sm:text-2xl font-semibold flex items-center gap-2">P&amp;G <button type="button" class="info-i" @click.stop="$store.info.abrir('pyg', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
+        <div class="text-xs text-slate-500 mt-0.5" x-text="'Ingresos contra gastos · ' + periodTitle()"></div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button @click="view = 'ingresos'" class="rounded-full bg-ahorro text-white px-3.5 py-1.5 text-xs font-medium hover:opacity-90 transition">+ Anotar ingreso</button>
         <div class="relative" x-data="{ m: false }">
-          <button @click="m = !m" class="rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 px-3 py-1.5 text-xs">Ingresos y CSV ⋯</button>
-          <div x-show="m" @click.outside="m = false" x-transition class="absolute right-0 mt-2 z-30 bg-white dark:bg-slate-900 rounded-2xl shadow-xl p-1.5 w-56 text-sm border border-slate-100 dark:border-slate-800">
-            <button @click="m = false; openIncomeEditor()" class="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800">✏️ Editar ingresos</button>
+          <button @click="m = !m" class="rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 px-3 py-1.5 text-xs" aria-label="Más opciones">⋯</button>
+          <div x-show="m" @click.outside="m = false" x-transition class="absolute right-0 mt-2 z-30 bg-white dark:bg-slate-900 rounded-2xl shadow-xl p-1.5 w-60 text-sm border border-slate-100 dark:border-slate-800">
+            <button @click="m = false; view = 'ingresos'" class="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800">💵 Ver ingresos</button>
+            <button @click="m = false; openFuentes()" class="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800">🧩 Fuentes y plan de ingresos</button>
             <a :href="'/api/export/csv_full?month=' + month" download @click="m = false" class="block px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800" title="Datos reales del mes: ingresos y gastos">📥 CSV real del mes</a>
             <a :href="'/api/export/csv_projected?month=' + month" download @click="m = false" class="block px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800" title="Presupuesto e ingresos esperados del mes">🎯 CSV proyectado del mes</a>
           </div>
         </div>
       </div>
     </div>
-    <!-- Mini breakdown by income source -->
-    <div class="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800" x-show="verFuentes && pnl.income && pnl.income.by_source && pnl.income.by_source.length">
-      <div class="text-[10px] text-slate-500 uppercase tracking-wide mb-1.5">Por fuente</div>
 
-      <!-- Donut de ingresos por fuente (hover resalta segmento + centro) -->
-      <div class="relative mb-3 select-none" style="max-width:220px;margin-left:auto;margin-right:auto"
-           @mousemove="onDonutHover($event)" @mouseleave="incomeHoverKey = null">
-        <div x-html="incomeDonutSvg"></div>
-        <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center px-8">
-          <div class="text-[10px] text-slate-500 dark:text-slate-400 leading-tight max-w-[130px] truncate" x-text="incomeDonutCenter.label"></div>
-          <div class="text-base font-bold leading-tight mt-0.5" x-text="fmtUsd(incomeDonutCenter.value)"></div>
-          <div class="text-[10px] text-indigo-500 dark:text-indigo-400 font-semibold mt-0.5" x-show="incomeDonutCenter.hovered" x-text="incomeDonutCenter.pct + '% del total'"></div>
-          <div class="text-[9px] text-slate-400 dark:text-slate-500 mt-0.5 max-w-[140px] truncate" x-show="incomeDonutCenter.sub" x-text="incomeDonutCenter.sub"></div>
+    <div class="mt-5 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
+      <!-- Ingresos vs gastos y neto -->
+      <div class="lg:col-span-5 min-w-0">
+        <div class="space-y-4">
+          <div>
+            <div class="flex items-baseline justify-between gap-2"><span class="text-xs text-slate-500">Ingresos</span>
+              <span class="num text-2xl sm:text-3xl font-semibold text-ahorro dark:text-emerald-400" x-text="fmtUsd(pygIngresos())"></span></div>
+            <div class="mt-1.5 h-3 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden"><div class="h-full rounded-full bg-ahorro-medio dark:bg-emerald-500 bar" :style="'width:' + pygBar(pygIngresos()) + '%'"></div></div>
+          </div>
+          <div>
+            <div class="flex items-baseline justify-between gap-2"><span class="text-xs text-slate-500">Gastos</span>
+              <span class="num text-2xl sm:text-3xl font-semibold" x-text="fmtUsd(pygGastos())"></span></div>
+            <div class="mt-1.5 h-3 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden"><div class="h-full rounded-full bg-gusto bar" :style="'width:' + pygBar(pygGastos()) + '%'"></div></div>
+          </div>
+        </div>
+        <div class="mt-5 pt-5 border-t border-slate-100 dark:border-slate-800">
+          <div class="flex items-baseline justify-between gap-2">
+            <span class="text-xs text-slate-500">Neto</span>
+            <span class="num text-4xl sm:text-5xl font-semibold" :class="pygNeto() >= 0 ? 'text-ahorro dark:text-emerald-400' : 'text-alerta-fuerte dark:text-alerta'"
+                  x-text="(pygNeto() >= 0 ? '+' : '−') + fmtUsd(Math.abs(pygNeto()))"></span>
+          </div>
+          <div class="mt-2 rounded-2xl px-3.5 py-2.5 text-xs"
+               :class="!pygIngresos() ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' : (pygNeto() >= 0 ? 'bg-ahorro-suave text-ahorro dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-alerta-suave text-alerta-fuerte dark:bg-red-950/40 dark:text-red-300')">
+            <span x-text="pygFrase()"></span>
+            <button x-show="!pygIngresos()" @click="view = 'ingresos'" class="underline font-medium ml-1">Anotar ingreso</button>
+          </div>
+          <div class="mt-2 text-[11px] text-slate-500" x-show="planIncome > 0 && configuredBudget > 0">Plan de gasto vs plan de ingreso:
+            <span class="font-semibold" :class="configuredBudget <= planIncome ? 'text-ahorro dark:text-emerald-400' : 'text-alerta-fuerte dark:text-alerta'" x-text="Math.round(configuredBudget / planIncome * 100) + '%'"></span></div>
         </div>
       </div>
-
-      <!-- Chips de total por grupo (hover resalta el grupo en el donut) -->
-      <div class="flex flex-wrap gap-1.5 justify-center mb-3">
-        <template x-for="grp in incomeGroups" :key="grp.key">
-          <button type="button"
-            @mouseenter="incomeHoverGroup = grp.key; incomeHoverKey = null"
-            @mouseleave="incomeHoverGroup = null"
-            class="flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] transition"
-            :class="incomeHoverGroup === grp.key ? 'border-slate-400 dark:border-slate-500 bg-slate-50 dark:bg-slate-800' : 'border-slate-200 dark:border-slate-700'"
-            :title="grp.count + ' fuente(s)'"
-          >
-            <span class="inline-block w-2.5 h-2.5 rounded-sm shrink-0" :style="'background:' + grp.color"></span>
-            <span x-text="grp.icon + ' ' + grp.label"></span>
-            <span class="font-semibold" x-text="fmtUsd(grp.total)"></span>
-            <span class="text-slate-400 dark:text-slate-600" x-text="grp.pct + '%'"></span>
-          </button>
-        </template>
-      </div>
-
-      <div class="space-y-1">
-        <template x-for="s in incomeItems" :key="s.source_key">
-          <div @mouseenter="incomeHoverKey = s.source_key; incomeHoverGroup = null" @mouseleave="incomeHoverKey = null">
-            <!-- Header clickeable (toggle dropdown) -->
-            <button
-              type="button"
-              @click="toggleSource(s.source_key)"
-              class="w-full flex justify-between items-center text-xs hover:bg-slate-50 dark:hover:bg-slate-800/40 rounded px-1.5 py-1 transition"
-              :class="incomeHoverKey === s.source_key ? 'bg-slate-100 dark:bg-slate-800/60' : ''"
-              :title="expandedSources[s.source_key] ? 'Ocultar entries' : 'Ver entries individuales'"
-            >
-              <span class="truncate flex items-center gap-1">
-                <span class="inline-block w-2.5 h-2.5 rounded-sm shrink-0" :style="'background:' + s.color"></span>
-                <span class="text-slate-400 dark:text-slate-600 text-[10px] inline-block w-2.5 transition-transform"
-                      :class="expandedSources[s.source_key] ? 'rotate-90' : ''">▶</span>
-                <span x-text="s.icon"></span>
-                <span x-text="s.label"></span>
-                <span class="text-slate-400 dark:text-slate-600" x-text="' · ' + s.count"></span>
-              </span>
-              <span class="font-semibold" x-text="fmtUsd(s.total_usd)"></span>
-            </button>
-            <!-- Dropdown: entries individuales de esta fuente -->
-            <div x-show="expandedSources[s.source_key]" x-transition class="ml-6 mt-0.5 mb-1 space-y-0.5 border-l-2 border-slate-200 dark:border-slate-700 pl-2">
-              <template x-for="e in entriesForSource(s.source_key)" :key="e.id">
-                <div class="flex justify-between text-[11px] text-slate-600 dark:text-slate-400 py-0.5">
-                  <span class="truncate flex-1 mr-2">
-                    <span class="text-slate-400 dark:text-slate-500" x-text="(e.fecha || '').slice(5)"></span>
-                    <span x-show="e.nota" class="ml-1" x-text="e.nota || ''"></span>
-                    <span x-show="!e.nota" class="ml-1 italic text-slate-400 dark:text-slate-600">(sin nota)</span>
-                    <span x-show="e.currency && e.currency !== 'USD'" class="ml-1 text-slate-400 dark:text-slate-600">
-                      · <span x-text="e.monto + ' ' + e.currency"></span>
-                    </span>
-                  </span>
-                  <span x-text="fmtUsd(e.monto_usd)"></span>
-                </div>
-              </template>
-              <div x-show="!entriesForSource(s.source_key).length" class="text-[11px] italic text-slate-400 dark:text-slate-600 py-0.5">
-                (sin entries individuales este mes)
-              </div>
-            </div>
+      <!-- Mes a mes -->
+      <div class="lg:col-span-7 min-w-0">
+        <div class="flex flex-wrap items-baseline justify-between gap-2">
+          <span class="text-xs text-slate-500">Mes a mes</span>
+          <div class="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
+            <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-ahorro-medio dark:bg-emerald-500"></span>Ingresos</span>
+            <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-gusto"></span>Gastos</span>
+            <span class="flex items-center gap-1.5"><span class="w-4 border-t-2 border-slate-800 dark:border-slate-200"></span>Neto</span>
           </div>
-        </template>
+        </div>
+        <div class="mt-3 h-64 sm:h-72"><canvas id="pyg-chart"></canvas></div>
+      </div>
+    </div>
+
+    <!-- De dónde vino / En qué se fue -->
+    <div class="mt-6 pt-5 border-t border-slate-100 dark:border-slate-800 grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div>
+        <div class="text-xs text-slate-500 mb-2">De dónde vino</div>
+        <div x-show="!ingresosPorGrupo().length" class="text-xs text-slate-400">Sin ingresos en este período.</div>
+        <div class="space-y-2.5">
+          <template x-for="g in ingresosPorGrupo()" :key="'pg' + g.key">
+            <button @click="view = 'ingresos'" class="w-full text-left group">
+              <div class="flex items-center justify-between gap-2 text-sm"><span class="truncate"><span x-text="g.icon"></span> <span x-text="g.label"></span></span>
+                <span class="shrink-0"><span class="font-semibold" x-text="fmtUsd(g.total)"></span> <span class="text-[11px] text-slate-400" x-text="g.pct + '%'"></span></span></div>
+              <div class="mt-1 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden"><div class="h-full rounded-full bar" :style="'width:' + g.pct + '%;background:' + g.color"></div></div>
+            </button>
+          </template>
+        </div>
+      </div>
+      <div>
+        <div class="text-xs text-slate-500 mb-2">En qué se fue</div>
+        <div class="space-y-2.5">
+          <template x-for="t in gastosPorTipo()" :key="'pt' + t.k">
+            <button @click="view = 'revision'" class="w-full text-left">
+              <div class="flex items-center justify-between gap-2 text-sm"><span x-text="t.label"></span>
+                <span class="shrink-0"><span class="font-semibold" x-text="fmtUsd(t.usd)"></span> <span class="text-[11px] text-slate-400" x-text="t.pct + '%'"></span></span></div>
+              <div class="mt-1 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden"><div class="h-full rounded-full bar" :style="'width:' + t.pct + '%;background:' + t.color"></div></div>
+            </button>
+          </template>
+        </div>
       </div>
     </div>
   </section>
@@ -940,6 +930,190 @@
   </section>
   </div>
   <!-- END 📊 RESUMEN -->
+
+  <!-- ════════════════════════ 💵 INGRESOS ════════════════════════
+       Recibido vs plan, anotar ingreso, por fuente, mes a mes y cada ingreso.
+       Datos: /api/pnl (período), /api/income/entries (período), /api/income/sources,
+       /api/pnl/mensual (gráfica). Las fuentes y su plan se editan en la ventana de siempre. -->
+  <div x-show="view === 'ingresos'" x-cloak>
+  <div class="grid grid-cols-1 xl:grid-cols-12 gap-4 mb-4">
+
+    <!-- Recibido -->
+    <section class="xl:col-span-7 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-7 shadow-sm fade min-w-0" data-tour="ing-recibido">
+      <div class="flex items-center gap-2"><span class="text-xs text-slate-500" x-text="windowSize === 1 ? 'Recibido en ' + MESES_LARGOS[Number(month.slice(5)) - 1].toLowerCase() : 'Recibido en ' + periodTitle()"></span> <button type="button" class="info-i" @click.stop="$store.info.abrir('ing-recibido', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></div>
+      <div class="num text-5xl sm:text-6xl font-semibold mt-1 text-ahorro dark:text-emerald-400 truncate" x-text="fmtUsd(pygIngresos())"></div>
+      <div class="text-xs text-slate-400 mt-1" x-text="incomeEntries.length + (incomeEntries.length === 1 ? ' ingreso' : ' ingresos') + ' · ' + new Set(incomeEntries.map(e => e.source_key)).size + ' fuentes' + (ingVsAnterior() ? ' · ' + (ingVsAnterior().pct >= 0 ? '▲ ' : '▼ ') + Math.abs(ingVsAnterior().pct) + '% vs ' + ingVsAnterior().mes : '')"></div>
+      <template x-if="ingPlan() > 0">
+        <div class="mt-6">
+          <div class="relative h-4 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+            <div class="h-full rounded-full bg-ahorro-medio dark:bg-emerald-500 bar" :style="'width:' + Math.min(100, 100 * pygIngresos() / ingPlan()) + '%'"></div>
+          </div>
+          <div class="mt-3 grid grid-cols-3 gap-3 text-xs">
+            <div><div class="text-slate-500">Plan</div><div class="font-semibold text-sm mt-0.5" x-text="fmtUsd(ingPlan())"></div><div class="text-[11px] text-slate-400">suma de las fuentes</div></div>
+            <div><div class="text-slate-500">Recibido</div><div class="font-semibold text-sm mt-0.5" x-text="Math.round(100 * pygIngresos() / ingPlan()) + '%'"></div><div class="text-[11px] text-slate-400">del plan</div></div>
+            <div><div class="text-slate-500" x-text="pygIngresos() >= ingPlan() ? 'Sobre el plan' : 'Falta'"></div>
+              <div class="font-semibold text-sm mt-0.5" :class="pygIngresos() >= ingPlan() ? 'text-ahorro dark:text-emerald-400' : ''" x-text="fmtUsd(Math.abs(ingPlan() - pygIngresos()))"></div>
+              <div class="text-[11px] text-slate-400" x-text="ingPendientes() ? ingPendientes() + (ingPendientes() === 1 ? ' fuente sin recibir' : ' fuentes sin recibir') : 'todas recibidas'"></div></div>
+          </div>
+        </div>
+      </template>
+      <div class="mt-5 rounded-2xl px-4 py-3 text-xs" :class="pygNeto() >= 0 ? 'bg-ahorro-suave text-ahorro dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'">
+        <b x-text="'Neto del período: ' + (pygNeto() >= 0 ? '+' : '−') + fmtUsd(Math.abs(pygNeto())) + '.'"></b> <span x-text="pygFrase()"></span>
+        <button @click="view = 'resumen'" class="underline ml-1">Ver P&amp;G</button>
+      </div>
+    </section>
+
+    <!-- Anotar ingreso -->
+    <section class="xl:col-span-5 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm fade min-w-0" data-tour="ing-form">
+      <div class="flex items-baseline justify-between gap-2">
+        <h2 class="num text-xl sm:text-2xl font-semibold flex items-center gap-2">Anotar ingreso <button type="button" class="info-i" @click.stop="$store.info.abrir('ing-form', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
+        <button @click="openFuentes()" class="text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">Fuentes y plan</button>
+      </div>
+      <form @submit.prevent="ingGuardar()" class="mt-3 space-y-3">
+        <div class="flex flex-wrap gap-1.5">
+          <template x-for="f in fuentesTop()" :key="'ift' + f.key">
+            <button type="button" @click="ingElegirFuente(f.key)" class="text-xs rounded-full px-3 py-1.5 transition"
+              :class="ingForm.source_key === f.key ? 'bg-ahorro text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'"
+              x-text="f.icon + ' ' + f.label"></button>
+          </template>
+        </div>
+        <label class="block">
+          <span class="text-[11px] text-slate-500 px-1">Fuente</span>
+          <select :value="ingForm.source_key" @change="ingElegirFuente($event.target.value)" class="mt-0.5 w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2.5 text-sm">
+            <option value="">Elige una…</option>
+            <template x-for="f in incomeSources.filter(x => x.active)" :key="'ifs' + f.key"><option :value="f.key" :selected="ingForm.source_key === f.key" x-text="f.icon + ' ' + f.label"></option></template>
+          </select>
+        </label>
+        <div class="flex items-stretch gap-2">
+          <input type="text" inputmode="decimal" autocomplete="off" placeholder="0" x-model="ingForm.monto" @input="ingError = null"
+            class="num flex-1 min-w-0 text-3xl font-semibold bg-slate-100 dark:bg-slate-800 rounded-2xl px-4 py-2.5 placeholder:text-slate-300 dark:placeholder:text-slate-600" aria-label="Monto">
+          <select x-model="ingForm.currency" class="bg-slate-100 dark:bg-slate-800 rounded-2xl px-3 text-sm font-semibold" aria-label="Moneda">
+            <template x-for="m in ['USD', 'COP', 'AED', 'BOB', 'CLP', 'ARS']" :key="'ifm' + m"><option :value="m" x-text="m"></option></template>
+          </select>
+        </div>
+        <div class="text-[11px] text-slate-500 -mt-1 px-1" x-show="ingPreview()" x-text="ingPreview()"></div>
+        <div class="grid grid-cols-2 gap-2">
+          <label class="block min-w-0"><span class="text-[11px] text-slate-500 px-1">Fecha</span>
+            <input type="date" x-model="ingForm.fecha" :max="qHoyGlobal()" class="mt-0.5 w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2 text-sm"></label>
+          <label class="block min-w-0"><span class="text-[11px] text-slate-500 px-1">Nota (opcional)</span>
+            <input type="text" x-model="ingForm.nota" maxlength="200" placeholder="Ej. dividendos IB" class="mt-0.5 w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2 text-sm"></label>
+        </div>
+        <div x-show="ingError" class="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/50 rounded-xl px-3 py-2" x-text="ingError"></div>
+        <button type="submit" :disabled="ingBusy" class="w-full rounded-full bg-ahorro text-white py-3 text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition"
+          x-text="ingBusy ? 'Guardando…' : 'Guardar ingreso'"></button>
+        <p class="text-[11px] text-slate-400 text-center">Cuenta en el mes de la fecha, con la tasa de cambio de ese mes.</p>
+      </form>
+    </section>
+
+    <!-- Por fuente -->
+    <section class="xl:col-span-7 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm fade min-w-0" data-tour="ing-fuentes">
+      <div class="flex items-baseline justify-between gap-2">
+        <h2 class="num text-xl sm:text-2xl font-semibold flex items-center gap-2">Por fuente <button type="button" class="info-i" @click.stop="$store.info.abrir('ing-fuentes', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
+        <span class="text-[11px] text-slate-500">toca una para ver sus ingresos</span>
+      </div>
+      <div x-show="!ingPorFuente().length" class="mt-4 text-xs text-slate-400">Sin fuentes con plan ni ingresos en este período.</div>
+      <div class="mt-3 space-y-5">
+        <template x-for="g in ingPorFuente()" :key="'ig' + g.key">
+          <div>
+            <div class="flex items-center justify-between gap-2 text-xs">
+              <span class="flex items-center gap-2 font-semibold text-slate-700 dark:text-slate-200"><span class="w-2.5 h-2.5 rounded-full" :style="'background:' + g.color"></span><span x-text="g.icon + ' ' + g.label"></span></span>
+              <span class="text-slate-500"><span class="font-semibold text-slate-800 dark:text-slate-100" x-text="fmtUsd(g.recibido)"></span><span x-show="g.plan > 0" x-text="' de ' + fmtUsd(g.plan)"></span></span>
+            </div>
+            <div class="mt-1.5 divide-y divide-slate-100 dark:divide-slate-800">
+              <template x-for="f in g.items" :key="'if' + f.key">
+                <button @click="ingFiltro = (ingFiltro === f.key ? null : f.key); $nextTick(() => document.getElementById('ing-lista')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))"
+                  class="w-full text-left py-2 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 -mx-2 px-2 rounded-xl transition"
+                  :class="ingFiltro === f.key ? 'bg-slate-50 dark:bg-slate-800/60' : ''">
+                  <span class="text-base w-6 text-center shrink-0" x-text="f.icon"></span>
+                  <span class="min-w-0 flex-1">
+                    <span class="flex items-center gap-2 min-w-0"><span class="text-sm truncate" x-text="f.label"></span>
+                      <span x-show="f.plan > 0 && !f.recibido" class="text-[10px] rounded-full px-2 py-0.5 bg-gusto-suave text-gusto-fuerte dark:bg-amber-950/50 dark:text-amber-300 shrink-0">pendiente</span>
+                      <span x-show="f.n" class="text-[10px] text-slate-400 shrink-0" x-text="f.n + (f.n === 1 ? ' ingreso' : ' ingresos')"></span></span>
+                    <span class="mt-1 block h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden" x-show="f.plan > 0">
+                      <span class="block h-full rounded-full bar" :style="'width:' + Math.min(100, 100 * f.recibido / f.plan) + '%;background:' + g.color"></span></span>
+                  </span>
+                  <span class="text-right shrink-0">
+                    <span class="block text-sm font-semibold" x-text="fmtUsd(f.recibido)"></span>
+                    <span class="block text-[10px] text-slate-400" x-text="f.plan > 0 ? 'de ' + fmtUsd(f.plan) : 'sin plan'"></span>
+                  </span>
+                </button>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+    </section>
+
+    <!-- Mes a mes -->
+    <section class="xl:col-span-5 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm fade min-w-0"
+      x-effect="pnlSerie; pnlPlanMensual; isDark; view; $nextTick(() => { if (view === 'ingresos') PygCharts.render($data); })">
+      <div class="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 class="num text-xl sm:text-2xl font-semibold flex items-center gap-2">Mes a mes <button type="button" class="info-i" @click.stop="$store.info.abrir('ing-mes', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
+        <div class="flex gap-3 text-[11px] text-slate-500">
+          <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm bg-ahorro-medio dark:bg-emerald-500"></span>Recibido</span>
+          <span class="flex items-center gap-1.5" x-show="pnlPlanMensual > 0"><span class="w-4 border-t-2 border-dashed border-slate-500"></span>Plan</span>
+        </div>
+      </div>
+      <div class="mt-4 h-64"><canvas id="ing-chart"></canvas></div>
+      <div class="mt-3 rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-3 text-xs text-slate-600 dark:text-slate-300" x-show="pnlSerie.length"
+           x-text="(() => { const v = pnlSerie.filter(m => m.ingresos_usd > 0); if (!v.length) return 'Sin ingresos en estos meses.'; const p = v.reduce((a, m) => a + m.ingresos_usd, 0) / v.length; return 'Promedio de los meses con ingresos: ' + fmtUsd(p) + ' al mes' + (pnlPlanMensual ? ' · plan ' + fmtUsd(pnlPlanMensual) : '') + '.'; })()"></div>
+    </section>
+  </div>
+
+  <!-- Cada ingreso -->
+  <section id="ing-lista" class="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm mb-4 fade scroll-mt-4" data-tour="ing-lista">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <h2 class="num text-xl sm:text-2xl font-semibold flex items-center gap-2">Cada ingreso <button type="button" class="info-i" @click.stop="$store.info.abrir('ing-lista', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
+      <div class="flex items-center gap-2 text-xs">
+        <span x-show="ingFiltro" class="rounded-full bg-slate-100 dark:bg-slate-800 px-3 py-1">
+          <span x-text="((incomeSources.find(f => f.key === ingFiltro) || {}).label) || ingFiltro"></span>
+          <button @click="ingFiltro = null" class="ml-1 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200" aria-label="Quitar filtro">✕</button></span>
+        <span class="text-slate-500" x-text="ingEntradas().length + (ingEntradas().length === 1 ? ' ingreso' : ' ingresos') + ' · ' + fmtUsd(ingEntradas().reduce((s, e) => s + (Number(e.monto_usd) || 0), 0))"></span>
+      </div>
+    </div>
+    <div x-show="!ingEntradas().length" class="mt-4 text-sm text-slate-500 text-center py-6">
+      No hay ingresos anotados en <span x-text="periodTitle()"></span>. Anótalos arriba o con el botón <b>+</b> → Ingreso.
+    </div>
+    <div class="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
+      <template x-for="e in ingEntradas()" :key="'ie' + e.id">
+        <div>
+          <button @click="ingEditar(e)" class="w-full text-left py-3 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 -mx-2 px-2 rounded-xl transition" title="Toca para editar">
+            <span class="w-14 text-xs text-slate-400 shrink-0" x-text="formatDate(e.fecha || (e.period + '-01'))"></span>
+            <span class="w-9 h-9 rounded-full bg-ahorro-suave dark:bg-emerald-950/50 grid place-items-center shrink-0" x-text="e.source_icon || '💰'"></span>
+            <span class="min-w-0 flex-1"><span class="block text-sm font-medium truncate" x-text="e.source_label || e.source_key"></span>
+              <span class="block text-[11px] text-slate-400 truncate" x-text="(e.nota ? e.nota + ' · ' : '') + (e.currency !== 'USD' ? fmtMonto(e.monto, e.currency) : 'en dólares')"></span></span>
+            <span class="text-right shrink-0"><span class="block font-semibold text-ahorro dark:text-emerald-400" x-text="'+' + fmtUsd(e.monto_usd)"></span>
+              <span class="block text-[10px] text-slate-400" x-show="e.rate_used && e.currency !== 'USD'" x-text="'tasa ' + Number(e.rate_used).toLocaleString('es-CO')"></span></span>
+          </button>
+          <!-- Editar en línea -->
+          <div x-show="ingEditId === e.id" x-transition class="mb-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 p-3 sm:p-4 space-y-2.5">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <label class="block"><span class="text-[11px] text-slate-500 px-1">Fuente</span>
+                <select x-model="ingEdit.source_key" class="mt-0.5 w-full bg-white dark:bg-slate-900 rounded-xl px-3 py-2 text-sm">
+                  <template x-for="f in incomeSources" :key="'iefs' + f.key"><option :value="f.key" :selected="ingEdit.source_key === f.key" x-text="f.icon + ' ' + f.label"></option></template>
+                </select></label>
+              <label class="block"><span class="text-[11px] text-slate-500 px-1">Fecha</span>
+                <input type="date" x-model="ingEdit.fecha" class="mt-0.5 w-full bg-white dark:bg-slate-900 rounded-xl px-3 py-2 text-sm"></label>
+            </div>
+            <div class="flex gap-2">
+              <input type="text" inputmode="decimal" x-model="ingEdit.monto" class="flex-1 min-w-0 bg-white dark:bg-slate-900 rounded-xl px-3 py-2 text-sm" aria-label="Monto">
+              <select x-model="ingEdit.currency" class="bg-white dark:bg-slate-900 rounded-xl px-3 text-sm" aria-label="Moneda">
+                <template x-for="m in ['USD', 'COP', 'AED', 'BOB', 'CLP', 'ARS']" :key="'iem' + m"><option :value="m" :selected="ingEdit.currency === m" x-text="m"></option></template>
+              </select>
+            </div>
+            <input type="text" x-model="ingEdit.nota" maxlength="200" placeholder="Nota" class="w-full bg-white dark:bg-slate-900 rounded-xl px-3 py-2 text-sm">
+            <div class="flex flex-wrap items-center gap-2">
+              <button @click="ingGuardarEdicion(e)" :disabled="ingBusy" class="rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-4 py-1.5 text-xs font-medium disabled:opacity-50">Guardar</button>
+              <button @click="ingEditId = null" class="rounded-full bg-slate-200 dark:bg-slate-700 px-4 py-1.5 text-xs">Cancelar</button>
+              <button @click="ingBorrar(e)" :disabled="ingBusy" class="ml-auto text-xs text-red-600 dark:text-red-400 hover:underline disabled:opacity-50">Borrar</button>
+            </div>
+          </div>
+        </div>
+      </template>
+    </div>
+  </section>
+  </div>
+  <!-- END 💵 INGRESOS -->
 
   <!-- ──────────────── History (pestaña 🧾 Movimientos) ──────────────── -->
   <div x-show="view === 'movimientos' && !loading && !expenses.length" x-cloak
@@ -1211,150 +1385,92 @@
 
   <!-- ──────────────── Análisis de gasto diario ──────────────── -->
   <section id="analytics-section" x-show="analytics.open && view === 'resumen'" style="display:none"
-           class="bg-white dark:bg-slate-900 rounded-2xl p-5 mb-4 fade shadow-sm">
-    <div class="flex items-center justify-between mb-3">
+           class="bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-7 mb-4 fade shadow-sm"
+           x-effect="analytics.data; analytics.mode; isDark; analytics.open; view; $nextTick(() => { if (analytics.open && view === 'resumen') AnaliticaChart.render($data); })">
+    <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h2 class="text-sm font-semibold flex items-center gap-2">📊 Análisis de gasto <button type="button" class="info-i" @click.stop="$store.info.abrir('analisis', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
-        <p class="text-[11px] text-slate-400 dark:text-slate-600">Gasto diario en USD, agrupado por categoría padre</p>
+        <h2 class="num text-xl sm:text-2xl font-semibold flex items-center gap-2">Análisis diario <button type="button" class="info-i" @click.stop="$store.info.abrir('analisis', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
+        <p class="text-xs text-slate-500 mt-0.5">Gasto de cada día en dólares, por categoría</p>
       </div>
-      <button @click="analytics.open = false"
-              class="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition">✕ Cerrar</button>
+      <button @click="analytics.open = false" class="rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 px-3 py-1.5 text-xs text-slate-600 dark:text-slate-300 transition">Cerrar ✕</button>
     </div>
 
-    <!-- Controles de rango -->
-    <div class="flex flex-wrap items-center gap-2 mb-3 text-xs">
-      <div class="flex gap-1">
-        <template x-for="q in [7,14,21,30]" :key="q">
-          <button @click="setQuickRange(q)"
-            :class="analytics.quick === q ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'"
-            class="px-2.5 py-1 rounded-md font-semibold transition" x-text="q + 'd'"></button>
+    <!-- Rango -->
+    <div class="mt-4 flex flex-wrap items-center gap-2 text-xs">
+      <div class="inline-flex rounded-full bg-slate-100 dark:bg-slate-800 p-1">
+        <template x-for="q in [7, 14, 30, 90]" :key="'aq' + q">
+          <button @click="setQuickRange(q)" class="px-3 py-1 rounded-full font-medium transition" :class="analytics.quick === q ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'" x-text="q + ' días'"></button>
         </template>
       </div>
-      <span class="text-slate-300 dark:text-slate-700">|</span>
-      <label class="flex items-center gap-1">
-        <span class="text-[10px] text-slate-500">Desde</span>
-        <input type="date" x-model="analytics.from" @change="applyCustomRange()"
-               class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs"/>
-      </label>
-      <label class="flex items-center gap-1">
-        <span class="text-[10px] text-slate-500">Hasta</span>
-        <input type="date" x-model="analytics.to" @change="applyCustomRange()"
-               class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-xs"/>
-      </label>
-      <span x-show="analytics.loading" class="text-[10px] text-slate-400 italic">cargando…</span>
+      <label class="flex items-center gap-1.5 text-slate-500">Desde
+        <input type="date" x-model="analytics.from" @change="applyCustomRange()" class="bg-slate-100 dark:bg-slate-800 rounded-full px-3 py-1 text-xs text-slate-800 dark:text-slate-100"></label>
+      <label class="flex items-center gap-1.5 text-slate-500">Hasta
+        <input type="date" x-model="analytics.to" @change="applyCustomRange()" class="bg-slate-100 dark:bg-slate-800 rounded-full px-3 py-1 text-xs text-slate-800 dark:text-slate-100"></label>
+      <span x-show="analytics.loading" class="text-[11px] text-slate-400">cargando…</span>
     </div>
 
-    <!-- Resumen + toggle de vista -->
-    <div class="flex items-center justify-between mb-2 flex-wrap gap-2" x-show="analytics.data">
-      <div class="text-xs text-slate-500">
-        <span class="font-semibold text-slate-700 dark:text-slate-300" x-text="fmtUsd(analytics.data && analytics.data.grand_total_usd)"></span>
-        total ·
-        <span x-text="fmtUsd(analytics.data && analytics.data.avg_daily_usd)"></span>/día prom ·
-        <span x-text="(analytics.data && analytics.data.n_days) || 0"></span> días
+    <!-- Cifras + vista -->
+    <div class="mt-4 flex flex-wrap items-end justify-between gap-3" x-show="analytics.data">
+      <div class="flex flex-wrap gap-x-6 gap-y-1">
+        <div><div class="text-[11px] text-slate-500">Total</div><div class="num text-2xl font-semibold" x-text="fmtUsd(analytics.data && analytics.data.grand_total_usd)"></div></div>
+        <div><div class="text-[11px] text-slate-500">Promedio por día</div><div class="num text-2xl font-semibold" x-text="fmtUsd(analytics.data && analytics.data.avg_daily_usd)"></div></div>
+        <div><div class="text-[11px] text-slate-500">Días</div><div class="num text-2xl font-semibold" x-text="(analytics.data && analytics.data.n_days) || 0"></div></div>
       </div>
-      <div class="flex gap-1 text-[10px]">
-        <button @click="analytics.mode = 'columns'"
-          :class="analytics.mode === 'columns' ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
-          class="px-2 py-1 rounded-md font-semibold transition">Columnas</button>
-        <button @click="analytics.mode = 'cumulative'"
-          :class="analytics.mode === 'cumulative' ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
-          class="px-2 py-1 rounded-md font-semibold transition">Acumulada</button>
+      <div class="inline-flex rounded-full bg-slate-100 dark:bg-slate-800 p-1 text-[11px]">
+        <button @click="analytics.mode = 'columns'" class="px-3 py-1 rounded-full font-medium transition" :class="analytics.mode === 'columns' ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">Por día</button>
+        <button @click="analytics.mode = 'cumulative'" class="px-3 py-1 rounded-full font-medium transition" :class="analytics.mode === 'cumulative' ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">Acumulado</button>
       </div>
     </div>
 
-    <!-- Gráfica (SVG inyectado) + capa de hover -->
-    <div class="relative mb-2" x-show="analytics.data">
-      <div x-html="chartSvg" @mousemove="onChartHover($event)" @mouseleave="analytics.hover = null"></div>
-      <!-- Guía vertical -->
-      <div x-show="analytics.hover" class="absolute top-0 bottom-5 w-px bg-slate-400/40 dark:bg-slate-500/40 pointer-events-none" :style="{ left: hoverGuideLeft }"></div>
-      <!-- Tooltip que sigue el cursor -->
-      <div x-show="hoverDay" x-cloak
-           class="absolute z-30 top-1 pointer-events-none bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg px-3 py-2 text-[11px] min-w-[150px] max-w-[230px]"
-           :style="{ left: (analytics.hover ? analytics.hover.frac * 100 : 0) + '%', transform: 'translateX(' + ((hoverDay && hoverDay.flip) ? 'calc(-100% - 10px)' : '10px') + ')' }">
-        <template x-if="hoverDay">
-          <div>
-            <div class="font-semibold text-slate-700 dark:text-slate-200 mb-1" x-text="hoverDay.day"></div>
-            <template x-if="analytics.mode === 'cumulative'">
-              <div class="space-y-0.5">
-                <div class="flex justify-between gap-3"><span class="text-slate-500">Acumulado</span><span class="font-semibold" x-text="fmtUsd(hoverDay.cum)"></span></div>
-                <div class="flex justify-between gap-3"><span class="text-slate-500">Este día</span><span x-text="fmtUsd(hoverDay.total)"></span></div>
-              </div>
-            </template>
-            <template x-if="analytics.mode !== 'cumulative'">
-              <div class="space-y-0.5">
-                <template x-for="it in hoverDay.items" :key="it.label">
-                  <div class="flex justify-between gap-3 items-center">
-                    <span class="flex items-center gap-1 truncate">
-                      <span class="inline-block w-2 h-2 rounded-sm shrink-0" :style="'background:' + it.color"></span>
-                      <span class="truncate" x-text="it.icon + ' ' + it.label"></span>
-                    </span>
-                    <span class="font-medium shrink-0" x-text="fmtUsd(it.value)"></span>
-                  </div>
-                </template>
-                <div class="flex justify-between gap-3 border-t border-slate-100 dark:border-slate-700 mt-1 pt-1 font-semibold">
-                  <span>Total día</span><span x-text="fmtUsd(hoverDay.total)"></span>
-                </div>
-              </div>
-            </template>
-          </div>
-        </template>
-      </div>
-    </div>
+    <!-- Gráfica -->
+    <div class="mt-4 h-56 sm:h-64" :class="analytics.data && analytics.data.days && analytics.data.days.length ? '' : 'hidden'"><canvas id="ana-chart"></canvas></div>
+    <div x-show="analytics.data && (!analytics.data.days || !analytics.data.days.length)" class="mt-4 text-xs text-slate-400 text-center py-10">Sin gastos en el rango elegido.</div>
 
-    <!-- Leyenda (solo en modo columnas) -->
-    <div x-show="analytics.mode === 'columns' && analytics.data" class="flex flex-wrap gap-x-3 gap-y-1 mb-4 text-[11px]">
-      <template x-for="(g, idx) in (analytics.data ? analytics.data.groups : [])" :key="g.key">
-        <span class="flex items-center gap-1">
+    <!-- Leyenda -->
+    <div x-show="analytics.mode === 'columns' && analytics.data" class="mt-4 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] text-slate-600 dark:text-slate-300">
+      <template x-for="(g, idx) in (analytics.data ? analytics.data.groups : [])" :key="'al' + g.key">
+        <span class="flex items-center gap-1.5">
           <span class="inline-block w-2.5 h-2.5 rounded-sm" :style="'background:' + analyticsColor(idx)"></span>
-          <span x-text="g.icon + ' ' + g.label"></span>
-          <span class="text-slate-400 dark:text-slate-600" x-text="fmtUsd(g.total_usd)"></span>
+          <span x-text="(g.icon ? g.icon + ' ' : '') + g.label"></span>
+          <span class="text-slate-400" x-text="fmtUsd(g.total_usd)"></span>
         </span>
       </template>
     </div>
 
-    <!-- Tabla media/mediana -->
-    <div x-show="analytics.data">
-      <div class="flex items-center justify-between mb-1.5 flex-wrap gap-2">
-        <div class="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600 font-semibold">Media / mediana por transacción</div>
-        <div class="flex gap-1 text-[10px]">
-          <button @click="analytics.statGroup = 'category'"
-            :class="analytics.statGroup === 'category' ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
-            class="px-2 py-1 rounded-md font-semibold transition">Por categoría</button>
-          <button @click="analytics.statGroup = 'payment'"
-            :class="analytics.statGroup === 'payment' ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'"
-            class="px-2 py-1 rounded-md font-semibold transition">Por método</button>
+    <!-- Media / mediana -->
+    <div x-show="analytics.data" class="mt-6 pt-5 border-t border-slate-100 dark:border-slate-800">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+        <div class="text-xs text-slate-500">Promedio y mediana por gasto</div>
+        <div class="inline-flex rounded-full bg-slate-100 dark:bg-slate-800 p-1 text-[11px]">
+          <button @click="analytics.statGroup = 'category'" class="px-3 py-1 rounded-full font-medium transition" :class="analytics.statGroup === 'category' ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">Por categoría</button>
+          <button @click="analytics.statGroup = 'payment'" class="px-3 py-1 rounded-full font-medium transition" :class="analytics.statGroup === 'payment' ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'">Por método</button>
         </div>
       </div>
       <div class="overflow-x-auto">
-        <table class="w-full text-xs">
+        <table class="w-full text-sm">
           <thead>
-            <tr class="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600 border-b border-slate-100 dark:border-slate-800">
-              <th class="text-left py-1 font-semibold" x-text="analytics.statGroup === 'category' ? 'Categoría' : 'Método'"></th>
-              <th class="text-right py-1 font-semibold">#</th>
-              <th class="text-right py-1 font-semibold">Total</th>
-              <th class="text-right py-1 font-semibold">Media</th>
-              <th class="text-right py-1 font-semibold">Mediana</th>
+            <tr class="text-[11px] text-slate-400 border-b border-slate-100 dark:border-slate-800">
+              <th class="text-left py-2 font-medium" x-text="analytics.statGroup === 'category' ? 'Categoría' : 'Método'"></th>
+              <th class="text-right py-2 font-medium">Gastos</th>
+              <th class="text-right py-2 font-medium">Total</th>
+              <th class="text-right py-2 font-medium">Promedio</th>
+              <th class="text-right py-2 font-medium">Mediana</th>
             </tr>
           </thead>
-          <tbody>
-            <template x-for="row in analyticsStatRows" :key="row.key || row.method">
-              <tr class="border-b border-slate-50 dark:border-slate-800/50">
-                <td class="py-1 pr-2">
-                  <span x-show="row.icon" x-text="row.icon"></span>
-                  <span x-text="row.label || row.method"></span>
-                </td>
-                <td class="text-right py-1 text-slate-500" x-text="row.count"></td>
-                <td class="text-right py-1 font-medium" x-text="fmtUsd(row.total_usd)"></td>
-                <td class="text-right py-1" x-text="fmtUsd(row.mean_usd)"></td>
-                <td class="text-right py-1 font-semibold" x-text="fmtUsd(row.median_usd)"></td>
+          <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
+            <template x-for="row in analyticsStatRows" :key="'as' + (row.key || row.method)">
+              <tr>
+                <td class="py-2 pr-2"><span x-show="row.icon" x-text="row.icon"></span> <span x-text="row.label || row.method"></span></td>
+                <td class="text-right py-2 text-slate-500" x-text="row.count"></td>
+                <td class="text-right py-2 font-medium" x-text="fmtUsd(row.total_usd)"></td>
+                <td class="text-right py-2 text-slate-600 dark:text-slate-300" x-text="fmtUsd(row.mean_usd)"></td>
+                <td class="text-right py-2 font-semibold" x-text="fmtUsd(row.median_usd)"></td>
               </tr>
             </template>
           </tbody>
         </table>
       </div>
-      <p class="text-[10px] text-slate-400 dark:text-slate-600 mt-2 italic">
-        La gráfica agrupa por categoría padre (subs suman en su padre). Mediana = valor central por transacción, menos sensible a compras grandes que la media.
-      </p>
+      <p class="text-[11px] text-slate-400 mt-3">Las subcategorías suman en su categoría. La mediana es el valor del medio: se mueve menos con compras grandes que el promedio.</p>
     </div>
   </section>
 
@@ -1400,8 +1516,13 @@
     style="padding-bottom: max(env(safe-area-inset-bottom), 20px)">
     <div class="flex items-start justify-between">
       <div>
-        <div class="text-xs text-slate-500">Anotar gasto</div>
-        <div class="num text-2xl font-semibold">¿Cuánto fue?</div>
+        <div class="inline-flex rounded-full bg-slate-100 dark:bg-slate-800 p-1 text-xs mb-2" role="tablist" aria-label="Qué vas a anotar">
+          <button type="button" @click="$store.quick.tipo = 'gasto'; $store.quick.error = null" class="px-3 py-1 rounded-full font-medium transition"
+            :class="$store.quick.tipo === 'gasto' ? 'bg-white dark:bg-slate-900 shadow-sm' : 'text-slate-500'">Gasto</button>
+          <button type="button" @click="$store.quick.tipo = 'ingreso'; $store.quick.error = null" class="px-3 py-1 rounded-full font-medium transition"
+            :class="$store.quick.tipo === 'ingreso' ? 'bg-ahorro text-white shadow-sm' : 'text-slate-500'">Ingreso</button>
+        </div>
+        <div class="num text-2xl font-semibold" x-text="$store.quick.tipo === 'ingreso' ? '¿Cuánto entró?' : '¿Cuánto fue?'"></div>
       </div>
       <button @click="$store.quick.close()" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1" aria-label="Cerrar">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -1418,7 +1539,27 @@
       </div>
       <div class="text-[11px] text-slate-500 -mt-1 px-1" x-show="$store.quick.preview()" x-text="$store.quick.preview()"></div>
 
-      <div x-show="$store.quick.frecuentes.length" class="flex flex-wrap gap-1.5">
+      <!-- Ingreso: de qué fuente -->
+      <template x-if="$store.quick.tipo === 'ingreso'">
+        <div class="space-y-2">
+          <div class="flex flex-wrap gap-1.5">
+            <template x-for="f in $store.quick.fuentesTop" :key="'qft' + f.key">
+              <button type="button" @click="$store.quick.elegirFuente(f.key)" class="text-xs rounded-full px-3 py-1.5 transition"
+                :class="$store.quick.source_key === f.key ? 'bg-ahorro text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'"
+                x-text="f.icon + ' ' + f.label"></button>
+            </template>
+          </div>
+          <label class="block">
+            <span class="text-[11px] text-slate-500 px-1">Fuente</span>
+            <select :value="$store.quick.source_key" @change="$store.quick.elegirFuente($event.target.value)" class="mt-0.5 w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2.5 text-sm">
+              <option value="">Elige una…</option>
+              <template x-for="f in $store.quick.fuentes" :key="'qfs' + f.key"><option :value="f.key" x-text="f.icon + ' ' + f.label" :selected="$store.quick.source_key === f.key"></option></template>
+            </select>
+          </label>
+        </div>
+      </template>
+
+      <div x-show="$store.quick.tipo === 'gasto' && $store.quick.frecuentes.length" class="flex flex-wrap gap-1.5">
         <template x-for="c in $store.quick.frecuentes" :key="'qf' + c.key">
           <button type="button" @click="$store.quick.form.categoria = c.key"
             class="text-xs rounded-full px-3 py-1.5 transition"
@@ -1426,7 +1567,7 @@
             x-text="c.label"></button>
         </template>
       </div>
-      <label class="block">
+      <label class="block" x-show="$store.quick.tipo === 'gasto'">
         <span class="text-[11px] text-slate-500 px-1">Categoría</span>
         <select x-model="$store.quick.form.categoria" class="mt-0.5 w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2.5 text-sm">
           <option value="">Elige una…</option>
@@ -1435,11 +1576,11 @@
       </label>
       <label class="block">
         <span class="text-[11px] text-slate-500 px-1">Nota (opcional)</span>
-        <input type="text" x-model="$store.quick.form.nota" maxlength="200" placeholder="Ej. almuerzo con clientes"
+        <input type="text" x-model="$store.quick.form.nota" maxlength="200" :placeholder="$store.quick.tipo === 'ingreso' ? 'Ej. dividendos de octubre' : 'Ej. almuerzo con clientes'"
           class="mt-0.5 w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2.5 text-sm">
       </label>
-      <div class="grid grid-cols-2 gap-2">
-        <label class="block min-w-0">
+      <div class="grid gap-2" :class="$store.quick.tipo === 'gasto' ? 'grid-cols-2' : 'grid-cols-1'">
+        <label class="block min-w-0" x-show="$store.quick.tipo === 'gasto'">
           <span class="text-[11px] text-slate-500 px-1">Método de pago</span>
           <select x-model="$store.quick.form.metodo_pago" class="mt-0.5 w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2.5 text-sm">
             <template x-for="m in $store.quick.metodos" :key="'qm' + m"><option :value="m" x-text="m"></option></template>
@@ -1451,7 +1592,7 @@
             class="mt-0.5 w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2 text-sm">
         </label>
       </div>
-      <div>
+      <div x-show="$store.quick.tipo === 'gasto'">
         <span class="text-[11px] text-slate-500 px-1">¿Quién?</span>
         <div class="mt-0.5 flex rounded-full bg-slate-100 dark:bg-slate-800 p-1 text-sm">
           <template x-for="u in ['Daniel', 'Mado', 'Tuo']" :key="'qu' + u">
@@ -1462,9 +1603,10 @@
       </div>
       <div x-show="$store.quick.error" class="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/50 rounded-xl px-3 py-2" x-text="$store.quick.error"></div>
       <button type="submit" :disabled="$store.quick.busy"
-        class="w-full rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 py-3 text-sm font-semibold disabled:opacity-50 transition"
-        x-text="$store.quick.busy ? 'Guardando…' : 'Guardar gasto'"></button>
-      <p class="text-[11px] text-slate-400 text-center">Queda igual que si lo mandaras al bot de Telegram.</p>
+        class="w-full rounded-full py-3 text-sm font-semibold disabled:opacity-50 transition"
+        :class="$store.quick.tipo === 'ingreso' ? 'bg-ahorro text-white hover:opacity-90' : 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'"
+        x-text="$store.quick.busy ? 'Guardando…' : ($store.quick.tipo === 'ingreso' ? 'Guardar ingreso' : 'Guardar gasto')"></button>
+      <p class="text-[11px] text-slate-400 text-center" x-text="$store.quick.tipo === 'ingreso' ? 'Cuenta en el mes de la fecha, con la tasa de ese mes.' : 'Queda igual que si lo mandaras al bot de Telegram.'"></p>
     </form>
   </div>
 </div>
@@ -1895,6 +2037,10 @@
         <div class="rounded-lg bg-slate-50 dark:bg-slate-800/60 px-2 py-2">
           <div class="text-[10px] uppercase tracking-wide text-slate-400">Activos</div>
           <div class="text-sm font-bold" x-text="$store.deferred.activos().length"></div>
+          <button x-show="$store.deferred.terminados().length" @click="$store.deferred.showDone = !$store.deferred.showDone"
+            class="text-[10px] text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 underline-offset-2 hover:underline"
+            :title="$store.deferred.showDone ? 'Ocultar los terminados' : 'Ver los que ya se pagaron completos'"
+            x-text="'+ ' + $store.deferred.terminados().length + ($store.deferred.terminados().length === 1 ? ' terminado' : ' terminados')"></button>
         </div>
         <div class="rounded-lg bg-slate-50 dark:bg-slate-800/60 px-2 py-2">
           <div class="text-[10px] uppercase tracking-wide text-slate-400">Cuotas este mes</div>
@@ -3523,6 +3669,10 @@
             <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">Toca la <b><i>i</i></b> junto al título de cualquier módulo y te explica qué muestra y cómo usarlo.</p>
           </div>
           <div class="rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-4">
+            <div class="font-semibold text-sm">💵 Ingresos y P&amp;G</div>
+            <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">La sección <b>Ingresos</b> es para anotar lo que entra y ver lo recibido contra el plan, por fuente y mes a mes. En el Resumen, el <b>P&amp;G</b> muestra ingresos contra gastos, el neto y cuánto ahorraron.</p>
+          </div>
+          <div class="rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-4">
             <div class="font-semibold text-sm">📆 Período en el título</div>
             <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">En Resumen y Movimientos el título es el período: <b>‹ ›</b> para moverte, tocas el nombre para elegir cualquier mes, y al lado Mes, 3m, 6m, 12m o Año.</p>
           </div>
@@ -4906,9 +5056,10 @@ document.addEventListener('alpine:init', () => {
       hoy.setHours(0, 0, 0, 0);
       return { ini, fin: fin0 > hoy ? hoy : fin0 };
     },
-    render() {
+    render(intentos) {
       const R = Alpine.store('review'), d = R.data;
       if (!d) return;
+      if (window.Chart && !esperarVisible('rev-mes', (n) => this.render(n), intentos)) return;
       if (!window.Chart) { R.chartsOk = false; this.heat(R, d); return; }
       R.chartsOk = true;
       const C = this.colors();
@@ -5083,6 +5234,113 @@ document.addEventListener('alpine:init', () => {
   };
   window.addEventListener('theme-changed', () => { if (Alpine.store('review').data) setTimeout(() => RevCharts.render(), 30); });
 
+  // Si el lienzo aún está oculto (ancho 0), se vuelve a intentar en un momento:
+  // una gráfica creada con tamaño 0 puede quedar en blanco.
+  window.esperarVisible = (id, fn, intentos = 25) => {
+    const el = document.getElementById(id);
+    if (el && el.parentElement && el.parentElement.clientWidth > 0) return true;
+    if (intentos > 0) setTimeout(() => fn(intentos - 1), 120);
+    return false;
+  };
+  // ──────────────── Análisis diario (Chart.js, misma línea visual del resto) ────────────────
+  window.AnaliticaChart = {
+    chart: null,
+    render(D, intentos) {
+      const d = D && D.analytics && D.analytics.data, el = document.getElementById('ana-chart');
+      if (this.chart) { try { this.chart.destroy(); } catch (e) {} this.chart = null; }
+      if (d && d.days && d.days.length && !esperarVisible('ana-chart', (n) => this.render(D, n), intentos)) return;
+      if (!el || !window.Chart || !d || !d.days || !d.days.length) return;
+      const dark = document.documentElement.classList.contains('dark');
+      const grid = dark ? '#2d2a26' : '#eeebe4', ink = dark ? '#a9a297' : '#7e786e', line = dark ? '#e8e4dc' : '#1e1c19';
+      Chart.defaults.font.family = 'Inter, system-ui, sans-serif'; Chart.defaults.font.size = 11; Chart.defaults.color = ink;
+      const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+      const etiqueta = (iso, i) => { const [, m, dd] = iso.split('-').map(Number); return (dd === 1 || i === 0) ? dd + ' ' + MES[m - 1] : String(dd); };
+      const lab = d.days.map(etiqueta);
+      const largo = (iso) => { const [y, m, dd] = iso.split('-').map(Number); const w = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'][new Date(y, m - 1, dd).getDay()]; return w + ' ' + dd + ' ' + MES[m - 1]; };
+      const corto = (v) => '$' + (v >= 1000 ? (v / 1000).toLocaleString('es-CO', { maximumFractionDigits: 1 }) + 'k' : Math.round(v));
+      const tip = { backgroundColor: dark ? '#f3f1ec' : '#1e1c19', titleColor: dark ? '#1e1c19' : '#faf9f6', bodyColor: dark ? '#1e1c19' : '#faf9f6',
+                    footerColor: dark ? '#1e1c19' : '#faf9f6', padding: 10, cornerRadius: 10, boxPadding: 4 };
+      const totales = d.days.map(day => d.groups.reduce((s, g) => s + ((d.daily[day] || {})[g.key] || 0), 0));
+      const x = { stacked: true, grid: { display: false }, border: { display: false }, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } };
+      const y = { stacked: true, beginAtZero: true, grid: { color: grid }, border: { display: false }, ticks: { callback: corto, maxTicksLimit: 5 } };
+      let cfg;
+      if (D.analytics.mode === 'cumulative') {
+        let acc = 0; const cum = totales.map(t => (acc += t));
+        cfg = { type: 'line', data: { labels: lab, datasets: [{ label: 'Acumulado', data: cum, borderColor: line, borderWidth: 2, tension: .3, pointRadius: 0, pointHoverRadius: 4,
+                  fill: true, backgroundColor: dark ? 'rgba(232,228,220,.08)' : 'rgba(30,28,25,.06)' }] },
+          options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { display: false }, tooltip: { ...tip, callbacks: { title: (it) => largo(d.days[it[0].dataIndex]),
+              label: (c) => ' Acumulado: ' + D.fmtUsd(c.parsed.y), footer: (it) => 'Ese día: ' + D.fmtUsd(totales[it[0].dataIndex]) } } },
+            scales: { x: { ...x, stacked: false }, y: { ...y, stacked: false } } } };
+      } else {
+        cfg = { type: 'bar', data: { labels: lab, datasets: d.groups.map((g, i) => ({ label: (g.icon ? g.icon + ' ' : '') + g.label,
+                  data: d.days.map(day => (d.daily[day] || {})[g.key] || 0), backgroundColor: D.analyticsColor(i),
+                  borderRadius: 3, borderSkipped: false, maxBarThickness: 16, stack: 's' })) },
+          options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { display: false }, tooltip: { ...tip, filter: (it) => it.parsed.y > 0, itemSort: (a, b) => b.parsed.y - a.parsed.y,
+              callbacks: { title: (it) => largo(d.days[it[0].dataIndex]), label: (c) => ' ' + c.dataset.label + ': ' + D.fmtUsd(c.parsed.y),
+                footer: (it) => 'Total del día: ' + D.fmtUsd(totales[it[0].dataIndex]) } } },
+            scales: { x, y } } };
+      }
+      try { this.chart = new Chart(el, cfg); } catch (e) { console.warn('análisis', e); }
+    },
+  };
+
+  // ──────────────── P&G mes a mes (Resumen) e Ingresos mes a mes ────────────────
+  window.PygCharts = {
+    charts: {},
+    make(id, cfg) {
+      if (this.charts[id]) { try { this.charts[id].destroy(); } catch (e) {} delete this.charts[id]; }
+      const el = document.getElementById(id);
+      if (!el || !window.Chart) return;
+      try { this.charts[id] = new Chart(el, cfg); } catch (e) { console.warn('gráfica', id, e); }
+    },
+    render(D) {
+      const serie = (D && D.pnlSerie) || [];
+      if (!serie.length || !window.Chart) return;
+      const dark = document.documentElement.classList.contains('dark');
+      const C = { ing: dark ? '#4fae7b' : '#3d7a55', gas: '#e5a54b', neto: dark ? '#e8e4dc' : '#1e1c19', plan: dark ? '#a9a297' : '#7e786e',
+                  grid: dark ? '#2d2a26' : '#eeebe4', ink: dark ? '#a9a297' : '#7e786e', card: dark ? '#1e1c19' : '#ffffff' };
+      Chart.defaults.font.family = 'Inter, system-ui, sans-serif'; Chart.defaults.font.size = 11; Chart.defaults.color = C.ink;
+      const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+      const variosAnios = new Set(serie.map(m => m.mes.slice(0, 4))).size > 1;
+      const lab = serie.map(m => MES[Number(m.mes.slice(5)) - 1] + (variosAnios ? ' ' + m.mes.slice(2, 4) : ''));
+      const enRango = serie.map(m => D.monthIsInRange(m.mes));
+      const tono = (c, i) => enRango[i] ? c : c + '59';   // los meses fuera del período, más claros
+      const money = (x) => D.fmtUsd(x);
+      const corto = (v) => { const a = Math.abs(v); return (v < 0 ? '-' : '') + '$' + (a >= 1000 ? (a / 1000).toLocaleString('es-CO', { maximumFractionDigits: 1 }) + 'k' : Math.round(a)); };
+      const tip = { backgroundColor: dark ? '#f3f1ec' : '#1e1c19', titleColor: dark ? '#1e1c19' : '#faf9f6', bodyColor: dark ? '#1e1c19' : '#faf9f6', padding: 10, cornerRadius: 10, boxPadding: 4 };
+      const ejeY = { beginAtZero: true, grid: { color: C.grid }, border: { display: false }, ticks: { callback: corto, maxTicksLimit: 6 } };
+      if (D.view === 'resumen' && esperarVisible('pyg-chart', (n) => this.render(D, n), arguments[1])) {
+        this.make('pyg-chart', { type: 'bar',
+          data: { labels: lab, datasets: [
+            { label: 'Ingresos', data: serie.map(m => m.ingresos_usd), backgroundColor: serie.map((m, i) => tono(C.ing, i)), borderRadius: 6, borderSkipped: false, maxBarThickness: 28, order: 2 },
+            { label: 'Gastos', data: serie.map(m => m.gastos_usd), backgroundColor: serie.map((m, i) => tono(C.gas, i)), borderRadius: 6, borderSkipped: false, maxBarThickness: 28, order: 2 },
+            { label: 'Neto', type: 'line', data: serie.map(m => m.neto_usd), borderColor: C.neto, backgroundColor: C.card, borderWidth: 2, tension: .35,
+              pointRadius: 4, pointBackgroundColor: serie.map(m => m.neto_usd >= 0 ? C.ing : '#e07a5f'), pointBorderColor: C.card, pointBorderWidth: 2, order: 1 } ] },
+          options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { display: false }, tooltip: { ...tip, callbacks: {
+              title: (it) => D._mesLargo(serie[it[0].dataIndex].mes),
+              label: (c) => ' ' + c.dataset.label + ': ' + (c.dataset.label === 'Neto' && c.parsed.y >= 0 ? '+' : '') + money(c.parsed.y),
+              footer: (it) => { const m = serie[it[0].dataIndex]; return m.ingresos_usd > 0 ? 'Ahorro: ' + Math.round(100 * m.neto_usd / m.ingresos_usd) + '% del ingreso' : 'Sin ingresos anotados'; } } } },
+            scales: { x: { grid: { display: false }, border: { display: false } }, y: { ...ejeY, beginAtZero: false, grace: '5%',
+              suggestedMin: Math.min(0, ...serie.map(m => m.neto_usd)) } } } });
+      }
+      if (D.view === 'ingresos' && esperarVisible('ing-chart', (n) => this.render(D, n), arguments[1])) {
+        const ds = [{ label: 'Recibido', data: serie.map(m => m.ingresos_usd), backgroundColor: serie.map((m, i) => tono(C.ing, i)), borderRadius: 6, borderSkipped: false, maxBarThickness: 32, order: 2 }];
+        if (D.pnlPlanMensual > 0) ds.push({ label: 'Plan', type: 'line', data: serie.map(() => D.pnlPlanMensual), borderColor: C.plan, borderDash: [6, 5], borderWidth: 2, pointRadius: 0, pointHoverRadius: 0, order: 1 });
+        this.make('ing-chart', { type: 'bar', data: { labels: lab, datasets: ds },
+          options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { display: false }, tooltip: { ...tip, callbacks: {
+              title: (it) => D._mesLargo(serie[it[0].dataIndex].mes),
+              label: (c) => ' ' + c.dataset.label + ': ' + money(c.parsed.y),
+              footer: (it) => { const m = serie[it[0].dataIndex]; return m.n_ingresos + (m.n_ingresos === 1 ? ' ingreso' : ' ingresos'); } } } },
+            scales: { x: { grid: { display: false }, border: { display: false } }, y: ejeY } } });
+      }
+    },
+  };
+  window.addEventListener('theme-changed', () => { const el = document.querySelector('main'); if (el && window.Alpine) setTimeout(() => PygCharts.render(Alpine.$data(el)), 30); });
+
   // ──────────────── Dona de "Dónde va la plata" (Resumen) ────────────────
   // Fuera de Alpine (una gráfica reactiva no se dibuja). Colores por tipo de
   // gasto: azules = esencial, lilas = estilo de vida, dorados = gusto.
@@ -5097,9 +5355,10 @@ document.addEventListener('alpine:init', () => {
       const k = (filas || []).filter((x, j) => j < i && (x.tipo || 'sin') === (f.tipo || 'sin')).length;
       return t[k % t.length];
     },
-    render(D) {
+    render(D, intentos) {
       const el = document.getElementById('res-dona');
       if (!el || !window.Chart || !D) return;
+      if (!esperarVisible('res-dona', (n) => this.render(D, n), intentos)) return;
       const sub = D.exSubObj();
       const filas = sub ? [sub] : D.exFilas();
       const colores = sub ? [this.color(sub, D.exFilas().findIndex(x => x.key === sub.key), D.exFilas())] : filas.map((f, i) => this.color(f, i, filas));
@@ -5339,12 +5598,35 @@ document.addEventListener('alpine:init', () => {
   // ──────────────── ➕ Anotar gasto (rápido) ────────────────
   // POST /api/expenses/quick: convierte con la tasa del mes en el servidor.
   const qHoy = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  window.qHoyGlobal = qHoy;
+  // "85.000" o "85,000" = 85 mil en pesos; "12,50" o "12.50" = 12,5 en dólares
+  window.parseMonto = (texto, moneda) => {
+    let t = String(texto || '').replace(/[\s$]/g, '');
+    if (!t) return 0;
+    if (moneda === 'COP' || moneda === 'CLP') return Number(t.replace(/[.,]/g, '')) || 0;
+    const lc = t.lastIndexOf(','), ld = t.lastIndexOf('.');
+    if (lc >= 0 && ld >= 0) { const dec = lc > ld ? ',' : '.'; t = t.split(dec === ',' ? '.' : ',').join(''); t = t.replace(dec, '.'); }
+    else if (lc >= 0 || ld >= 0) { const sep = lc >= 0 ? ',' : '.';
+      if (new RegExp('^\\d{1,3}(\\' + sep + '\\d{3})+$').test(t)) t = t.split(sep).join(''); else t = t.replace(sep, '.'); }
+    const n = Number(t);
+    return isFinite(n) ? n : 0;
+  };
+  window.previewMonto = (texto, m, r) => {
+    const n = window.parseMonto(texto, m); if (!(n > 0)) return '';
+    r = r || {}; const trm = r.TRM || 0;
+    const div = { USD: 1, BOB: r.BOB_RATE, AED: r.AED_RATE, CLP: r.CLP_RATE, ARS: r.ARS_RATE }[m];
+    const usd = m === 'COP' ? (trm ? n / trm : 0) : (div ? n / div : 0);
+    const f = (x, d) => x.toLocaleString('es-CO', { maximumFractionDigits: d });
+    if (m === 'COP') return '$' + f(n, 0) + ' pesos' + (usd ? ' ≈ US$' + f(usd, 2) : '');
+    if (m === 'USD') return 'US$' + f(n, 2) + (trm ? ' ≈ $' + f(n * trm, 0) + ' pesos' : '');
+    return f(n, 2) + ' ' + m + (usd ? ' ≈ US$' + f(usd, 2) + (trm ? ' · $' + f(usd * trm, 0) + ' pesos' : '') : '') + ' (tasa del mes)';
+  };
   const qGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
   const qSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
   Alpine.store('quick', {
-    open: false, busy: false, error: null, toast: '', _t: null,
+    open: false, busy: false, error: null, toast: '', _t: null, tipo: 'gasto',
     monedas: ['COP', 'USD', 'BOB', 'AED', 'CLP', 'ARS'],
-    categorias: [], metodos: [], frecuentes: [], rates: {},
+    categorias: [], metodos: [], frecuentes: [], rates: {}, fuentes: [], fuentesTop: [], source_key: '',
     form: { monto: '', moneda: 'COP', categoria: '', nota: '', metodo_pago: 'Sin especificar', user_name: 'Daniel', fecha: '' },
     hoy() { return qHoy(); },
     openModal(ctx) {
@@ -5353,6 +5635,8 @@ document.addEventListener('alpine:init', () => {
       this.metodos = ctx.metodos && ctx.metodos.length ? ctx.metodos : (this.metodos.length ? this.metodos : ['Sin especificar']);
       this.frecuentes = ctx.frecuentes || [];
       this.rates = ctx.rates || this.rates;
+      this.fuentes = ctx.fuentes || this.fuentes; this.fuentesTop = ctx.fuentesTop || this.fuentesTop;
+      this.tipo = ctx.tipo || 'gasto'; this.source_key = '';
       const yo = Alpine.store('auth').user;
       const quien = ['Daniel', 'Mado', 'Tuo'].includes(yo) ? yo : 'Daniel';
       const metodo = qGet('quick_metodo_' + quien);
@@ -5362,31 +5646,17 @@ document.addEventListener('alpine:init', () => {
       setTimeout(() => document.querySelector('[x-ref="qmonto"]')?.focus(), 80);
     },
     close() { if (!this.busy) this.open = false; },
-    // "85.000" o "85,000" = 85 mil en pesos; "12,50" o "12.50" = 12,5 en dólares
-    parse() {
-      let t = String(this.form.monto || '').replace(/[\s$]/g, '');
-      if (!t) return 0;
-      if (this.form.moneda === 'COP' || this.form.moneda === 'CLP') return Number(t.replace(/[.,]/g, '')) || 0;
-      const lc = t.lastIndexOf(','), ld = t.lastIndexOf('.');
-      if (lc >= 0 && ld >= 0) { const dec = lc > ld ? ','  : '.'; t = t.split(dec === ',' ? '.' : ',').join(''); t = t.replace(dec, '.'); }
-      else if (lc >= 0 || ld >= 0) { const sep = lc >= 0 ? ',' : '.';
-        if (new RegExp('^\\d{1,3}(\\' + sep + '\\d{3})+$').test(t)) t = t.split(sep).join(''); else t = t.replace(sep, '.'); }
-      const n = Number(t);
-      return isFinite(n) ? n : 0;
-    },
-    preview() {
-      const n = this.parse(); if (!(n > 0)) return '';
-      const r = this.rates || {}, trm = r.TRM || 0, m = this.form.moneda;
-      const div = { USD: 1, BOB: r.BOB_RATE, AED: r.AED_RATE, CLP: r.CLP_RATE, ARS: r.ARS_RATE }[m];
-      const usd = m === 'COP' ? (trm ? n / trm : 0) : (div ? n / div : 0);
-      const f = (x, d) => x.toLocaleString('es-CO', { maximumFractionDigits: d });
-      if (m === 'COP') return '$' + f(n, 0) + ' pesos' + (usd ? ' ≈ US$' + f(usd, 2) : '');
-      if (m === 'USD') return 'US$' + f(n, 2) + (trm ? ' ≈ $' + f(n * trm, 0) + ' pesos' : '');
-      return f(n, 2) + ' ' + m + (usd ? ' ≈ US$' + f(usd, 2) + (trm ? ' · $' + f(usd * trm, 0) + ' pesos' : '') : '') + ' (tasa del mes)';
+    parse() { return window.parseMonto(this.form.monto, this.form.moneda); },
+    preview() { return window.previewMonto(this.form.monto, this.form.moneda, this.rates); },
+    elegirFuente(k) {
+      this.source_key = k;
+      const f = this.fuentes.find(x => x.key === k);
+      if (f && f.currency && this.monedas.includes(f.currency)) this.form.moneda = f.currency;
     },
     aviso(msg) { this.toast = msg; clearTimeout(this._t); this._t = setTimeout(() => { this.toast = ''; }, 3500); },
     async save() {
       if (this.busy) return;
+      if (this.tipo === 'ingreso') return this.saveIngreso();
       const monto = this.parse();
       if (!(monto > 0)) { this.error = 'Escribe un monto mayor que cero.'; return; }
       if (!this.form.categoria) { this.error = 'Elige una categoría.'; return; }
@@ -5406,6 +5676,26 @@ document.addEventListener('alpine:init', () => {
       } catch (e) { this.error = e.message || String(e); }
       finally { this.busy = false; }
     },
+    async saveIngreso() {
+      const monto = this.parse();
+      if (!this.source_key) { this.error = 'Elige de qué fuente viene.'; return; }
+      if (!(monto > 0)) { this.error = 'Escribe un monto mayor que cero.'; return; }
+      if (!this.form.fecha) { this.error = 'Elige la fecha.'; return; }
+      if (this.form.fecha > qHoy()) { this.error = 'La fecha no puede ser futura.'; return; }
+      this.busy = true; this.error = null;
+      try {
+        const body = { source_key: this.source_key, period: this.form.fecha.slice(0, 7), fecha: this.form.fecha,
+          monto, currency: this.form.moneda, nota: (this.form.nota || '').trim() };
+        const r = await fetch('/api/income/entries', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.detail || ('No se pudo guardar (' + r.status + ')'));
+        const f = this.fuentes.find(x => x.key === this.source_key);
+        this.busy = false; this.open = false;
+        this.aviso('✓ Ingreso guardado: US$' + (d.monto_usd || 0).toLocaleString('es-CO', { maximumFractionDigits: 2 }) + (f ? ' · ' + f.label : ''));
+        window.dispatchEvent(new CustomEvent('expenses-changed'));
+      } catch (e) { this.error = e.message || String(e); }
+      finally { this.busy = false; }
+    },
   });
 
   // ──────────────── ⓘ Qué es cada módulo ────────────────
@@ -5415,7 +5705,12 @@ document.addEventListener('alpine:init', () => {
     T: {
       gastado: { t: 'Gastado', h: '<p>Todo lo gastado en el período que elegiste arriba.</p><p>La barra separa <b>fijos y cuotas</b> (oscuro: se anotan solos, como hipoteca, administración, suscripciones y cuotas de diferidos) del <b>día a día</b> (dorado: lo que anotan ustedes).</p><p><b>Comparar con</b> cambia la referencia: <b>Tope</b> (tope aspiracional del mes), <b>Plan</b> (ingreso esperado) o <b>Categorías</b> (suma del presupuesto de todas). Con 3, 6 o 12 meses la referencia se multiplica por los meses.</p><p>El <b>ritmo</b> solo mira el día a día: compara qué parte de lo disponible llevan contra qué parte del mes va.</p>' },
       pagos: { t: 'Próximos pagos', h: '<p>Las fechas de pago de tarjetas y créditos. El color dice qué tan cerca está: <b>rojo</b> vencido o 3 días o menos, <b>naranja</b> hasta 7, <b>dorado</b> hasta 14 y <b>verde</b> más lejos.</p><p>Cuando paguen, toquen <b>Ya pagué</b>: sale de la lista y vuelve sola el mes siguiente con la nueva fecha. Si fue un error, en "pagados este mes" está <b>Deshacer</b>.</p><p>Tocar el nombre lo edita; <b>+ Agregar</b> y <b>Gestionar</b> crean, cambian o borran recordatorios. Solo avisa: no anota el gasto.</p>' },
-      pyg: { t: 'P&G', h: '<p>Ingresos contra egresos del período. <b>Neto</b> = ingresos − egresos.</p><p><b>Plan de gasto vs plan de ingreso</b> compara el presupuesto por categorías con el ingreso esperado: si pasa de 100%, el plan gasta más de lo que entra.</p><p>En el menú <b>Ingresos y CSV</b>: editar ingresos y bajar los CSV del mes (real o proyectado). <b>Ver por fuente</b> muestra de dónde vino cada ingreso.</p>' },
+      pyg: { t: 'P&G', h: '<p>Ingresos contra gastos del período. <b>Neto</b> = ingresos − gastos; si es positivo dice qué parte del ingreso ahorraron.</p><p>La gráfica muestra los últimos meses: barras verdes = ingresos, doradas = gastos, línea = neto (punto verde si sobró, rojo si faltó). Los meses fuera del período elegido se ven más claros.</p><p><b>De dónde vino</b> agrupa los ingresos (CLP, rentas, cripto…) y <b>En qué se fue</b> reparte el gasto en esencial, estilo de vida y gusto. <b>+ Anotar ingreso</b> lleva a la sección Ingresos; en <b>⋯</b> están las fuentes y los CSV.</p>' },
+      'ing-recibido': { t: 'Recibido', h: '<p>Todo lo que entró en el período, en dólares (cada ingreso se convierte con la tasa de su mes).</p><p>La barra lo compara con el <b>plan</b>: la suma de lo que esperan de cada fuente al mes (con 3, 6 o 12 meses se multiplica). "Fuentes sin recibir" son las que tienen plan pero no han registrado nada.</p><p>Abajo, el neto del período: ingresos menos gastos.</p>' },
+      'ing-form': { t: 'Anotar ingreso', h: '<p>Elige la fuente (los botones son las de mayor plan), escribe el monto y la moneda, y guarda. Al elegir la fuente se pone su moneda.</p><p>El ingreso cuenta en el <b>mes de la fecha</b> y se convierte a dólares con la tasa de ese mes. También puedes anotarlo con el botón <b>+</b> → Ingreso.</p><p><b>Fuentes y plan</b> abre la ventana para crear fuentes y fijar cuánto esperan de cada una al mes.</p>' },
+      'ing-fuentes': { t: 'Por fuente', h: '<p>Cada fuente con lo recibido en el período y su plan, agrupadas (CLP, rentas, cripto DeFi y CeFi, minería, trading y otros). <b>Pendiente</b> = tiene plan y aún no llega nada.</p><p>Toca una fuente para ver solo sus ingresos en la lista de abajo.</p>' },
+      'ing-mes': { t: 'Mes a mes', h: '<p>Lo recibido en cada uno de los últimos meses; la línea punteada es el plan mensual. Los meses fuera del período elegido se ven más claros. Abajo, el promedio de los meses que tuvieron ingresos.</p>' },
+      'ing-lista': { t: 'Cada ingreso', h: '<p>Todos los ingresos del período, del más nuevo al más viejo, con su monto original y la tasa usada.</p><p>Toca uno para cambiar fuente, fecha, monto, moneda o nota, o para borrarlo. Si cambias la fecha a otro mes, pasa a contar en ese mes.</p>' },
       contable: { t: 'Vista contable', h: '<p>Separa el gasto corriente de las compras de bienes (muebles, equipos, vehículo). Solo aparece cuando hay alguna compra marcada como bien.</p><p>Se marca al editar el gasto, en <b>Tipo contable</b>. Tocar una fila abre Movimientos filtrado.</p>' },
       explorador: { t: 'Dónde va la plata', h: '<p>Baja por niveles: <b>rubro → subcategoría → cada gasto</b>. Toca una fila o un pedazo de la dona para entrar y <b>Todas</b> (arriba) para volver.</p><p>La barra compara con el presupuesto del período: <b>verde</b> dentro, <b>dorado</b> cerca (90% o más), <b>rojo</b> pasado.</p><p>En el último nivel, tocar un gasto lo abre para editarlo. Colores de la dona: azules = esencial, lilas = estilo de vida, dorados = gusto.</p>' },
       persona: { t: 'Por persona', h: '<p>Cuánto anotó cada uno en el período. Tocar un nombre abre Movimientos solo con sus gastos.</p>' },
@@ -5433,7 +5728,7 @@ document.addEventListener('alpine:init', () => {
       'rev-ranking': { t: 'Ranking de categorías', h: '<p>Todas las categorías de mayor a menor, con su % del total, su curva y el cambio contra el período anterior. Cambia entre <b>Subcategoría</b> y <b>Categoría</b> arriba a la derecha.</p><p>Toca una para ver promedio por mes, cuántas veces, ticket típico y los gastos que más pesan. Ahí mismo le puedes cambiar el tipo.</p>' },
       'rev-mejorar': { t: 'Dónde pueden mejorar', h: '<p>Los gustos y gastos de estilo de vida que más pesan, con lo que ahorrarían bajándolos.</p><p>El <b>simulador</b> calcula el ahorro al mes y al año si bajan una categoría (o todos los gustos) el porcentaje que elijas.</p><p class="text-slate-400">Es una guía general, no asesoría financiera.</p>' },
       movimientos: { t: 'Cada gasto', h: '<p>Todos los gastos del período elegido arriba, del más nuevo al más viejo. Filtra por persona, tipo contable o categoría; con un filtro activo aparece el total filtrado.</p><p>Toca un gasto para editarlo o borrarlo. 🔁 = fijo que se anota solo · 📅 2/12 = cuota de un diferido (agrupadas al final). <b>CSV completo</b> baja el mes.</p>' },
-      ajustes: { t: 'Ajustes', h: '<p>Todo lo que se configura: fijos y diferidos, categorías y presupuesto, tipos de gasto, ingresos, tasas de cambio, fechas de pago, conciliación de extractos, el tema y la guía.</p><p>También puedes repetir el recorrido guiado.</p>' },
+      ajustes: { t: 'Ajustes', h: '<p>Todo lo que se configura: fijos y diferidos, categorías y presupuesto, tipos de gasto, fuentes de ingreso, tasas de cambio, fechas de pago, conciliación de extractos, el tema y la guía.</p><p>También puedes repetir el recorrido guiado.</p>' },
     },
     item() { return this.T[this.key] || { t: '', h: '' }; },
     abrir(key, el) {
@@ -5465,10 +5760,10 @@ document.addEventListener('alpine:init', () => {
     steps: [
       { title: (u) => '¡Hola' + (u ? ' ' + u : '') + '! 👋',
         text: 'Renovamos la página de gastos: más clara, con gráficas nuevas, un Resumen más fácil de revisar, modo de noche automático, un botón para anotar gastos y una <b><i>i</i></b> de ayuda en cada módulo. Te muestro lo nuevo en un minuto.' },
-      { sel: ['[data-tour=nav]', '[data-tour=nav-movil]'], view: 'resumen', title: 'Las 4 secciones',
-        text: '<b>Resumen</b> es el mes en curso. <b>Revisión</b> son las gráficas de dónde se va la plata. <b>Movimientos</b> es cada gasto (tócalo para editarlo). <b>Ajustes</b> es todo lo que se configura.' },
-      { sel: ['[data-tour=add]', '[data-tour=add-movil]'], view: 'resumen', title: 'Anotar un gasto',
-        text: 'Con el botón <b>+</b> anotas un gasto aquí mismo: monto, moneda, categoría y listo. Queda igual que si lo mandaras al bot de Telegram, que sigue funcionando como siempre.' },
+      { sel: ['[data-tour=nav]', '[data-tour=nav-movil]'], view: 'resumen', title: 'Las secciones',
+        text: '<b>Resumen</b> es el período con su P&amp;G. <b>Revisión</b> son las gráficas de dónde se va la plata. <b>Movimientos</b> es cada gasto, <b>Ingresos</b> es lo que entra y <b>Ajustes</b> es todo lo que se configura.' },
+      { sel: ['[data-tour=add]', '[data-tour=add-movil]'], view: 'resumen', title: 'Anotar gasto o ingreso',
+        text: 'Con el botón <b>+</b> anotas un <b>gasto</b> o un <b>ingreso</b> aquí mismo: monto, moneda y categoría o fuente. Los gastos quedan igual que si los mandaras al bot de Telegram, que sigue funcionando como siempre.' },
       { sel: ['[data-tour=periodo]'], view: 'resumen', title: 'Elige el período',
         text: 'El título es el período: con <b>‹ ›</b> pasas de un mes a otro y tocando el nombre eliges cualquier mes. Al lado eliges Mes, 3, 6 o 12 meses, o el Año.' },
       { sel: ['[data-tour=gastado]'], view: 'resumen', title: 'Cuánto llevan',
@@ -5477,6 +5772,8 @@ document.addEventListener('alpine:init', () => {
         text: 'Junto al título de cada módulo hay una <b><i>i</i></b>. Tócala y te explica qué muestra ese módulo y cómo usarlo.' },
       { sel: ['[data-tour=pagos]'], view: 'resumen', title: 'Próximos pagos',
         text: 'Cuando pagues una tarjeta o un crédito, toca <b>Ya pagué</b>: sale de la lista y vuelve solo el mes siguiente con la nueva fecha. Si te equivocas, lo deshaces.' },
+      { sel: ['[data-tour=pyg]'], view: 'resumen', title: 'P&G',
+        text: 'Ingresos contra gastos, el <b>neto</b> y cuánto ahorraron, con la gráfica de los últimos meses. Abajo: de dónde vino la plata y en qué se fue.' },
       { sel: ['[data-tour=explorador]'], view: 'resumen', title: 'Dónde va la plata',
         text: 'Toca un rubro para ver sus subcategorías, y una subcategoría para ver cada gasto (y editarlo). Arriba vuelves con <b>Todas</b>.' },
       { sel: ['[data-tour=rev-controles]'], view: 'revision', title: 'Revisión: qué quieres ver',
@@ -5489,6 +5786,8 @@ document.addEventListener('alpine:init', () => {
         text: 'Toca un tipo y el ranking de abajo muestra solo ese. En <b>En qué se fue</b>, toca una barra y se abre el detalle de esa categoría.' },
       { sel: ['[data-tour=rev-dias]'], view: 'revision', title: 'Cada día',
         text: 'Cada cuadrito es un día: entre más oscuro, más gastaron (sin contar fijos ni cuotas). Al lado está qué día de la semana sale más caro.' },
+      { sel: ['[data-tour=ing-form]'], view: 'ingresos', title: 'Ingresos',
+        text: 'Aquí anotan lo que entra: eligen la fuente, el monto y la moneda. Arriba ven lo recibido contra el plan, y abajo cada fuente, la gráfica mes a mes y cada ingreso (tócalo para editarlo).' },
       { sel: ['[data-tour=ajustes-grid]'], view: 'ajustes', title: 'Ajustes',
         text: 'Fijos y diferidos, categorías y presupuesto, tipos de gasto, tasas, fechas de pago y conciliación. El <b>tema</b> está en automático (claro de día, oscuro de 6 pm a 6 am) y aquí lo puedes fijar.' },
       { sel: ['[data-tour=guia]', '[data-tour=guia-movil]'], view: 'resumen', title: 'Siempre hay ayuda',
@@ -6783,6 +7082,8 @@ function dashboard() {
         svg: '<path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/>' },
       { key: 'movimientos', icon: '🧾', label: 'Movimientos', corto: 'Movim.',
         svg: '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>' },
+      { key: 'ingresos',    icon: '💵', label: 'Ingresos',
+        svg: '<path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"/><path d="M4 6v12c0 1.1.9 2 2 2h14v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/>' },
       { key: 'ajustes',     icon: '⚙️', label: 'Ajustes',
         svg: '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>' },
     ],
@@ -6795,6 +7096,7 @@ function dashboard() {
       if (this.view === 'resumen') return 'Resumen · familia';
       if (this.view === 'revision') { const r = Alpine.store('review'); return r.data ? r.periodoCorto() + ' · ' + r.personaLabel() : 'Dónde se va la plata'; }
       if (this.view === 'movimientos') return 'Movimientos · cada gasto';
+      if (this.view === 'ingresos') return 'Ingresos · familia';
       return 'Todo lo que se configura';
     },
     // Tema: auto (claro de día, oscuro de 18:00 a 6:00) · claro · oscuro
@@ -6828,7 +7130,7 @@ function dashboard() {
     periodPicker: false, pickerYear: new Date().getFullYear(),
     MESES_CORTOS: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'],
     MESES_LARGOS: ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'],
-    esPeriodo() { return this.view === 'resumen' || this.view === 'movimientos'; },
+    esPeriodo() { return this.view === 'resumen' || this.view === 'movimientos' || this.view === 'ingresos'; },
     ymDe(y, i) { return y + '-' + String(i + 1).padStart(2, '0'); },
     _hoyYm() { const d = new Date(); return this.ymDe(d.getFullYear(), d.getMonth()); },
     esFuturo(y, i) { return this.ymDe(y, i) > this._hoyYm(); },
@@ -6913,6 +7215,161 @@ function dashboard() {
       return { cls, texto: '<b>' + (this.windowSize === 1 ? 'Cerró en ' : (enCurso ? 'Van en ' : 'Cerró en ')) + pct + '% ' + del + '.</b> '
         + (dentro ? 'Sobraron ' : 'Se pasaron ') + this.fmtUsd(Math.abs(ref.v - total)) + (n > 1 ? ' · promedio ' + this.fmtUsd(total / n) + ' por mes.' : '.') };
     },
+    // ── 💵 Ingresos y P&G ──
+    incomeSources: [], pnlSerie: [], pnlPlanMensual: 0,
+    ingForm: { source_key: '', monto: '', currency: 'USD', fecha: '', nota: '' },
+    ingBusy: false, ingError: null, ingFiltro: null, ingEditId: null, ingEdit: {},
+    COLORES_ING: { clp: '#3d7a55', rentas: '#c98a2e', defi: '#8a79c4', cefi: '#4f8bb8', mineria: '#7e786e', trading: '#b0472c', otros: '#94bfdc' },
+    async cargarFuentes() {
+      try { const r = await fetch('/api/income/sources'); if (r.ok) this.incomeSources = (await r.json()).sources || []; } catch (e) {}
+    },
+    // Meses de las gráficas: el rango elegido, y como mínimo los 6 meses que terminan en el mes elegido
+    _mesesSerie() {
+      const b = this.rangeBounds;
+      const n = Math.max(6, this.windowSize === 'ytd' ? Number(this.month.slice(5)) : (this.windowSize || 1));
+      return { desde: this._sumarMeses(b.to, -(n - 1)), hasta: b.to };
+    },
+    async cargarSerie() {
+      if (!this.month) return;
+      const { desde, hasta } = this._mesesSerie();
+      try {
+        const r = await fetch('/api/pnl/mensual?desde=' + desde + '&hasta=' + hasta);
+        if (r.ok) { const d = await r.json(); this.pnlSerie = d.meses || []; this.pnlPlanMensual = d.plan_ingresos_mensual_usd || 0; }
+      } catch (e) { /* las gráficas quedan vacías */ }
+    },
+    openFuentes() {
+      const st = Alpine.store('income');
+      st.onClose = async () => { await this.cargarFuentes(); await this.reload(); };
+      st.openFor(this.month, (this.pnl && this.pnl.expenses && this.pnl.expenses.total_usd) || 0).then(() => { st.tab = 'sources'; });
+      st.tab = 'sources';
+    },
+    // P&G del período
+    pygIngresos() { return Number(this.pnl && this.pnl.income && this.pnl.income.total_usd) || 0; },
+    pygGastos() { return Number(this.pnl && this.pnl.expenses && this.pnl.expenses.total_usd) || 0; },
+    pygNeto() { return this.pygIngresos() - this.pygGastos(); },
+    pygAhorro() { const i = this.pygIngresos(); return i > 0 ? Math.round(100 * this.pygNeto() / i) : null; },
+    pygBar(x) { const m = Math.max(this.pygIngresos(), this.pygGastos(), 1); return Math.max(0, Math.min(100, 100 * x / m)); },
+    pygFrase() {
+      const i = this.pygIngresos(), g = this.pygGastos(), n = i - g;
+      if (!i) return 'Aún no hay ingresos anotados en ' + this.periodTitle() + '.';
+      if (n >= 0) return 'Ahorraron el ' + this.pygAhorro() + '% de lo que entró.';
+      return 'Gastaron ' + this.fmtUsd(-n) + ' más de lo que entró (' + Math.round(100 * g / i) + '% del ingreso).';
+    },
+    gastosPorTipo() {
+      const t = { esencial: 0, estilo: 0, gusto: 0, sin: 0 };
+      for (const c of (this.summary.categories || [])) { const k = this._tipoDe(c.categoria); t[t[k] !== undefined ? k : 'sin'] += c.spent_usd || 0; }
+      const tot = Object.values(t).reduce((a, b) => a + b, 0) || 1;
+      return [['esencial', 'Esencial', '#6aa3cc'], ['estilo', 'Estilo de vida', '#a99bd6'], ['gusto', 'Gusto', '#e5a54b'], ['sin', 'Sin clasificar', '#a9a297']]
+        .filter(([k]) => t[k] > 0).map(([k, l, c]) => ({ k, label: l, color: c, usd: t[k], pct: Math.round(100 * t[k] / tot) }));
+    },
+    ingresosPorGrupo() {
+      return this.incomeGroups.map(g => ({ ...g, color: this.COLORES_ING[g.key] || '#94bfdc' })).sort((a, b) => b.total - a.total);
+    },
+    // Ingresos: recibido vs plan, por fuente y por grupo
+    ingPlan() { return Number(this.pnl && this.pnl.income && this.pnl.income.expected_total_usd) || 0; },
+    ingPorFuente() {
+      const n = this.summary.n_months || this.rangeBounds.n || 1;
+      const rec = {};
+      for (const e of (this.incomeEntries || [])) {
+        const r = rec[e.source_key] || (rec[e.source_key] = { usd: 0, n: 0 });
+        r.usd += Number(e.monto_usd) || 0; r.n++;
+      }
+      const fuentes = (this.incomeSources || []).map(s => ({ key: s.key, label: s.label, icon: s.icon || '💰', currency: s.currency, active: s.active,
+        recibido: (rec[s.key] || {}).usd || 0, n: (rec[s.key] || {}).n || 0, plan: (Number(s.expected_usd) || 0) * n }))
+        .filter(f => f.recibido > 0 || (f.active && f.plan > 0));
+      for (const k of Object.keys(rec)) if (!fuentes.some(f => f.key === k)) fuentes.push({ key: k, label: k, icon: '💰', recibido: rec[k].usd, n: rec[k].n, plan: 0 });
+      const grupos = {};
+      for (const f of fuentes) {
+        const gk = this._groupOf({ source_key: f.key, label: f.label });
+        const def = this._incomeGroupDefs().find(g => g.key === gk) || { key: 'otros', label: 'Otros', icon: '🏦' };
+        const g = grupos[gk] || (grupos[gk] = { key: gk, label: def.label, icon: def.icon, color: this.COLORES_ING[gk] || '#94bfdc', recibido: 0, plan: 0, items: [] });
+        g.recibido += f.recibido; g.plan += f.plan; g.items.push(f);
+      }
+      const lista = Object.values(grupos);
+      lista.forEach(g => g.items.sort((a, b) => b.recibido - a.recibido || b.plan - a.plan));
+      return lista.sort((a, b) => b.recibido - a.recibido || b.plan - a.plan);
+    },
+    ingPendientes() { return this.ingPorFuente().reduce((s, g) => s + g.items.filter(f => f.plan > 0 && f.recibido === 0).length, 0); },
+    ingEntradas() { const f = this.ingFiltro; return (this.incomeEntries || []).filter(e => !f || e.source_key === f); },
+    ingVsAnterior() {
+      if (this.windowSize !== 1 || this.pnlSerie.length < 2) return null;
+      const a = this.pnlSerie[this.pnlSerie.length - 1], b = this.pnlSerie[this.pnlSerie.length - 2];
+      if (!b.ingresos_usd) return null;
+      return { pct: Math.round(100 * (a.ingresos_usd - b.ingresos_usd) / b.ingresos_usd), mes: this.MESES_LARGOS[Number(b.mes.slice(5)) - 1].toLowerCase() };
+    },
+    fuentesTop() {
+      return (this.incomeSources || []).filter(s => s.active).slice().sort((a, b) => (Number(b.expected_usd) || 0) - (Number(a.expected_usd) || 0)).slice(0, 6);
+    },
+    ingElegirFuente(k) {
+      this.ingForm.source_key = k;
+      const s = (this.incomeSources || []).find(x => x.key === k);
+      if (s && s.currency) this.ingForm.currency = s.currency;
+    },
+    ingPreview() { return window.previewMonto(this.ingForm.monto, this.ingForm.currency, this.rates); },
+    ingNuevo() {
+      const hoy = new Date(), hoyYm = this._hoyYm();
+      const fecha = this.month === hoyYm || !this.month ? qHoyGlobal() : (this.rangeBounds.to + '-01');
+      this.ingForm = { source_key: this.ingForm.source_key || '', monto: '', currency: this.ingForm.currency || 'USD', fecha, nota: '' };
+    },
+    async ingGuardar() {
+      if (this.ingBusy) return;
+      const monto = window.parseMonto(this.ingForm.monto, this.ingForm.currency);
+      if (!this.ingForm.source_key) { this.ingError = 'Elige de qué fuente viene.'; return; }
+      if (!(monto > 0)) { this.ingError = 'Escribe un monto mayor que cero.'; return; }
+      if (!this.ingForm.fecha) { this.ingError = 'Elige la fecha.'; return; }
+      this.ingBusy = true; this.ingError = null;
+      try {
+        const body = { source_key: this.ingForm.source_key, period: this.ingForm.fecha.slice(0, 7), fecha: this.ingForm.fecha,
+          monto, currency: this.ingForm.currency, nota: (this.ingForm.nota || '').trim() };
+        const r = await fetch('/api/income/entries', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.detail || ('No se pudo guardar (' + r.status + ')'));
+        const f = (this.incomeSources || []).find(x => x.key === body.source_key);
+        Alpine.store('quick').aviso('✓ Ingreso guardado: ' + this.fmtUsd(d.monto_usd) + (f ? ' · ' + f.label : '') + (d.period !== this.rangeBounds.to && !this.monthIsInRange(d.period) ? ' (en ' + this._mesLargo(d.period).toLowerCase() + ')' : ''));
+        this.ingForm.monto = ''; this.ingForm.nota = '';
+        await this.reload();
+      } catch (e) { this.ingError = e.message || String(e); }
+      finally { this.ingBusy = false; }
+    },
+    ingEditar(e) {
+      if (this.ingEditId === e.id) { this.ingEditId = null; return; }
+      this.ingEditId = e.id;
+      this.ingEdit = { source_key: e.source_key, monto: String(e.monto), currency: e.currency, fecha: e.fecha || (e.period + '-01'), nota: e.nota || '' };
+      this.ingError = null;
+    },
+    async ingGuardarEdicion(e) {
+      const monto = window.parseMonto(this.ingEdit.monto, this.ingEdit.currency);
+      if (!(monto > 0)) { this.ingError = 'El monto debe ser mayor que cero.'; return; }
+      this.ingBusy = true; this.ingError = null;
+      try {
+        const body = { source_key: this.ingEdit.source_key, monto, currency: this.ingEdit.currency, fecha: this.ingEdit.fecha, nota: (this.ingEdit.nota || '').trim() };
+        const r = await fetch('/api/income/entries/' + e.id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.detail || ('No se pudo guardar (' + r.status + ')'));
+        this.ingEditId = null;
+        Alpine.store('quick').aviso('✓ Ingreso actualizado');
+        await this.reload();
+      } catch (err) { this.ingError = err.message || String(err); }
+      finally { this.ingBusy = false; }
+    },
+    async ingBorrar(e) {
+      if (!confirm('¿Borrar este ingreso de ' + this.fmtUsd(e.monto_usd) + ' (' + (e.source_label || e.source_key) + ')?')) return;
+      this.ingBusy = true; this.ingError = null;
+      try {
+        const r = await fetch('/api/income/entries/' + e.id, { method: 'DELETE' });
+        if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.detail || ('No se pudo borrar (' + r.status + ')')); }
+        this.ingEditId = null;
+        Alpine.store('quick').aviso('Ingreso borrado');
+        await this.reload();
+      } catch (err) { this.ingError = err.message || String(err); }
+      finally { this.ingBusy = false; }
+    },
+    fmtMonto(v, cur) {
+      const n = Number(v) || 0;
+      if (cur === 'USD') return 'US$' + n.toLocaleString('es-CO', { maximumFractionDigits: 2 });
+      if (cur === 'COP' || cur === 'CLP') return '$' + Math.round(n).toLocaleString('de-DE') + ' ' + cur;
+      return n.toLocaleString('es-CO', { maximumFractionDigits: 2 }) + ' ' + cur;
+    },
     // ── Dónde va la plata: rubro → subcategoría → cada gasto ──
     exRubro: null, exSub: null,
     naturalezas: {},
@@ -6973,7 +7430,8 @@ function dashboard() {
           .slice(0, 6 - orden.length).forEach(c => orden.push(c.key));
       }
       const frecuentes = orden.slice(0, 6).map(k => ({ key: k, label: label(k) }));
-      return { categorias: this.categoryOptions, metodos: this.paymentOptions, rates: this.rates, frecuentes };
+      return { categorias: this.categoryOptions, metodos: this.paymentOptions, rates: this.rates, frecuentes,
+               fuentes: (this.incomeSources || []).filter(s => s.active), fuentesTop: this.fuentesTop() };
     },
     goMovimientos() {
       this.view = 'movimientos';
@@ -6984,7 +7442,7 @@ function dashboard() {
         { key: 'fijos', icon: '🔁', label: 'Fijos y diferidos', desc: 'Gastos que se anotan solos cada mes y compras en cuotas.', run: () => Alpine.store('recurring').openModal('fijos') },
         { key: 'presupuesto', icon: '🗂️', label: 'Categorías y presupuesto', desc: 'Categorías, subcategorías y cuánto le asignas a cada una.', run: () => this.openSettings() },
         { key: 'tipos', icon: '🏷️', label: 'Tipos de gasto', desc: 'Qué es esencial, estilo de vida o gusto (para la Revisión).', run: () => Alpine.store('review').abrirTipos() },
-        { key: 'ingresos', icon: '💵', label: 'Ingresos', desc: 'Fuentes de ingreso, plan mensual y lo recibido.', run: () => this.openIncomeEditor() },
+        { key: 'ingresos', icon: '💵', label: 'Fuentes de ingreso', desc: 'Crear fuentes y su plan mensual. Los ingresos se anotan en la sección Ingresos.', run: () => this.openFuentes() },
         { key: 'tasas', icon: '💱', label: 'Tasas de cambio', desc: 'TRM y otras monedas, mes a mes.', run: () => Alpine.store('fx').openFor(this.month) },
         { key: 'pagos', icon: '📅', label: 'Fechas de pago', desc: 'Tarjetas, créditos e hipoteca: cuándo vence cada uno.', run: () => Alpine.store('reminders').openModal() },
         { key: 'conciliacion', icon: '🔄', label: 'Conciliación', desc: 'Cruzar extractos del banco con lo registrado.', run: () => this.openReconcile() },
@@ -7257,6 +7715,8 @@ function dashboard() {
         if (payResp.ok) this.paymentMethods = (await payResp.json()).methods || {};
       } catch (e) { /* non-fatal */ }
 
+      this.cargarFuentes();
+      this.ingNuevo();
       // Hydrate the guide with live budget + rates so the FAQ shows real numbers
       Alpine.store('guide').hydrate(this.budget, this.rates);
 
@@ -7466,7 +7926,9 @@ function dashboard() {
             ? '/api/expenses?month=' + encodeURIComponent(this.month) + '&limit=1000'
             : '/api/expenses?from=' + encodeURIComponent(b.from) + '&to=' + encodeURIComponent(b.to) + '&limit=5000'),
           this._fetchRetry('/api/pnl?' + rangeQs),
-          this._fetchRetry('/api/income/entries?month=' + encodeURIComponent(this.month)),
+          this._fetchRetry(b.from === b.to
+            ? '/api/income/entries?month=' + encodeURIComponent(this.month)
+            : '/api/income/entries?from=' + encodeURIComponent(b.from) + '&to=' + encodeURIComponent(b.to)),
         ]);
         if (!sumR.ok) throw new Error(sumR.status === 401 ? 'Tu sesión no está activa: abriendo la pantalla del PIN…' : 'No se pudo cargar el resumen (' + sumR.status + ')');
         if (!expR.ok) throw new Error(expR.status === 401 ? 'Tu sesión no está activa: abriendo la pantalla del PIN…' : 'No se pudo cargar el historial (' + expR.status + ')');
@@ -7474,6 +7936,7 @@ function dashboard() {
         this.expenses = (await expR.json()).expenses || [];
         if (pnlR.ok) this.pnl = await pnlR.json();
         if (incR.ok) this.incomeEntries = (await incR.json()).entries || [];
+        this.cargarSerie();
         // Cambio de mes → cerrar todos los dropdowns para no arrastrar estado
         this.expandedSources = {};
       } catch (e) {
@@ -7527,8 +7990,10 @@ function dashboard() {
       } catch (e) { /* silencioso */ } finally { this.analytics.loading = false; }
     },
     analyticsColor(idx) {
-      const p = this.analytics.palette;
-      return p[idx % p.length];
+      const d = this.analytics.data;
+      if (!d || !d.groups || !window.ResumenDona) return '#a9a297';
+      const filas = d.groups.map(g => ({ tipo: g.key === '__otros__' ? 'sin' : this._tipoDe(g.key) }));
+      return ResumenDona.color(filas[idx] || { tipo: 'sin' }, idx, filas);
     },
     get analyticsStatRows() {
       const d = this.analytics.data;
