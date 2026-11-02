@@ -1022,7 +1022,12 @@ def make_api_app() -> FastAPI:
             return await call_next(request)
         if request.method == "GET" and path in ("/", "/index.html"):
             return HTMLResponse(LOGIN_HTML, headers={"Cache-Control": "no-store"})
-        return JSONResponse({"detail": "auth_required"}, status_code=401, headers={"Cache-Control": "no-store"})
+        # Clear-Site-Data "cache": si el 401 viene de una copia vieja del
+        # dashboard guardada en el navegador (de antes del PIN), se borra esa
+        # caché y la próxima vez que abra el enlace llega la pantalla del PIN.
+        # Solo borra caché HTTP, no cookies ni datos.
+        return JSONResponse({"detail": "auth_required"}, status_code=401,
+                            headers={"Cache-Control": "no-store", "Clear-Site-Data": '"cache"'})
 
     @api.get("/api/auth/status")
     def auth_status(request: Request):
