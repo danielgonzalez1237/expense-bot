@@ -146,9 +146,22 @@
     </div>
   </header>
 
+  <!-- ──────────────── Pestañas: Resumen · Revisión · Movimientos · Ajustes ────────────────
+       La pestaña activa vive en `view` y en la dirección (#revision, …). -->
+  <nav class="grid grid-cols-4 gap-1 mb-4 bg-slate-100 dark:bg-slate-900 rounded-xl p-1" role="tablist" aria-label="Secciones">
+    <template x-for="t in views" :key="t.key">
+      <button role="tab" @click="view = t.key" :aria-selected="view === t.key" :title="t.label"
+        class="min-w-0 rounded-lg px-0.5 py-2 text-[10px] sm:text-xs font-medium transition flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5"
+        :class="view === t.key ? 'bg-white dark:bg-slate-800 shadow text-slate-900 dark:text-slate-100' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'">
+        <span x-text="t.icon"></span><span class="max-w-full truncate" x-text="t.label"></span>
+      </button>
+    </template>
+  </nav>
+
   <!-- ──────────────── Próximos pagos (recordatorios de fechas de pago) ────────────────
        Tarjetas de crédito, créditos, hipoteca… El color dice qué tan cerca está
        la fecha (lo calcula el navegador con la fecha local). -->
+  <div x-show="view === 'resumen'">
   <section x-data x-init="$store.reminders.load()" class="mb-4">
     <div class="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 mb-2">
       <div class="flex flex-wrap items-baseline gap-x-2">
@@ -207,9 +220,12 @@
             class="mt-1.5 text-[11px] text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
             x-text="$store.reminders.expanded ? 'Ver menos' : 'Ver todos (' + $store.reminders.cards.length + ')'"></button>
   </section>
+  </div>
+  <!-- END Próximos pagos (solo en Resumen) -->
 
-  <!-- ──────────────── Month + window selectors ──────────────── -->
-  <section class="mb-4 sticky top-0 bg-slate-50 dark:bg-slate-950 z-20 py-2 border-b border-slate-100 dark:border-slate-900">
+  <!-- ──────────────── Month + window selectors (Resumen y Movimientos) ──────────────── -->
+  <section x-show="view === 'resumen' || view === 'movimientos'"
+           class="mb-4 sticky top-0 bg-slate-50 dark:bg-slate-950 z-20 py-2 border-b border-slate-100 dark:border-slate-900">
     <div class="flex items-center justify-between mb-1.5">
       <div class="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600 font-semibold">Mes</div>
       <!-- Window pills -->
@@ -262,6 +278,274 @@
     x-text="error"
   ></div>
 
+  <!-- ════════════════════════ 🔎 REVISIÓN ════════════════════════
+       Dónde se va la plata: por tipo de gasto (esencial / estilo de vida /
+       gusto), por categoría y por mes, en el período que elijas y comparado
+       con el anterior. Datos: GET /api/review (store `review`). -->
+  <section x-show="view === 'revision'" x-cloak class="mb-4 space-y-4">
+    <!-- Controles -->
+    <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-3">
+      <div class="flex flex-wrap items-center gap-1.5">
+        <template x-for="p in $store.review.presets" :key="p.key">
+          <button @click="$store.review.setPreset(p.key)"
+            class="text-xs rounded-lg px-2.5 py-1.5 font-medium transition"
+            :class="$store.review.preset === p.key ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'"
+            x-text="p.label"></button>
+        </template>
+      </div>
+      <div x-show="$store.review.preset === 'custom'" class="flex flex-wrap items-center gap-2 text-xs">
+        <label class="text-slate-500">Desde <input type="month" x-model="$store.review.desde" @change="$store.review.load()"
+          class="ml-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100"></label>
+        <label class="text-slate-500">Hasta <input type="month" x-model="$store.review.hasta" @change="$store.review.load()"
+          class="ml-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-slate-900 dark:text-slate-100"></label>
+      </div>
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
+        <select x-model="$store.review.persona" @change="$store.review.load()"
+          class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5">
+          <option value="familia">👨‍👩 Familia (sin Tuo)</option>
+          <option value="Daniel">Daniel</option>
+          <option value="Mado">Mado</option>
+          <option value="Tuo">🏢 Tuo</option>
+          <option value="todos">Todos</option>
+        </select>
+        <label class="flex items-center gap-1.5 text-slate-600 dark:text-slate-300">
+          <input type="checkbox" x-model="$store.review.sinViajes" @change="$store.review.load()"> Sin viajes</label>
+        <label class="flex items-center gap-1.5 text-slate-600 dark:text-slate-300" title="Quita compras sueltas de US$600 o más que no son esenciales (no quita fijos ni cuotas)">
+          <input type="checkbox" x-model="$store.review.sinGrandes" @change="$store.review.load()"> Sin compras grandes</label>
+        <div class="ml-auto flex rounded-lg bg-slate-100 dark:bg-slate-800 p-0.5">
+          <template x-for="m in ['usd', 'cop']" :key="m">
+            <button @click="$store.review.moneda = m" class="px-2 py-1 rounded-md text-[11px] font-semibold uppercase"
+              :class="$store.review.moneda === m ? 'bg-white dark:bg-slate-900 shadow' : 'text-slate-500'" x-text="m"></button>
+          </template>
+        </div>
+      </div>
+      <div class="text-[11px] text-slate-500" x-show="$store.review.data">
+        <span x-text="$store.review.rangoLabel()"></span>
+        <span x-show="$store.review.data && !$store.review.data.anterior.completo" class="text-amber-600 dark:text-amber-400">
+          · el período anterior tiene datos incompletos (el bot registra desde el <span x-text="$store.review.fechaCorta($store.review.data && $store.review.data.datos_desde)"></span>), la comparación no es confiable</span>
+      </div>
+    </div>
+
+    <div x-show="$store.review.loading" class="text-xs text-slate-400 text-center py-6">Cargando…</div>
+    <div x-show="$store.review.error" class="bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900 rounded-xl p-3 text-sm text-red-700 dark:text-red-300" x-text="$store.review.error"></div>
+
+    <template x-if="$store.review.data && !$store.review.loading">
+    <div class="space-y-4">
+      <!-- KPIs -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
+          <div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Total del período</div>
+          <div class="text-lg font-bold mt-1" x-text="$store.review.fmt($store.review.v($store.review.data.totales))"></div>
+          <div class="text-[11px] mt-0.5" x-html="$store.review.deltaHtml($store.review.data.totales, $store.review.data.totales_anterior)"></div>
+        </div>
+        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
+          <div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Promedio por mes</div>
+          <div class="text-lg font-bold mt-1" x-text="$store.review.fmt($store.review.v($store.review.data.totales) / $store.review.data.periodo.n_meses)"></div>
+          <div class="text-[11px] text-slate-500 mt-0.5" x-text="$store.review.data.totales.count + ' gastos en ' + $store.review.data.periodo.n_meses + ($store.review.data.periodo.n_meses === 1 ? ' mes' : ' meses')"></div>
+        </div>
+        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
+          <div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Gustos</div>
+          <div class="text-lg font-bold mt-1 text-amber-600 dark:text-amber-400" x-text="$store.review.pctTipo('gusto') + '%'"></div>
+          <div class="text-[11px] text-slate-500 mt-0.5" x-text="$store.review.fmt($store.review.v($store.review.data.totales.por_tipo.gusto)) + ' del total'"></div>
+        </div>
+        <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
+          <div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Si bajas gustos 20%</div>
+          <div class="text-lg font-bold mt-1 text-emerald-600 dark:text-emerald-400" x-text="$store.review.fmt(0.2 * $store.review.v($store.review.data.totales.por_tipo.gusto) / $store.review.data.periodo.n_meses) + '/mes'"></div>
+          <div class="text-[11px] text-slate-500 mt-0.5" x-text="$store.review.fmt(12 * 0.2 * $store.review.v($store.review.data.totales.por_tipo.gusto) / $store.review.data.periodo.n_meses) + ' al año'"></div>
+        </div>
+      </div>
+
+      <!-- Tipo de gasto: total y mes a mes -->
+      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-sm font-semibold">Tipo de gasto</h2>
+          <button @click="$store.review.abrirTipos()" class="text-[11px] text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">Editar tipos</button>
+        </div>
+        <div class="flex h-3 rounded-full overflow-hidden bg-slate-100 dark:bg-slate-800">
+          <template x-for="t in $store.review.tiposOrden" :key="t">
+            <div :class="$store.review.TIPOS[t].bar" :style="'width:' + $store.review.pctTipo(t) + '%'" :title="$store.review.TIPOS[t].label"></div>
+          </template>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3">
+          <template x-for="t in $store.review.tiposOrden.filter(t => t !== 'sin_clasificar' || $store.review.data.totales.por_tipo.sin_clasificar.usd > 0)" :key="t">
+            <button @click="$store.review.filtroTipo = ($store.review.filtroTipo === t ? 'todos' : t)"
+              class="text-left rounded-lg px-3 py-2 border transition"
+              :class="$store.review.filtroTipo === t ? 'border-slate-400 dark:border-slate-500 bg-slate-50 dark:bg-slate-800' : 'border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60'">
+              <div class="flex items-center gap-1.5 text-xs font-medium"><span class="w-2.5 h-2.5 rounded-full" :class="$store.review.TIPOS[t].bar"></span><span x-text="$store.review.TIPOS[t].label"></span>
+                <span class="text-slate-400 ml-auto" x-text="$store.review.pctTipo(t) + '%'"></span></div>
+              <div class="text-sm font-semibold mt-0.5" x-text="$store.review.fmt($store.review.v($store.review.data.totales.por_tipo[t]))"></div>
+              <div class="text-[11px]" x-html="$store.review.deltaHtml($store.review.data.totales.por_tipo[t], $store.review.data.totales_anterior.por_tipo[t])"></div>
+            </button>
+          </template>
+        </div>
+        <!-- Mes a mes -->
+        <div class="mt-4 space-y-1.5" x-show="$store.review.data.por_mes.length > 1">
+          <div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Mes a mes</div>
+          <template x-for="m in $store.review.data.por_mes" :key="m.mes">
+            <div class="flex items-center gap-2 text-[11px]">
+              <span class="w-12 shrink-0 text-slate-500" x-text="$store.review.mesCorto(m.mes)"></span>
+              <div class="flex-1 h-3 rounded bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                <div class="h-full flex" :style="'width:' + $store.review.pctMes(m) + '%'">
+                  <template x-for="t in $store.review.tiposOrden" :key="t">
+                    <div class="h-full" :class="$store.review.TIPOS[t].bar" :style="'width:' + $store.review.pctDentro(m, t) + '%'"></div>
+                  </template>
+                </div>
+              </div>
+              <span class="w-24 shrink-0 text-right font-medium" x-text="$store.review.fmt($store.review.v(m))"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Ranking: dónde se va la plata -->
+      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div>
+            <h2 class="text-sm font-semibold">Dónde se va la plata</h2>
+            <div class="text-[11px] text-slate-500" x-show="$store.review.filtroTipo !== 'todos'">
+              Solo <span x-text="$store.review.TIPOS[$store.review.filtroTipo] && $store.review.TIPOS[$store.review.filtroTipo].label"></span> ·
+              <button class="underline" @click="$store.review.filtroTipo = 'todos'">ver todo</button></div>
+          </div>
+          <div class="flex rounded-lg bg-slate-100 dark:bg-slate-800 p-0.5 text-[11px]">
+            <button @click="$store.review.nivel = 'sub'" class="px-2 py-1 rounded-md" :class="$store.review.nivel === 'sub' ? 'bg-white dark:bg-slate-900 shadow font-semibold' : 'text-slate-500'">Subcategoría</button>
+            <button @click="$store.review.nivel = 'cat'" class="px-2 py-1 rounded-md" :class="$store.review.nivel === 'cat' ? 'bg-white dark:bg-slate-900 shadow font-semibold' : 'text-slate-500'">Categoría</button>
+          </div>
+        </div>
+        <div class="divide-y divide-slate-100 dark:divide-slate-800">
+          <template x-for="(c, i) in $store.review.filasVisibles()" :key="$store.review.nivel + c.key">
+            <div class="py-2">
+              <button class="w-full text-left flex items-center gap-2" @click="$store.review.toggle(c.key)">
+                <span class="w-5 text-[11px] text-slate-400 text-right shrink-0" x-text="i + 1"></span>
+                <span class="text-base shrink-0" x-text="c.icon"></span>
+                <span class="min-w-0 flex-1">
+                  <span class="flex items-center gap-1.5">
+                    <span class="text-sm font-medium truncate" x-text="c.label"></span>
+                    <span class="text-[9px] uppercase tracking-wide rounded px-1 py-0.5 shrink-0" :class="$store.review.TIPOS[c.naturaleza].chip" x-text="$store.review.TIPOS[c.naturaleza].corto"></span>
+                  </span>
+                  <span class="block h-1 mt-1 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                    <span class="block h-full rounded-full" :class="$store.review.TIPOS[c.naturaleza].bar" :style="'width:' + Math.min(100, c.pct) + '%'"></span>
+                  </span>
+                </span>
+                <span class="hidden sm:block w-20 shrink-0 text-slate-400" x-html="$store.review.spark($store.review.moneda === 'cop' ? c.serie_cop : c.serie_usd)"></span>
+                <span class="w-28 shrink-0 text-right">
+                  <span class="block text-sm font-semibold" x-text="$store.review.fmt($store.review.v(c))"></span>
+                  <span class="block text-[10px] text-slate-500"><span x-text="c.pct.toFixed(1) + '%'"></span> · <span x-html="$store.review.deltaHtml(c, {usd: c.prev_usd, cop: c.prev_cop}, true)"></span></span>
+                </span>
+              </button>
+              <!-- Detalle -->
+              <div x-show="$store.review.abiertos[c.key]" class="mt-2 ml-7 rounded-lg bg-slate-50 dark:bg-slate-800/60 p-3 text-[11px] space-y-2">
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div><div class="text-slate-400">Promedio/mes</div><div class="font-semibold text-xs" x-text="$store.review.fmt($store.review.v(c) / $store.review.data.periodo.n_meses)"></div></div>
+                  <div><div class="text-slate-400">Veces</div><div class="font-semibold text-xs" x-text="c.count + ' (' + $store.review.porSemana(c) + '/semana)'"></div></div>
+                  <div x-show="c.dias !== undefined"><div class="text-slate-400">Días con gasto</div><div class="font-semibold text-xs" x-text="c.dias + ' de ' + $store.review.data.periodo.dias"></div></div>
+                  <div x-show="c.ticket_usd !== undefined"><div class="text-slate-400">Ticket típico</div><div class="font-semibold text-xs" x-text="$store.review.ticket(c)"></div></div>
+                </div>
+                <template x-if="c.top_notas && c.top_notas.length">
+                  <div>
+                    <div class="text-slate-400 mb-1">Lo que más pesa</div>
+                    <template x-for="n in c.top_notas" :key="n.nota">
+                      <div class="flex justify-between gap-2 py-0.5">
+                        <span class="truncate" x-text="n.nota + (n.count > 1 ? ' ×' + n.count : '')"></span>
+                        <span class="font-medium shrink-0" x-text="$store.review.fmt($store.review.v(n))"></span>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+                <template x-if="c.hijos">
+                  <div class="text-slate-500">Incluye: <span x-text="c.hijos.map(k => $store.review.labelDe(k)).join(', ')"></span></div>
+                </template>
+                <div x-show="!c.hijos" class="flex items-center gap-2">
+                  <span class="text-slate-400">Tipo:</span>
+                  <template x-for="t in ['esencial', 'estilo', 'gusto']" :key="t">
+                    <button @click="$store.review.setTipo(c.key, t)" class="rounded px-2 py-0.5 border text-[11px]"
+                      :class="c.naturaleza === t ? 'border-slate-500 font-semibold' : 'border-slate-200 dark:border-slate-700 text-slate-500'"
+                      x-text="$store.review.TIPOS[t].corto"></button>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+        <button x-show="$store.review.filas().length > $store.review.LIMITE" @click="$store.review.verTodas = !$store.review.verTodas"
+          class="w-full text-[11px] text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 pt-2"
+          x-text="$store.review.verTodas ? '▾ Ver solo las ' + $store.review.LIMITE + ' más grandes' : '▸ Ver todas (' + $store.review.filas().length + ')'"></button>
+        <div x-show="!$store.review.filas().length" class="text-xs text-slate-400 italic text-center py-4">Sin gastos en este período.</div>
+      </div>
+
+      <!-- Dónde mejorar -->
+      <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm">
+        <h2 class="text-sm font-semibold mb-1">Dónde puedes mejorar</h2>
+        <p class="text-[11px] text-slate-500 mb-3">Lo que más pesa entre los gustos y el estilo de vida, con lo que ahorrarías si lo bajas.</p>
+        <div class="space-y-2">
+          <template x-for="c in $store.review.mejorables()" :key="'m' + c.key">
+            <div class="flex items-start gap-2 text-xs">
+              <span class="text-base" x-text="c.icon"></span>
+              <div class="flex-1 min-w-0">
+                <div><span class="font-medium" x-text="c.label"></span>: <span x-text="$store.review.fmt($store.review.v(c) / $store.review.data.periodo.n_meses)"></span>/mes
+                  <span class="text-slate-500" x-text="'· ' + c.count + ' veces (' + $store.review.porSemana(c) + ' por semana)'"></span></div>
+                <div class="text-[11px] text-slate-500" x-html="$store.review.frase(c)"></div>
+              </div>
+            </div>
+          </template>
+        </div>
+        <!-- Simulador -->
+        <div class="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+          <div class="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-2">Simulador</div>
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <span>Si bajo</span>
+            <select x-model="$store.review.simCat" class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1">
+              <option value="__gustos">todos los gustos</option>
+              <template x-for="c in $store.review.mejorables(20)" :key="'s' + c.key">
+                <option :value="c.key" x-text="c.label"></option>
+              </template>
+            </select>
+            <span>un</span>
+            <input type="range" min="5" max="100" step="5" x-model.number="$store.review.simPct" class="w-28 accent-emerald-600">
+            <span class="font-semibold w-10" x-text="$store.review.simPct + '%'"></span>
+          </div>
+          <div class="mt-2 text-sm">ahorro <span class="font-bold text-emerald-600 dark:text-emerald-400" x-text="$store.review.fmt($store.review.sim()) + ' al mes'"></span>
+            · <span class="font-semibold" x-text="$store.review.fmt(12 * $store.review.sim()) + ' al año'"></span></div>
+        </div>
+      </div>
+
+      <!-- Lo que quedó por fuera -->
+      <div x-show="$store.review.data.filtros.sin_viajes || $store.review.data.filtros.sin_grandes"
+           class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm text-xs">
+        <h2 class="text-sm font-semibold mb-2">Quedó por fuera de esta vista</h2>
+        <div x-show="$store.review.data.filtros.sin_viajes">✈️ Viajes: <span class="font-semibold" x-text="$store.review.fmt($store.review.v($store.review.data.excluidos.viajes))"></span>
+          (<span x-text="$store.review.data.excluidos.viajes.count"></span>)</div>
+        <div x-show="$store.review.data.filtros.sin_grandes" class="mt-1">🛍️ Compras grandes (US$600 o más, no esenciales): <span class="font-semibold" x-text="$store.review.fmt($store.review.v($store.review.data.excluidos.grandes))"></span>
+          (<span x-text="$store.review.data.excluidos.grandes.count"></span>)
+          <div class="mt-1 space-y-0.5">
+            <template x-for="g in $store.review.data.excluidos.grandes.items.slice(0, 12)" :key="g.id">
+              <div class="flex justify-between gap-2 text-[11px] text-slate-600 dark:text-slate-300">
+                <span class="truncate"><span x-text="$store.review.fechaCorta(g.fecha)"></span> · <span x-text="g.nota || $store.review.labelDe(g.categoria)"></span></span>
+                <span class="font-medium shrink-0" x-text="$store.review.fmt($store.review.v(g))"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+    </template>
+  </section>
+
+  <!-- ════════════════════════ ⚙️ AJUSTES ════════════════════════
+       Todo lo que se configura, en un solo lugar (abre las mismas ventanas). -->
+  <section x-show="view === 'ajustes'" x-cloak class="mb-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      <template x-for="a in ajustes()" :key="a.key">
+        <button @click="a.run()" x-show="a.show === undefined || a.show()"
+          class="text-left bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm hover:border-slate-300 dark:hover:border-slate-600 transition">
+          <div class="text-sm font-semibold"><span x-text="a.icon"></span> <span x-text="a.label"></span></div>
+          <div class="text-[11px] text-slate-500 mt-1" x-text="a.desc"></div>
+        </button>
+      </template>
+    </div>
+  </section>
+
+  <!-- ════════════════════════ 📊 RESUMEN ════════════════════════ -->
+  <div x-show="view === 'resumen'">
   <!--
     ═══════════════════════════════════════════════════════════════
     DASHBOARD LAYOUT
@@ -633,7 +917,7 @@
       <template x-for="cc in (summary.by_clase_contable || [])" :key="cc.clase">
         <button
           x-show="cc.count > 0"
-          @click="claseFilter = (claseFilter === cc.clase ? null : cc.clase); document.querySelector('h2.movimientos-anchor')?.scrollIntoView({behavior: 'smooth', block: 'start'})"
+          @click="claseFilter = (claseFilter === cc.clase ? null : cc.clase); goMovimientos()"
           class="w-full text-left bg-slate-50 dark:bg-slate-800/40 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl px-3.5 py-2.5 border border-slate-200 dark:border-slate-800 transition"
           :class="claseFilter === cc.clase ? 'ring-2 ring-sky-400 dark:ring-sky-600' : ''"
           :title="'Tap para filtrar Movimientos por ' + cc.label"
@@ -703,7 +987,7 @@
           if (!path) return;
           const k = path.getAttribute('data-pie-key');
           categoryFilter = (categoryFilter === k ? null : k);
-          document.querySelector('h2.movimientos-anchor')?.scrollIntoView({behavior: 'smooth', block: 'start'});
+          goMovimientos();
         }"
       ></div>
 
@@ -711,7 +995,7 @@
       <div class="space-y-1.5 mt-4 md:mt-0 max-h-80 overflow-y-auto scroll-area pr-2">
         <template x-for="slice in pieChartData" :key="slice.key">
           <button
-            @click="categoryFilter = (categoryFilter === slice.key ? null : slice.key); document.querySelector('h2.movimientos-anchor')?.scrollIntoView({behavior: 'smooth', block: 'start'})"
+            @click="categoryFilter = (categoryFilter === slice.key ? null : slice.key); goMovimientos()"
             :class="categoryFilter === slice.key ? 'bg-sky-50 dark:bg-sky-950/40 ring-1 ring-sky-300 dark:ring-sky-700' : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'"
             class="w-full text-left rounded-md px-2 py-1.5 transition flex items-center gap-2"
           >
@@ -981,9 +1265,15 @@
 
   </div>
   <!-- END 3-col wrapper for Gastos detalle -->
+  </div>
+  <!-- END 📊 RESUMEN -->
 
-  <!-- ──────────────── History ──────────────── -->
-  <section class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm" x-show="expenses.length">
+  <!-- ──────────────── History (pestaña 🧾 Movimientos) ──────────────── -->
+  <div x-show="view === 'movimientos' && !loading && !expenses.length" x-cloak
+       class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-8 text-center mb-4 shadow-sm text-sm text-slate-500">
+    No hay movimientos en <span x-text="monthLabel"></span>.
+  </div>
+  <section class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm" x-show="view === 'movimientos' && expenses.length">
     <div class="flex items-center justify-between mb-3">
       <h2 class="text-sm font-semibold movimientos-anchor">Movimientos</h2>
       <a
@@ -1207,7 +1497,7 @@
   </section>
 
   <!-- ──────────────── Análisis de gasto diario ──────────────── -->
-  <section id="analytics-section" x-show="analytics.open" style="display:none"
+  <section id="analytics-section" x-show="analytics.open && view === 'resumen'" style="display:none"
            class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-4 fade shadow-sm">
     <div class="flex items-center justify-between mb-3">
       <div>
@@ -1955,6 +2245,49 @@
       </div>
 
       <div x-show="$store.deferred.error" class="text-xs text-rose-600 dark:text-rose-400" x-text="$store.deferred.error"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ──────────────── 🏷️ Tipos de gasto (esencial / estilo de vida / gusto) ──────────────── -->
+<div
+  x-data
+  x-show="$store.review.openTipos"
+  x-cloak
+  class="fixed inset-0 z-50 flex items-stretch sm:items-center justify-center modal-backdrop bg-slate-900/40 dark:bg-slate-950/70"
+  @click.self="$store.review.openTipos = false"
+  @keydown.escape.window="$store.review.openTipos = false"
+>
+  <div class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full sm:max-w-lg sm:rounded-2xl sm:my-8 shadow-xl fade flex flex-col max-h-screen sm:max-h-[92vh]"
+       x-show="$store.review.openTipos" x-transition>
+    <div class="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-5 pt-5 pb-3 sm:rounded-t-2xl z-10">
+      <div class="flex items-start justify-between">
+        <div>
+          <div class="text-xs text-slate-500 uppercase tracking-wide">🏷️ Tipos de gasto</div>
+          <div class="text-lg font-bold">¿Qué es cada categoría?</div>
+          <div class="text-[11px] text-slate-500">Esencial = lo necesario para vivir. Estilo de vida = útil pero ajustable. Gusto = lo que podrías recortar. Se guarda al tocar.</div>
+        </div>
+        <button @click="$store.review.openTipos = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1" aria-label="Cerrar">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="p-5 overflow-y-auto space-y-1">
+      <div x-show="$store.review.tiposError" class="text-xs text-rose-600 dark:text-rose-400 mb-2" x-text="$store.review.tiposError"></div>
+      <template x-for="c in $store.review.tiposCats" :key="c.key">
+        <div class="flex items-center justify-between gap-2 py-1" :class="c.nivel ? 'pl-5' : 'pt-2'">
+          <span class="text-sm min-w-0 truncate" :class="c.nivel ? '' : 'font-semibold'"><span x-text="c.icon"></span> <span x-text="c.label"></span></span>
+          <span class="flex gap-1 shrink-0">
+            <template x-for="t in ['esencial', 'estilo', 'gusto']" :key="t">
+              <button @click="$store.review.setTipo(c.key, t)" :disabled="$store.review.tiposBusy"
+                class="rounded-md px-2 py-0.5 text-[11px] border transition"
+                :class="c.naturaleza === t ? ($store.review.TIPOS[t].chip + ' border-transparent font-semibold') : 'border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800'"
+                x-text="$store.review.TIPOS[t].corto"></button>
+            </template>
+          </span>
+        </div>
+      </template>
+      <div x-show="!$store.review.tiposCats.length && !$store.review.tiposError" class="text-xs text-slate-400 text-center py-4">Cargando…</div>
     </div>
   </div>
 </div>
@@ -4611,6 +4944,184 @@ document.addEventListener('alpine:init', () => {
     fmtCop(v) { return '$' + Math.round(v || 0).toLocaleString('de-DE'); },
   });
 
+  // ──────────────── 🔎 Revisión (pestaña) ────────────────
+  // Datos de GET /api/review; todo el formato (USD/COP, deltas, rankings,
+  // simulador) se arma aquí. Los colores son clases completas para que
+  // Tailwind las compile.
+  const REV_MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  const revYm = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  Alpine.store('review', {
+    loaded: false, loading: false, error: null, data: null,
+    preset: '6m', desde: '', hasta: '', persona: 'familia', sinViajes: false, sinGrandes: false, moneda: 'usd',
+    nivel: 'sub', filtroTipo: 'todos', abiertos: {}, simCat: '__gustos', simPct: 20, verTodas: false, LIMITE: 15,
+    openTipos: false, tiposBusy: false, tiposError: null, tiposCats: [],
+    presets: [
+      { key: 'mes', label: 'Este mes' }, { key: '3m', label: 'Últimos 3 meses' }, { key: '6m', label: 'Últimos 6 meses' },
+      { key: '12m', label: 'Últimos 12 meses' }, { key: 'anio', label: 'Este año' }, { key: 'custom', label: 'Elegir meses' },
+    ],
+    tiposOrden: ['esencial', 'estilo', 'gusto', 'sin_clasificar'],
+    TIPOS: {
+      esencial:       { label: 'Esencial',       corto: 'esencial', bar: 'bg-sky-500',    chip: 'bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300' },
+      estilo:         { label: 'Estilo de vida', corto: 'estilo',   bar: 'bg-violet-500', chip: 'bg-violet-100 text-violet-700 dark:bg-violet-900/50 dark:text-violet-300' },
+      gusto:          { label: 'Gusto',          corto: 'gusto',    bar: 'bg-amber-500',  chip: 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300' },
+      sin_clasificar: { label: 'Sin clasificar', corto: '?',        bar: 'bg-slate-400',  chip: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' },
+      mixto:          { label: 'Mixto',          corto: 'mixto',    bar: 'bg-slate-400',  chip: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' },
+    },
+    ensureLoaded() { if (!this.loaded && !this.loading) this.setPreset(this.preset); },
+    setPreset(k) {
+      this.preset = k;
+      // 3/6/12 meses = meses COMPLETOS (hasta el mes pasado) para que el
+      // promedio no lo baje el mes en curso; "Este mes" y "Este año" sí lo incluyen.
+      const now = new Date();
+      const actual = revYm(now);
+      const pasado = revYm(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+      const back = (n) => revYm(new Date(now.getFullYear(), now.getMonth() - n, 1));
+      if (k === 'mes') { this.desde = actual; this.hasta = actual; }
+      else if (k === '3m') { this.desde = back(3); this.hasta = pasado; }
+      else if (k === '6m') { this.desde = back(6); this.hasta = pasado; }
+      else if (k === '12m') { this.desde = back(12); this.hasta = pasado; }
+      else if (k === 'anio') { this.desde = now.getFullYear() + '-01'; this.hasta = actual; }
+      else { if (!this.desde) this.desde = back(6); if (!this.hasta) this.hasta = pasado; }
+      this.load();
+    },
+    async load(keepOpen) {
+      if (!this.desde || !this.hasta) return;
+      if (this.desde > this.hasta) { this.error = 'El mes "desde" debe ser anterior o igual a "hasta"'; return; }
+      this.loading = !this.data; this.error = null;
+      const q = new URLSearchParams({ desde: this.desde, hasta: this.hasta, persona: this.persona,
+        sin_viajes: this.sinViajes ? 1 : 0, sin_grandes: this.sinGrandes ? 1 : 0 });
+      try {
+        const r = await fetch('/api/review?' + q);
+        if (!r.ok) { const t = await r.json().catch(() => ({})); throw new Error(t.detail || ('No se pudo cargar la revisión (' + r.status + ')')); }
+        this.data = await r.json();
+        this.loaded = true;
+        if (!keepOpen) this.abiertos = {};
+      } catch (e) { this.error = e.message || String(e); } finally { this.loading = false; }
+    },
+    // ── formato ──
+    v(o) { return o ? (this.moneda === 'cop' ? (o.cop || 0) : (o.usd || 0)) : 0; },
+    fmt(x) { return (this.moneda === 'cop' ? '$' : 'US$') + Math.round(x || 0).toLocaleString('de-DE'); },
+    mesCorto(ym) { if (!ym) return ''; const [y, m] = ym.split('-'); return REV_MESES[Number(m) - 1] + ' ' + y.slice(2); },
+    fechaCorta(f) { if (!f) return ''; const [y, m, d] = f.slice(0, 10).split('-'); return Number(d) + '-' + REV_MESES[Number(m) - 1] + '-' + y.slice(2); },
+    rangoLabel() {
+      const d = this.data; if (!d) return '';
+      return this.mesCorto(d.periodo.desde) + (d.periodo.desde !== d.periodo.hasta ? ' → ' + this.mesCorto(d.periodo.hasta) : '')
+        + ' · comparado con ' + this.mesCorto(d.anterior.desde) + (d.anterior.desde !== d.anterior.hasta ? ' → ' + this.mesCorto(d.anterior.hasta) : '');
+    },
+    pctTipo(t) { const d = this.data; if (!d || !this.v(d.totales)) return 0; return Math.round(1000 * this.v(d.totales.por_tipo[t]) / this.v(d.totales)) / 10; },
+    pctMes(m) { const max = Math.max(1, ...this.data.por_mes.map(x => this.v(x))); return Math.round(1000 * this.v(m) / max) / 10; },
+    pctDentro(m, t) { const tot = this.v(m); return tot ? 100 * this.v(m.por_tipo[t]) / tot : 0; },
+    deltaHtml(cur, prev, corto) {
+      if (!this.data || !this.data.anterior.completo) return '<span class="text-slate-400">' + (corto ? '—' : 'sin comparación') + '</span>';
+      const a = this.v(cur), b = this.v(prev);
+      if (!b) return '<span class="text-slate-400">' + (a ? 'nuevo' : '—') + '</span>';
+      const p = Math.round(100 * (a - b) / b);
+      const cls = p === 0 ? 'text-slate-400' : (p > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400');
+      return '<span class="' + cls + '">' + (p > 0 ? '▲ ' : (p < 0 ? '▼ ' : '')) + Math.abs(p) + '%' + (corto ? '' : ' vs período anterior') + '</span>';
+    },
+    spark(s) {
+      if (!s || s.length < 2) return '';
+      const max = Math.max(...s); if (!max) return '';
+      const pts = s.map((v, i) => (i * 80 / (s.length - 1)).toFixed(1) + ',' + (18 - (v / max) * 16).toFixed(1)).join(' ');
+      return '<svg viewBox="0 0 80 20" width="80" height="20" preserveAspectRatio="none" aria-hidden="true"><polyline points="' + pts
+        + '" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+    },
+    porSemana(c) { const d = this.data ? this.data.periodo.dias : 30; return (c.count / Math.max(1, d / 7)).toFixed(1).replace('.', ','); },
+    ticket(c) {
+      const k = (this.moneda === 'cop' && c.usd) ? c.cop / c.usd : 1;
+      return this.fmt(c.mediana_usd * k) + ' (prom. ' + this.fmt(c.ticket_usd * k) + ')';
+    },
+    labelDe(k) {
+      const d = this.data;
+      const c = d && (d.categorias.find(x => x.key === k) || d.padres.find(x => x.key === k));
+      return c ? c.label : k;
+    },
+    toggle(k) { this.abiertos = { ...this.abiertos, [k]: !this.abiertos[k] }; },
+    // ── ranking ──
+    rollup(cats) {
+      const m = {};
+      for (const c of cats) {
+        const pk = c.parent || c.key;
+        const info = this.data.padres.find(p => p.key === pk) || c;
+        if (!m[pk]) m[pk] = { key: pk, label: info.label, icon: info.icon, naturaleza: c.naturaleza, usd: 0, cop: 0, count: 0,
+          prev_usd: 0, prev_cop: 0, serie_usd: c.serie_usd.map(() => 0), serie_cop: c.serie_cop.map(() => 0), hijos: [] };
+        const p = m[pk];
+        if (p.naturaleza !== c.naturaleza) p.naturaleza = 'mixto';
+        p.usd += c.usd; p.cop += c.cop; p.count += c.count; p.prev_usd += c.prev_usd; p.prev_cop += c.prev_cop;
+        c.serie_usd.forEach((x, i) => { p.serie_usd[i] += x; });
+        c.serie_cop.forEach((x, i) => { p.serie_cop[i] += x; });
+        p.hijos.push(c.key);
+      }
+      const tot = this.data.totales.usd || 1;
+      return Object.values(m).map(p => ({ ...p, pct: 100 * p.usd / tot })).sort((a, b) => this.v(b) - this.v(a));
+    },
+    filas() {
+      if (!this.data) return [];
+      const cats = this.data.categorias.filter(c => (c.usd > 0 || c.cop > 0)
+        && (this.filtroTipo === 'todos' || c.naturaleza === this.filtroTipo));
+      if (this.nivel === 'cat') return this.rollup(cats);
+      return cats.slice().sort((a, b) => this.v(b) - this.v(a));
+    },
+    filasVisibles() { const f = this.filas(); return this.verTodas ? f : f.slice(0, this.LIMITE); },
+    // ── dónde mejorar ──
+    mejorables(n) {
+      if (!this.data) return [];
+      return this.data.categorias.filter(c => (c.naturaleza === 'gusto' || c.naturaleza === 'estilo') && this.v(c) > 0)
+        .sort((a, b) => this.v(b) - this.v(a)).slice(0, n || 3);
+    },
+    frase(c) {
+      const meses = this.data.periodo.n_meses;
+      const mes = this.v(c) / meses;
+      let t = '';
+      if (c.count >= 4 * meses) {   // hábito frecuente (≥ 4 veces al mes)
+        t = 'La mitad de las veces (' + this.porSemana({ count: c.count / 2 }) + ' por semana) ahorraría <b>' + this.fmt(mes / 2) + '/mes</b>.';
+      } else {
+        t = 'Bajarlo 20% ahorraría <b>' + this.fmt(mes * 0.2) + '/mes</b>.';
+      }
+      if (this.data.anterior.completo && this.v({ usd: c.prev_usd, cop: c.prev_cop })) {
+        const p = Math.round(100 * (this.v(c) - this.v({ usd: c.prev_usd, cop: c.prev_cop })) / this.v({ usd: c.prev_usd, cop: c.prev_cop }));
+        if (p >= 10) t += ' Subió ' + p + '% frente al período anterior.';
+      }
+      return t;
+    },
+    sim() {
+      if (!this.data) return 0;
+      const meses = this.data.periodo.n_meses;
+      const base = this.simCat === '__gustos' ? this.v(this.data.totales.por_tipo.gusto)
+        : this.v(this.data.categorias.find(c => c.key === this.simCat));
+      return base / meses * this.simPct / 100;
+    },
+    // ── tipos de gasto (esencial / estilo / gusto) ──
+    async abrirTipos() {
+      this.openTipos = true; this.tiposError = null;
+      try {
+        const r = await fetch('/api/budget');
+        const d = await r.json();
+        const cats = d.categories || d;
+        const lista = Object.entries(cats).map(([k, v]) => ({ key: k, label: v.label || k, icon: v.icon || '📦',
+          parent: v.parent || null, naturaleza: v.naturaleza || '' }));
+        const padres = lista.filter(c => !c.parent).sort((a, b) => a.label.localeCompare(b.label));
+        const out = [];
+        for (const p of padres) {
+          out.push({ ...p, nivel: 0 });
+          lista.filter(c => c.parent === p.key).sort((a, b) => a.label.localeCompare(b.label)).forEach(c => out.push({ ...c, nivel: 1 }));
+        }
+        this.tiposCats = out;
+      } catch (e) { this.tiposError = 'No se pudieron cargar las categorías'; }
+    },
+    async setTipo(key, t) {
+      this.tiposBusy = true; this.tiposError = null;
+      try {
+        const r = await fetch('/api/categories/' + encodeURIComponent(key) + '/naturaleza', {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ naturaleza: t }) });
+        if (!r.ok) { const x = await r.json().catch(() => ({})); throw new Error(x.detail || ('No se pudo guardar (' + r.status + ')')); }
+        const it = this.tiposCats.find(c => c.key === key); if (it) it.naturaleza = t;
+        if (this.loaded) await this.load(true);
+      } catch (e) { this.tiposError = e.message || String(e); if (!this.openTipos) this.error = this.tiposError; }
+      finally { this.tiposBusy = false; }
+    },
+  });
+
   // ──────────────── 🔐 Sesión (PIN) ────────────────
   Alpine.store('auth', {
     enabled: false,
@@ -5800,6 +6311,32 @@ const PIE_COLORS = [
 
 function dashboard() {
   return {
+    // Pestaña activa (Resumen · Revisión · Movimientos · Ajustes), también en la dirección (#revision…)
+    view: 'resumen',
+    views: [
+      { key: 'resumen',     icon: '📊', label: 'Resumen' },
+      { key: 'revision',    icon: '🔎', label: 'Revisión' },
+      { key: 'movimientos', icon: '🧾', label: 'Movimientos' },
+      { key: 'ajustes',     icon: '⚙️', label: 'Ajustes' },
+    ],
+    goMovimientos() {
+      this.view = 'movimientos';
+      this.$nextTick(() => document.querySelector('h2.movimientos-anchor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    },
+    ajustes() {
+      return [
+        { key: 'fijos', icon: '🔁', label: 'Fijos y diferidos', desc: 'Gastos que se anotan solos cada mes y compras en cuotas.', run: () => Alpine.store('recurring').openModal('fijos') },
+        { key: 'presupuesto', icon: '🗂️', label: 'Categorías y presupuesto', desc: 'Categorías, subcategorías y cuánto le asignas a cada una.', run: () => this.openSettings() },
+        { key: 'tipos', icon: '🏷️', label: 'Tipos de gasto', desc: 'Qué es esencial, estilo de vida o gusto (para la Revisión).', run: () => Alpine.store('review').abrirTipos() },
+        { key: 'ingresos', icon: '💵', label: 'Ingresos', desc: 'Fuentes de ingreso, plan mensual y lo recibido.', run: () => this.openIncomeEditor() },
+        { key: 'tasas', icon: '💱', label: 'Tasas de cambio', desc: 'TRM y otras monedas, mes a mes.', run: () => Alpine.store('fx').openFor(this.month) },
+        { key: 'pagos', icon: '📅', label: 'Fechas de pago', desc: 'Tarjetas, créditos e hipoteca: cuándo vence cada uno.', run: () => Alpine.store('reminders').openModal() },
+        { key: 'conciliacion', icon: '🔄', label: 'Conciliación', desc: 'Cruzar extractos del banco con lo registrado.', run: () => this.openReconcile() },
+        { key: 'guia', icon: '📖', label: 'Guía de uso', desc: 'Cómo funciona el bot y el dashboard.', run: () => { Alpine.store('guide').open = true; } },
+        { key: 'tema', icon: '🌓', label: 'Tema claro / oscuro', desc: 'Cambia los colores de la página.', run: () => this.toggleTheme() },
+        { key: 'salir', icon: '🔒', label: 'Cerrar sesión', desc: 'Pide el PIN otra vez en este dispositivo.', run: () => Alpine.store('auth').logout(), show: () => Alpine.store('auth').enabled },
+      ];
+    },
     month: '',
     months: [],
     methodFilter: null,   // when set, filters Movimientos to this payment method
@@ -6018,6 +6555,17 @@ function dashboard() {
       // the pattern:
       if (this._inited) return;
       this._inited = true;
+      // Pestaña según la dirección (#revision, #movimientos, #ajustes); atrás/adelante del navegador cambia de pestaña
+      const vistas = this.views.map(v => v.key);
+      const desdeHash = () => { const h = (location.hash || '').slice(1); return vistas.includes(h) ? h : null; };
+      this.view = desdeHash() || 'resumen';
+      window.addEventListener('hashchange', () => { const h = desdeHash(); if (h && h !== this.view) this.view = h; });
+      this.$watch('view', (v) => {
+        if (location.hash.slice(1) !== v) location.hash = v;
+        if (v === 'revision') Alpine.store('review').ensureLoaded();
+        window.scrollTo({ top: 0 });
+      });
+      if (this.view === 'revision') Alpine.store('review').ensureLoaded();
       // Also truncate months in place to preserve reactivity (don't reassign).
       this.months.length = 0;
 
@@ -6286,6 +6834,7 @@ function dashboard() {
 
     // ── Análisis de gasto diario ─────────────────
     openAnalytics() {
+      this.view = 'resumen';
       this.analytics.open = true;
       if (!this.analytics.loaded) this.setQuickRange(this.analytics.quick || 30);
       this.$nextTick(() => {
