@@ -2207,7 +2207,7 @@
                 <span x-show="it.currency === 'USD'" class="text-[10px] text-slate-400"
                   title="Precio fijo en dólares; el COP se calcula con la TRM del mes">· fijo en dólares</span>
               </div>
-              <div class="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+              <div class="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
                 <span x-text="it.categoria"></span> · <span x-text="it.metodo_pago"></span> · <span x-text="it.user_name"></span>
               </div>
             </div>
@@ -2335,7 +2335,7 @@
                   </template>
                   <span> · total <span x-text="$store.deferred.money(g.total, g.currency)"></span></span>
                 </div>
-                <div class="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                <div class="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
                   <span x-text="$store.deferred.catLabel(g.categoria)"></span> · <span x-text="g.metodo_pago"></span> · <span x-text="g.user_name"></span> · <span x-text="$store.deferred.modoLabel(g.mode)"></span>
                 </div>
                 <div x-show="g.incompleto" class="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5"
@@ -6293,7 +6293,7 @@ document.addEventListener('alpine:init', () => {
       const r0 = el.getBoundingClientRect();
       const fijo = getComputedStyle(el).position === 'fixed' || el.closest('aside');
       // en el menú lateral (pantallas bajas) lo señalado puede estar abajo de su zona con scroll
-      if (el.closest('aside') && (r0.top < 0 || r0.bottom > innerHeight)) el.scrollIntoView({ block: 'nearest' });
+      if (el.closest('aside') && (r0.top < 8 || r0.bottom > innerHeight - 8)) el.scrollIntoView({ block: 'center' });
       if (!fijo && innerWidth < 1024) {
         // celular: lo señalado arriba y la tarjeta abajo
         if (r0.top < 8 || r0.top > 90) window.scrollBy({ top: r0.top - 12, behavior: 'instant' });
