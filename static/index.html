@@ -53,8 +53,8 @@
     let pend = false;
     const encajar = () => {
       pend = false;
-      document.querySelectorAll('.num.truncate').forEach((el) => {
-        if (!el.offsetParent) return;
+      document.querySelectorAll('.num').forEach((el) => {
+        if (!el.offsetParent || getComputedStyle(el).display === 'inline') return;
         el.style.fontSize = '';
         if (el.scrollWidth <= el.clientWidth + 1) return;
         const base = parseFloat(getComputedStyle(el).fontSize);
@@ -1519,7 +1519,7 @@
           <div class="flex-1 min-w-0">
             <div class="flex justify-between items-baseline gap-3">
               <!-- Primary line: the NOTE is the transaction identity. If no note, fall back to category label. -->
-              <span class="font-medium truncate text-sm">
+              <span class="font-medium truncate text-sm min-w-0">
                 <span x-text="e.nota || catLabel(e.categoria)"></span>
                 <!-- CAPEX badge: only shown if marked as bien/equipo (not 'gasto') -->
                 <span x-show="e.clase_contable && e.clase_contable !== 'gasto'"
