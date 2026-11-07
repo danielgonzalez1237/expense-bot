@@ -3,12 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#f6f5f2" id="meta-theme">
-<title>Gastos GG</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%92%B0%3C/text%3E%3C/svg%3E">
+<meta name="theme-color" content="#f5f6f8" id="meta-theme">
+<title>P&amp;G mensual · Family Office GG</title>
+<link rel="icon" href="/static/icono.svg" type="image/svg+xml">
+<link rel="icon" href="/static/icono-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/static/icono-180.png">
+<meta name="apple-mobile-web-app-title" content="P&amp;G GG">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..700&display=swap" rel="stylesheet">
 
 <!-- Tema ANTES de pintar (sin parpadeo). 'auto' (por defecto) = claro de día,
      oscuro de noche (18:00–6:00, hora del dispositivo). 'light'/'dark' = fijo. -->
@@ -20,7 +23,7 @@
     var dark = t === 'dark' || ((!t || t === 'auto') && (h >= 18 || h < 6));
     if (dark) document.documentElement.classList.add('dark');
     var m = document.getElementById('meta-theme');
-    if (m) m.setAttribute('content', dark ? '#141311' : '#f6f5f2');
+    if (m) m.setAttribute('content', dark ? '#0b0d11' : '#f5f6f8');
   })();
 </script>
 
@@ -44,36 +47,73 @@
       return r;
     };
   })();
+  // Cifras grandes que no caben en su caja: se achican (hasta 60 %), nunca se
+  // cortan con "…". Misma regla que encajar() en patrimonio.
+  (() => {
+    let pend = false;
+    const encajar = () => {
+      pend = false;
+      document.querySelectorAll('.num.truncate').forEach((el) => {
+        if (!el.offsetParent) return;
+        el.style.fontSize = '';
+        if (el.scrollWidth <= el.clientWidth + 1) return;
+        const base = parseFloat(getComputedStyle(el).fontSize);
+        let f = base;
+        while (el.scrollWidth > el.clientWidth + 1 && f > base * 0.6) { f -= 1; el.style.fontSize = f + 'px'; }
+      });
+    };
+    const pedir = () => { if (!pend) { pend = true; requestAnimationFrame(encajar); } };
+    window.addEventListener('resize', pedir);
+    window.addEventListener('hashchange', pedir);
+    document.addEventListener('DOMContentLoaded', () => {
+      // x-show cambia el atributo style; los cambios que hace encajar() en las cifras no cuentan.
+      new MutationObserver((ms) => { if (ms.some((m) => !(m.type === 'attributes' && m.target.classList && m.target.classList.contains('num')))) pedir(); })
+        .observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['style'] });
+      pedir();
+    });
+  })();
 </script>
 <!-- Chart.js antes que Alpine (los scripts defer corren en orden). Si no carga,
      la página funciona igual y las gráficas muestran un aviso. -->
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
 <style>
-  html, body { background: #f6f5f2; }
-  html.dark, html.dark body { background: #141311; }
+  html, body { background: #f5f6f8; }
+  html.dark, html.dark body { background: #0b0d11; }
   body { -webkit-font-smoothing: antialiased; font-feature-settings: "tnum" 1, "cv11" 1; }
-  /* Números grandes en Fraunces (serif editorial) */
-  .num { font-family: 'Fraunces', Georgia, serif; letter-spacing: -.02em; font-feature-settings: "tnum" 1, "lnum" 1; }
+  /* Números grandes: Inter apretado, como el patrimonio neto de Family Office GG */
+  .num { font-family: Inter, system-ui, sans-serif; font-weight: 600; letter-spacing: -.03em; font-feature-settings: "tnum" 1, "lnum" 1; }
+  /* Tarjetas: en noche el borde fino de patrimonio (la sombra no se ve sobre negro) */
+  .dark .shadow-sm { box-shadow: 0 0 0 1px #1f232b; }
+  /* Selector Patrimonio / P&G (mismo en las dos plataformas) */
+  .fo-menu { position: absolute; z-index: 70; top: calc(100% + 8px); left: 0; width: 300px; max-width: calc(100vw - 32px);
+             background: #fff; border: 1px solid #e5e8ec; border-radius: 16px; padding: 6px;
+             box-shadow: 0 12px 32px rgba(20,23,28,.12); }
+  .dark .fo-menu { background: #13161c; border-color: #262b34; box-shadow: 0 12px 32px rgba(0,0,0,.5); }
+  .fo-op { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; color: inherit; text-decoration: none; }
+  .fo-op:hover, .fo-op:focus-visible { background: #f2f4f7; outline: none; }
+  .dark .fo-op:hover, .dark .fo-op:focus-visible { background: #1a1e25; }
+  .fo-ic { width: 34px; height: 34px; flex: none; display: grid; place-items: center; border-radius: 10px; background: #f2f4f7; color: #3b424b; }
+  .dark .fo-ic { background: #1a1e25; color: #c9ced6; }
   /* Mapa de calor de días */
   .hm-cell { width: 100%; aspect-ratio: 1; border-radius: 3px; }
   /* Recorrido guiado: el elemento señalado queda por encima del velo */
-  .tour-target { position: relative; z-index: 61 !important; box-shadow: 0 0 0 4px #e5a54b, 0 0 0 9999px rgba(20,19,17,.55) !important; border-radius: 16px; transition: box-shadow .2s; }
+  .tour-target { position: relative; z-index: 61 !important; box-shadow: 0 0 0 4px #eda100, 0 0 0 9999px rgba(11,13,17,.55) !important; border-radius: 16px; transition: box-shadow .2s; }
   .safe-bottom { padding-bottom: max(env(safe-area-inset-bottom), 10px); }
   /* Botón ⓘ de cada módulo */
   .info-i { display: inline-grid; place-items: center; width: 22px; height: 22px; flex-shrink: 0; border-radius: 9999px;
-            font: italic 600 12px/1 'Fraunces', Georgia, serif; letter-spacing: 0; color: #7e786e; border: 1px solid #d7d1c6;
+            font: 600 11px/1 Inter, system-ui, sans-serif; letter-spacing: 0; color: #6f7680; border: 1px solid #d3d8de;
             background: transparent; vertical-align: middle; transition: background .15s, color .15s, border-color .15s; cursor: pointer; }
-  .info-i:hover, .info-i:focus-visible { color: #1e1c19; border-color: #7e786e; background: #f3f1ec; outline: none; }
-  .dark .info-i { color: #a9a297; border-color: #47433d; }
-  .dark .info-i:hover, .dark .info-i:focus-visible { color: #f3f1ec; border-color: #a9a297; background: #2d2a26; }
+  .info-i:hover, .info-i:focus-visible { color: #14171c; border-color: #6f7680; background: #f1f2f4; outline: none; }
+  .dark .info-i { color: #9aa1ab; border-color: #3b424b; }
+  .dark .info-i:hover, .dark .info-i:focus-visible { color: #f1f2f4; border-color: #9aa1ab; background: #22262e; }
   [x-cloak] { display: none !important; }
   .bar { transition: width .35s cubic-bezier(.4,0,.2,1); }
   .fade { animation: fade .25s ease-out; }
   @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
   .scroll-area::-webkit-scrollbar { width: 6px; height: 6px; }
-  .scroll-area::-webkit-scrollbar-thumb { background: #e8e4dc; border-radius: 3px; }
-  .dark .scroll-area::-webkit-scrollbar-thumb { background: #2d2a26; }
+  .scroll-area::-webkit-scrollbar-thumb { background: #e5e8ec; border-radius: 3px; }
+  .dark .scroll-area::-webkit-scrollbar-thumb { background: #22262e; }
   /* Hide scrollbar completely on the month button bar for a cleaner look */
   #month-bar { scrollbar-width: none; -ms-overflow-style: none; }
   #month-bar::-webkit-scrollbar { display: none; }
@@ -95,9 +135,27 @@
 
   <!-- ════════════════ Menú lateral (escritorio) ════════════════ -->
   <aside class="hidden lg:flex flex-col w-60 xl:w-64 shrink-0 h-screen sticky top-0 px-5 py-6 overflow-y-auto">
-    <div class="flex items-center gap-2.5">
-      <div class="w-9 h-9 rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 grid place-items-center text-sm font-semibold">gg</div>
-      <div><div class="text-sm font-semibold">Gastos GG</div><div class="text-[11px] text-slate-500">Familia González-Guevara</div></div>
+    <!-- Marca + selector Patrimonio / P&G mensual (el mismo que tiene patrimonio arriba a la izquierda) -->
+    <div class="relative" x-data="{ fo: false }" @click.outside="fo = false" @keydown.escape.window="fo = false">
+      <button type="button" @click="fo = !fo" :aria-expanded="fo" aria-haspopup="menu" title="Cambiar entre Patrimonio y P&amp;G mensual"
+        class="w-full -ml-1.5 flex items-center gap-2.5 rounded-xl px-1.5 py-1.5 text-left hover:bg-white dark:hover:bg-slate-900 transition">
+        <svg class="w-[26px] h-[26px] shrink-0" viewBox="0 0 64 64" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="4.4"><path d="M45.38 19.96 A18 18 0 1 0 50 32 L44.24 32"/><path d="M39.06 25.64 A9.5 9.5 0 1 0 41.5 32 L36.27 32"/></g></svg>
+        <span class="min-w-0 flex-1 leading-tight"><span class="block text-[15px] font-medium truncate">Family Office GG</span><span class="block text-xs text-slate-500 mt-0.5">P&amp;G mensual</span></span>
+        <svg class="w-4 h-4 shrink-0 text-slate-400 transition" :class="fo && 'rotate-180'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <div x-show="fo" x-cloak x-transition.opacity.duration.120ms class="fo-menu" role="menu" aria-label="Plataformas">
+        <a href="https://patrimonio-production-4091.up.railway.app" class="fo-op" role="menuitem">
+          <span class="fo-ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg></span>
+          <span class="min-w-0 flex-1 leading-tight"><span class="block text-sm font-medium">Patrimonio</span><span class="block text-xs text-slate-500 mt-0.5">Activos, pasivos y precios en vivo</span></span>
+          <span class="text-slate-400 text-sm" aria-hidden="true">→</span>
+        </a>
+        <button type="button" @click="fo = false" class="fo-op w-full text-left" role="menuitem" aria-current="page">
+          <span class="fo-ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9.5 8h5M9.5 12h5"/></svg></span>
+          <span class="min-w-0 flex-1 leading-tight"><span class="block text-sm font-medium">P&amp;G mensual</span><span class="block text-xs text-slate-500 mt-0.5">Gastos, ingresos y presupuesto</span></span>
+          <svg class="w-4 h-4 text-slate-900 dark:text-slate-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-label="Estás aquí"><path d="m5 12 5 5 9-10"/></svg>
+        </button>
+        <div class="px-3 pt-2 pb-1.5 mt-1 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-500">Las dos entran con el mismo PIN.</div>
+      </div>
     </div>
     <button @click="$store.quick.openModal(quickCtx())" data-tour="add"
       class="mt-6 w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 py-2.5 text-[13px] font-medium hover:opacity-90 transition">
@@ -120,11 +178,11 @@
       <button @click="openReconcile()" class="w-full text-left px-3.5 py-2 rounded-full text-slate-500 hover:bg-white/70 dark:hover:bg-slate-900 hover:text-slate-800 dark:hover:text-slate-200 transition">🔄&nbsp; Conciliación</button>
     </div>
     <div class="mt-6 flex items-center gap-2" data-tour="patrimonio">
-      <a href="https://patrimonio-production-4091.up.railway.app" target="_blank" rel="noopener"
+      <a href="https://patrimonio-production-4091.up.railway.app"
         class="flex-1 inline-flex items-center gap-2 rounded-full border border-slate-300 dark:border-slate-700 px-3.5 py-2.5 text-[13px] font-medium text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-900 transition">
-        <svg class="w-[18px] h-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18 M5 21V10 M19 21V10 M9 21V10 M15 21V10 M2 10 12 3l10 7Z"/></svg>
-        Ver patrimonio personal</a>
-      <button type="button" class="info-i" @click.stop="$store.info.abrir('patrimonio', $el)" title="¿Qué es esto?" aria-label="Qué es el patrimonio personal">i</button>
+        <svg class="w-[18px] h-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg>
+        <span class="flex-1">Ver patrimonio</span><span class="text-slate-400" aria-hidden="true">→</span></a>
+      <button type="button" class="info-i" @click.stop="$store.info.abrir('patrimonio', $el)" title="¿Qué es esto?" aria-label="Qué es el patrimonio">i</button>
     </div>
     <div class="mt-auto pt-8 space-y-3">
       <div class="flex rounded-full bg-slate-200/60 dark:bg-slate-900 p-0.5 text-[11px]" data-tour="tema" role="group" aria-label="Tema">
@@ -149,10 +207,29 @@
   <!-- ──────────────── Barra superior: título de la sección + acciones ──────────────── -->
   <header class="relative flex flex-wrap items-end gap-x-4 gap-y-3 mb-5">
     <div class="min-w-0 max-w-full">
-      <div class="flex items-center gap-2 lg:hidden mb-2">
-        <div class="w-7 h-7 rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 grid place-items-center text-[11px] font-semibold">gg</div>
-        <span class="text-xs font-semibold">Gastos GG</span>
-        <span class="text-[11px] text-slate-400" x-show="$store.auth.user" x-text="'· ' + $store.auth.user"></span>
+      <!-- Celular: marca + selector Patrimonio / P&G mensual -->
+      <div class="relative flex items-center gap-1.5 lg:hidden mb-2" x-data="{ fo: false }" @click.outside="fo = false" @keydown.escape.window="fo = false">
+        <button type="button" @click="fo = !fo" :aria-expanded="fo" aria-haspopup="menu" title="Cambiar entre Patrimonio y P&amp;G mensual"
+          class="-ml-1 flex items-center gap-2 rounded-xl pl-1 pr-1.5 py-1 hover:bg-white dark:hover:bg-slate-900 transition">
+          <svg class="w-[22px] h-[22px] shrink-0" viewBox="0 0 64 64" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="4.6"><path d="M45.38 19.96 A18 18 0 1 0 50 32 L44.24 32"/><path d="M39.06 25.64 A9.5 9.5 0 1 0 41.5 32 L36.27 32"/></g></svg>
+          <span class="text-[13px] font-medium whitespace-nowrap">P&amp;G mensual</span>
+          <svg class="w-3.5 h-3.5 shrink-0 text-slate-400 transition" :class="fo && 'rotate-180'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <span class="text-[11px] text-slate-400 truncate" x-show="$store.auth.user" x-text="'· ' + $store.auth.user"></span>
+        <div x-show="fo" x-cloak x-transition.opacity.duration.120ms class="fo-menu" role="menu" aria-label="Plataformas">
+          <div class="px-3 pt-1.5 pb-1 text-[11px] font-medium tracking-wide text-slate-500">FAMILY OFFICE GG</div>
+          <a href="https://patrimonio-production-4091.up.railway.app" class="fo-op" role="menuitem">
+            <span class="fo-ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg></span>
+            <span class="min-w-0 flex-1 leading-tight"><span class="block text-sm font-medium">Patrimonio</span><span class="block text-xs text-slate-500 mt-0.5">Activos, pasivos y precios en vivo</span></span>
+            <span class="text-slate-400 text-sm" aria-hidden="true">→</span>
+          </a>
+          <button type="button" @click="fo = false" class="fo-op w-full text-left" role="menuitem" aria-current="page">
+            <span class="fo-ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9.5 8h5M9.5 12h5"/></svg></span>
+            <span class="min-w-0 flex-1 leading-tight"><span class="block text-sm font-medium">P&amp;G mensual</span><span class="block text-xs text-slate-500 mt-0.5">Gastos, ingresos y presupuesto</span></span>
+            <svg class="w-4 h-4 text-slate-900 dark:text-slate-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-label="Estás aquí"><path d="m5 12 5 5 9-10"/></svg>
+          </button>
+          <div class="px-3 pt-2 pb-1.5 mt-1 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-500">Las dos entran con el mismo PIN.</div>
+        </div>
       </div>
       <div class="text-xs text-slate-500" x-text="viewSub()"></div>
       <!-- Resumen y Movimientos: el título ES el período (flechas + selector de mes) -->
@@ -198,10 +275,10 @@
       </div>
     </div>
     <div class="absolute right-0 top-0 lg:static flex items-center gap-1.5" :class="esPeriodo() ? '' : 'lg:ml-auto'">
-      <a href="https://patrimonio-production-4091.up.railway.app" target="_blank" rel="noopener" data-tour="patrimonio-movil"
+      <a href="https://patrimonio-production-4091.up.railway.app" data-tour="patrimonio-movil"
         class="lg:hidden w-9 h-9 rounded-full bg-white dark:bg-slate-900 shadow-sm grid place-items-center text-slate-600 dark:text-slate-300"
-        title="Ver patrimonio personal" aria-label="Ver patrimonio personal">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 21h18 M5 21V10 M19 21V10 M9 21V10 M15 21V10 M2 10 12 3l10 7Z"/></svg></a>
+        title="Ver patrimonio" aria-label="Ver patrimonio">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg></a>
       <button @click="$store.guide.open = true" data-tour="guia-movil"
         class="lg:hidden w-9 h-9 rounded-full bg-white dark:bg-slate-900 shadow-sm grid place-items-center text-sm font-semibold text-slate-600 dark:text-slate-300"
         title="Guía de uso" aria-label="Guía de uso">?</button>
@@ -720,9 +797,9 @@
 
     <!-- ── Próximos pagos: agenda ── -->
     <section class="xl:col-span-5 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm fade min-w-0" x-init="$store.reminders.load()" data-tour="pagos">
-      <div class="flex items-baseline justify-between gap-2">
-        <h2 class="num text-xl sm:text-2xl font-semibold flex items-center gap-2">Próximos pagos <button type="button" class="info-i" @click.stop="$store.info.abrir('pagos', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
-        <div class="flex items-center gap-1 text-[11px]">
+      <div class="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
+        <h2 class="num text-xl sm:text-2xl font-semibold flex items-center gap-2 whitespace-nowrap">Próximos pagos <button type="button" class="info-i" @click.stop="$store.info.abrir('pagos', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
+        <div class="flex items-center gap-1 text-[11px] shrink-0 whitespace-nowrap">
           <button @click="$store.reminders.openModal()" class="rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 px-2.5 py-1 font-medium">+ Agregar</button>
           <button @click="$store.reminders.openModal()" class="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 px-1.5 py-1">Gestionar</button>
         </div>
@@ -1804,7 +1881,7 @@
   <div class="fixed inset-0 z-[59]" :class="$store.tour.rect ? '' : 'bg-slate-950/55'"></div>
   <!-- foco: hueco transparente sobre lo que se explica, el resto oscurecido -->
   <div x-show="$store.tour.rect" class="fixed z-[60] pointer-events-none rounded-2xl transition-all duration-200"
-    style="box-shadow: 0 0 0 4px #e5a54b, 0 0 0 9999px rgba(20,19,17,.58)"
+    style="box-shadow: 0 0 0 4px #eda100, 0 0 0 9999px rgba(11,13,17,.58)"
     :style="$store.tour.rect ? { top: $store.tour.rect.top + 'px', left: $store.tour.rect.left + 'px', width: $store.tour.rect.width + 'px', height: $store.tour.rect.height + 'px' } : {}"></div>
   <div id="tour-card" class="fixed z-[61] bg-white dark:bg-slate-900 rounded-3xl shadow-2xl p-5 w-[min(360px,calc(100vw-24px))]"
     :style="$store.tour.cardStyle" role="dialog" aria-live="polite">
@@ -3799,7 +3876,7 @@
       <div class="flex items-start justify-between">
         <div>
           <div class="text-xs text-slate-500 uppercase tracking-wide">Guía de uso</div>
-          <div class="text-lg font-bold">Cómo usar Gastos GG</div>
+          <div class="text-lg font-bold">Cómo usar el P&amp;G mensual</div>
           <div class="text-xs text-slate-500 mt-0.5">Bot de Telegram + Dashboard web, sincronizados</div>
         </div>
         <button
@@ -4264,10 +4341,10 @@
       <div x-show="$store.guide.active === 8" class="fade space-y-4">
         <div>
           <div class="num text-2xl font-semibold">🏛️ Patrimonio personal</div>
-          <p class="text-slate-600 dark:text-slate-400 text-sm mt-1">Un sitio aparte que muestra todo lo que tiene la familia y lo que debe, en vivo. Los gastos siguen aquí; el patrimonio se abre en otra pestaña con tu PIN.</p>
+          <p class="text-slate-600 dark:text-slate-400 text-sm mt-1">La otra mitad de Family Office GG: todo lo que tiene la familia y lo que debe, en vivo. Se cambia desde el nombre <b>Family Office GG</b> arriba a la izquierda (en las dos plataformas) y entra con el mismo PIN.</p>
         </div>
-        <a href="https://patrimonio-production-4091.up.railway.app" target="_blank" rel="noopener"
-          class="inline-flex w-full sm:w-auto justify-center rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-5 py-2.5 text-sm font-medium">Ver patrimonio personal ↗</a>
+        <a href="https://patrimonio-production-4091.up.railway.app"
+          class="inline-flex w-full sm:w-auto justify-center rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-5 py-2.5 text-sm font-medium">Ver patrimonio →</a>
         <div class="grid sm:grid-cols-2 gap-3">
           <div class="rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-4">
             <div class="font-semibold text-sm">🏠 Inicio</div>
@@ -5275,15 +5352,15 @@ document.addEventListener('alpine:init', () => {
     colors() {
       const dark = document.documentElement.classList.contains('dark');
       return {
-        dark, es: '#6aa3cc', st: '#a99bd6', gu: '#e5a54b', sc: '#a9a297', bud: '#e07a5f', ok: '#3d7a55',
-        ink: dark ? '#a9a297' : '#7e786e', grid: dark ? '#2d2a26' : '#eeebe4', card: dark ? '#1e1c19' : '#ffffff',
-        track: dark ? '#2d2a26' : '#f1ece2', rest: dark ? '#47433d' : '#e2dccf', line: dark ? '#e8e4dc' : '#1e1c19',
+        dark, es: '#3987e5', st: '#9085e9', gu: '#eda100', sc: '#9aa1ab', bud: '#e5675a', ok: '#1baf7a',
+        ink: dark ? '#9aa1ab' : '#6f7680', grid: dark ? '#22262e' : '#eceff3', card: dark ? '#14171c' : '#ffffff',
+        track: dark ? '#22262e' : '#eef0f3', rest: dark ? '#3b424b' : '#dfe3e8', line: dark ? '#e5e8ec' : '#14171c',
       };
     },
     heatColors() {
       return document.documentElement.classList.contains('dark')
-        ? ['#2d2a26', '#5c4720', '#9a6413', '#d9973b', '#f6cf8a']
-        : ['#f1ece2', '#f3d9a4', '#e5a54b', '#c97a2b', '#8f4d16'];
+        ? ['#22262e', '#4d3a08', '#9a6a00', '#d9a01a', '#f5c75a']
+        : ['#eef0f3', '#fbe3a6', '#eda100', '#c98500', '#8a5a00'];
     },
     kill(id) { if (this.charts[id]) { try { this.charts[id].destroy(); } catch (e) {} delete this.charts[id]; } },
     make(id, cfg) {
@@ -5326,7 +5403,7 @@ document.addEventListener('alpine:init', () => {
       if (d.totales.por_tipo.sin_clasificar && d.totales.por_tipo.sin_clasificar.usd > 0) tipos.push(['sin_clasificar', 'Sin clasificar', C.sc]);
       const presu = R.presupuesto();
       const axisY = { stacked: true, beginAtZero: true, grid: { color: C.grid }, border: { display: false }, ticks: { callback: v => short(v), maxTicksLimit: 6 } };
-      const tip = { backgroundColor: C.dark ? '#f3f1ec' : '#1e1c19', titleColor: C.dark ? '#1e1c19' : '#faf9f6', bodyColor: C.dark ? '#1e1c19' : '#faf9f6', padding: 10, cornerRadius: 10, boxPadding: 4 };
+      const tip = { backgroundColor: C.dark ? '#f1f2f4' : '#14171c', titleColor: C.dark ? '#14171c' : '#f7f8fa', bodyColor: C.dark ? '#14171c' : '#f7f8fa', padding: 10, cornerRadius: 10, boxPadding: 4 };
       const nm = d.periodo.n_meses;
 
       // KPI: medidor del presupuesto
@@ -5342,7 +5419,7 @@ document.addEventListener('alpine:init', () => {
       // KPI: mini línea del total por mes
       if (nm > 1) {
         this.make('rev-spark', { type: 'line',
-          data: { labels: lab, datasets: [{ data: porMes.map(m => R.v(m)), borderColor: C.line, borderWidth: 2, tension: .35, pointRadius: 0, fill: true, backgroundColor: C.dark ? 'rgba(232,228,220,.08)' : 'rgba(30,28,25,.06)' }] },
+          data: { labels: lab, datasets: [{ data: porMes.map(m => R.v(m)), borderColor: C.line, borderWidth: 2, tension: .35, pointRadius: 0, fill: true, backgroundColor: C.dark ? 'rgba(229,232,236,.08)' : 'rgba(20,23,28,.06)' }] },
           options: { maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { enabled: false } }, scales: { x: { display: false }, y: { display: false, beginAtZero: true } } } });
       } else this.kill('rev-spark');
 
@@ -5351,7 +5428,7 @@ document.addEventListener('alpine:init', () => {
         const ds = tipos.map(([t, l, c]) => ({ label: l, data: tipoMes(t), backgroundColor: c, borderRadius: 6, stack: 's', borderSkipped: false, maxBarThickness: 46 }));
         if (presu) ds.push({ label: 'Presupuesto ideal', type: 'line', stack: 'presu', data: lab.map(() => presu), borderColor: C.bud, borderDash: [6, 5], borderWidth: 2, pointRadius: 0, pointHoverRadius: 0, order: -1 });
         if (R.ingresosAplican() && R.v(d.ingresos) > 0) {
-          const ingC = C.dark ? '#4fae7b' : '#2f6b47';
+          const ingC = C.dark ? '#4cc38a' : '#0b7f48';
           ds.push({ label: 'Ingresos', type: 'line', stack: 'ingresos', data: meses.map(m => R.v((d.ingresos.por_mes || []).find(x => x.mes === m))),
             borderColor: ingC, backgroundColor: ingC, borderWidth: 2.5, tension: .3, pointRadius: 3.5, pointBackgroundColor: C.card, pointBorderColor: ingC, pointBorderWidth: 2, order: -2 });
         }
@@ -5399,7 +5476,7 @@ document.addEventListener('alpine:init', () => {
           onHover: (e, els) => { e.native && (e.native.target.style.cursor = els.length ? 'pointer' : 'default'); },
           plugins: { legend: { display: false }, tooltip: { ...tip, callbacks: { title: i => top[i[0].dataIndex].label, label: c => ' ' + money(c.parsed.x) + ' · ' + top[c.dataIndex].count + ' veces · ' + top[c.dataIndex].pct.toFixed(1).replace('.', ',') + '%' } } },
           scales: { x: { beginAtZero: true, grid: { color: C.grid }, border: { display: false }, ticks: { callback: v => short(v), maxTicksLimit: 5 } },
-                    y: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 12 }, color: C.dark ? '#d7d1c6' : '#47433d' } } } } });
+                    y: { grid: { display: false }, border: { display: false }, ticks: { font: { size: 12 }, color: C.dark ? '#d3d8de' : '#3b424b' } } } } });
 
       // Área apilada por tipo
       if (nm > 1) {
@@ -5506,15 +5583,15 @@ document.addEventListener('alpine:init', () => {
       if (d && d.days && d.days.length && !esperarVisible('ana-chart', (n) => this.render(D, n), intentos)) return;
       if (!el || !window.Chart || !d || !d.days || !d.days.length) return;
       const dark = document.documentElement.classList.contains('dark');
-      const grid = dark ? '#2d2a26' : '#eeebe4', ink = dark ? '#a9a297' : '#7e786e', line = dark ? '#e8e4dc' : '#1e1c19';
+      const grid = dark ? '#22262e' : '#eceff3', ink = dark ? '#9aa1ab' : '#6f7680', line = dark ? '#e5e8ec' : '#14171c';
       Chart.defaults.font.family = 'Inter, system-ui, sans-serif'; Chart.defaults.font.size = 11; Chart.defaults.color = ink;
       const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
       const etiqueta = (iso, i) => { const [, m, dd] = iso.split('-').map(Number); return (dd === 1 || i === 0) ? dd + ' ' + MES[m - 1] : String(dd); };
       const lab = d.days.map(etiqueta);
       const largo = (iso) => { const [y, m, dd] = iso.split('-').map(Number); const w = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'][new Date(y, m - 1, dd).getDay()]; return w + ' ' + dd + ' ' + MES[m - 1]; };
       const corto = (v) => '$' + (v >= 1000 ? (v / 1000).toLocaleString('es-CO', { maximumFractionDigits: 1 }) + 'k' : Math.round(v));
-      const tip = { backgroundColor: dark ? '#f3f1ec' : '#1e1c19', titleColor: dark ? '#1e1c19' : '#faf9f6', bodyColor: dark ? '#1e1c19' : '#faf9f6',
-                    footerColor: dark ? '#1e1c19' : '#faf9f6', padding: 10, cornerRadius: 10, boxPadding: 4 };
+      const tip = { backgroundColor: dark ? '#f1f2f4' : '#14171c', titleColor: dark ? '#14171c' : '#f7f8fa', bodyColor: dark ? '#14171c' : '#f7f8fa',
+                    footerColor: dark ? '#14171c' : '#f7f8fa', padding: 10, cornerRadius: 10, boxPadding: 4 };
       const totales = d.days.map(day => d.groups.reduce((s, g) => s + ((d.daily[day] || {})[g.key] || 0), 0));
       const x = { stacked: true, grid: { display: false }, border: { display: false }, ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 10 } };
       const y = { stacked: true, beginAtZero: true, grid: { color: grid }, border: { display: false }, ticks: { callback: corto, maxTicksLimit: 5 } };
@@ -5522,7 +5599,7 @@ document.addEventListener('alpine:init', () => {
       if (D.analytics.mode === 'cumulative') {
         let acc = 0; const cum = totales.map(t => (acc += t));
         cfg = { type: 'line', data: { labels: lab, datasets: [{ label: 'Acumulado', data: cum, borderColor: line, borderWidth: 2, tension: .3, pointRadius: 0, pointHoverRadius: 4,
-                  fill: true, backgroundColor: dark ? 'rgba(232,228,220,.08)' : 'rgba(30,28,25,.06)' }] },
+                  fill: true, backgroundColor: dark ? 'rgba(229,232,236,.08)' : 'rgba(20,23,28,.06)' }] },
           options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
             plugins: { legend: { display: false }, tooltip: { ...tip, callbacks: { title: (it) => largo(d.days[it[0].dataIndex]),
               label: (c) => ' Acumulado: ' + D.fmtUsd(c.parsed.y), footer: (it) => 'Ese día: ' + D.fmtUsd(totales[it[0].dataIndex]) } } },
@@ -5555,8 +5632,8 @@ document.addEventListener('alpine:init', () => {
       const serie = (D && D.pnlSerie) || [];
       if (!serie.length || !window.Chart) return;
       const dark = document.documentElement.classList.contains('dark');
-      const C = { ing: dark ? '#4fae7b' : '#3d7a55', gas: '#e5a54b', neto: dark ? '#e8e4dc' : '#1e1c19', plan: dark ? '#a9a297' : '#7e786e',
-                  grid: dark ? '#2d2a26' : '#eeebe4', ink: dark ? '#a9a297' : '#7e786e', card: dark ? '#1e1c19' : '#ffffff' };
+      const C = { ing: dark ? '#4cc38a' : '#1baf7a', gas: '#eda100', neto: dark ? '#e5e8ec' : '#14171c', plan: dark ? '#9aa1ab' : '#6f7680',
+                  grid: dark ? '#22262e' : '#eceff3', ink: dark ? '#9aa1ab' : '#6f7680', card: dark ? '#14171c' : '#ffffff' };
       Chart.defaults.font.family = 'Inter, system-ui, sans-serif'; Chart.defaults.font.size = 11; Chart.defaults.color = C.ink;
       const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
       const variosAnios = new Set(serie.map(m => m.mes.slice(0, 4))).size > 1;
@@ -5565,7 +5642,7 @@ document.addEventListener('alpine:init', () => {
       const tono = (c, i) => enRango[i] ? c : c + '59';   // los meses fuera del período, más claros
       const money = (x) => D.fmtUsd(x);
       const corto = (v) => { const a = Math.abs(v); return (v < 0 ? '-' : '') + '$' + (a >= 1000 ? (a / 1000).toLocaleString('es-CO', { maximumFractionDigits: 1 }) + 'k' : Math.round(a)); };
-      const tip = { backgroundColor: dark ? '#f3f1ec' : '#1e1c19', titleColor: dark ? '#1e1c19' : '#faf9f6', bodyColor: dark ? '#1e1c19' : '#faf9f6', padding: 10, cornerRadius: 10, boxPadding: 4 };
+      const tip = { backgroundColor: dark ? '#f1f2f4' : '#14171c', titleColor: dark ? '#14171c' : '#f7f8fa', bodyColor: dark ? '#14171c' : '#f7f8fa', padding: 10, cornerRadius: 10, boxPadding: 4 };
       const ejeY = { beginAtZero: true, grid: { color: C.grid }, border: { display: false }, ticks: { callback: corto, maxTicksLimit: 6 } };
       if (D.view === 'resumen' && esperarVisible('pyg-chart', (n) => this.render(D, n), arguments[1])) {
         this.make('pyg-chart', { type: 'bar',
@@ -5573,7 +5650,7 @@ document.addEventListener('alpine:init', () => {
             { label: 'Ingresos', data: serie.map(m => m.ingresos_usd), backgroundColor: serie.map((m, i) => tono(C.ing, i)), borderRadius: 6, borderSkipped: false, maxBarThickness: 28, order: 2 },
             { label: 'Gastos', data: serie.map(m => m.gastos_usd), backgroundColor: serie.map((m, i) => tono(C.gas, i)), borderRadius: 6, borderSkipped: false, maxBarThickness: 28, order: 2 },
             { label: 'Neto', type: 'line', data: serie.map(m => m.neto_usd), borderColor: C.neto, backgroundColor: C.card, borderWidth: 2, tension: .35,
-              pointRadius: 4, pointBackgroundColor: serie.map(m => m.neto_usd >= 0 ? C.ing : '#e07a5f'), pointBorderColor: C.card, pointBorderWidth: 2, order: 1 } ] },
+              pointRadius: 4, pointBackgroundColor: serie.map(m => m.neto_usd >= 0 ? C.ing : '#e5675a'), pointBorderColor: C.card, pointBorderWidth: 2, order: 1 } ] },
           options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
             plugins: { legend: { display: false }, tooltip: { ...tip, callbacks: {
               title: (it) => D._mesLargo(serie[it[0].dataIndex].mes),
@@ -5602,10 +5679,10 @@ document.addEventListener('alpine:init', () => {
   // gasto: azules = esencial, lilas = estilo de vida, dorados = gusto.
   window.ResumenDona = {
     chart: null,
-    TONOS: { esencial: ['#2d6187', '#4f8bb8', '#6aa3cc', '#94bfdc', '#bcd6e8', '#dce9f3'],
-             estilo:   ['#5b4b9a', '#8a79c4', '#a99bd6', '#c7bde6', '#e0d9f3'],
-             gusto:    ['#9a6413', '#c98a2e', '#e5a54b', '#f0c88a', '#f7e0bb'],
-             sin:      ['#7e786e', '#a9a297', '#d7d1c6'] },
+    TONOS: { esencial: ['#174d8f', '#2a78d6', '#3987e5', '#6da7ec', '#a9cbf3', '#d6e6fa'],
+             estilo:   ['#4636a8', '#6250d6', '#9085e9', '#b4abf5', '#dcd8fb'],
+             gusto:    ['#9a6a00', '#c98500', '#eda100', '#f5c75a', '#fbe3a6'],
+             sin:      ['#6f7680', '#9aa1ab', '#d3d8de'] },
     color(f, i, filas) {
       const t = this.TONOS[f.tipo] || this.TONOS.sin;
       const k = (filas || []).filter((x, j) => j < i && (x.tipo || 'sin') === (f.tipo || 'sin')).length;
@@ -5624,12 +5701,12 @@ document.addEventListener('alpine:init', () => {
       try {
         this.chart = new Chart(el, { type: 'doughnut',
           data: { labels: filas.map(f => f.label), datasets: [{ data: filas.map(f => Math.max(0, f.usd)), backgroundColor: colores,
-            borderWidth: 3, borderColor: dark ? '#1e1c19' : '#ffffff', hoverOffset: 6 }] },
+            borderWidth: 3, borderColor: dark ? '#14171c' : '#ffffff', hoverOffset: 6 }] },
           options: { maintainAspectRatio: false, cutout: '70%', animation: { duration: 350 },
             onClick: (e, els) => { if (els.length && !sub) D.exEntrar(filas[els[0].index]); },
             onHover: (e, els) => { if (e.native) e.native.target.style.cursor = els.length && !sub ? 'pointer' : 'default'; },
-            plugins: { legend: { display: false }, tooltip: { backgroundColor: dark ? '#f3f1ec' : '#1e1c19', titleColor: dark ? '#1e1c19' : '#faf9f6',
-              bodyColor: dark ? '#1e1c19' : '#faf9f6', padding: 10, cornerRadius: 10,
+            plugins: { legend: { display: false }, tooltip: { backgroundColor: dark ? '#f1f2f4' : '#14171c', titleColor: dark ? '#14171c' : '#f7f8fa',
+              bodyColor: dark ? '#14171c' : '#f7f8fa', padding: 10, cornerRadius: 10,
               callbacks: { label: c => ' ' + c.label + ': ' + D.fmtUsd(c.parsed) } } } } });
       } catch (e) { console.warn('dona resumen', e); }
     },
@@ -6041,7 +6118,7 @@ document.addEventListener('alpine:init', () => {
   Alpine.store('info', {
     open: false, key: null, style: '',
     T: {
-      patrimonio: { t: 'Patrimonio personal', h: '<p>Es otro sitio, aparte de los gastos: muestra <b>todo lo que tiene la familia y lo que debe</b>, en vivo. Se abre en otra pestaña y entras con tu PIN.</p><p><b>Inicio</b>: el patrimonio neto moviéndose en vivo, el mapa por categoría y lo que tienen de cada activo. <b>Categorías</b>: valor, deuda y cambio en 30 días de cada una. <b>Créditos</b>: leasing, Damac y el crédito de Tuo con su tabla de cuotas. <b>Tuo</b>: la empresa frente al crédito de COP$200M y cómo quedan si liquidan hoy.</p><p>La guía completa está en el botón <b>?</b> → <b>Patrimonio</b>.</p>' },
+      patrimonio: { t: 'Patrimonio', h: '<p>La otra mitad de Family Office GG: <b>todo lo que tiene la familia y lo que debe</b>, en vivo. Se abre aquí mismo con el mismo PIN; para volver, toca <b>Family Office GG</b> arriba a la izquierda y elige <b>P&amp;G mensual</b>.</p><p><b>Inicio</b>: el patrimonio neto moviéndose en vivo, el mapa por categoría y lo que tienen de cada activo. <b>Categorías</b>: valor, deuda y cambio en 30 días de cada una. <b>Créditos</b>: leasing, Damac y el crédito de Tuo con su tabla de cuotas. <b>Tuo</b>: la empresa frente al crédito de COP$200M y cómo quedan si liquidan hoy.</p><p>La guía completa está en el botón <b>?</b> → <b>Patrimonio</b>.</p>' },
       gastado: { t: 'Gastado', h: '<p>Todo lo gastado en el período que elegiste arriba.</p><p>La barra separa <b>fijos y cuotas</b> (oscuro: se anotan solos, como hipoteca, administración, suscripciones y cuotas de diferidos) del <b>día a día</b> (dorado: lo que anotan ustedes).</p><p><b>Comparar con</b> tiene dos referencias: el <b>presupuesto ideal</b> (la suma del ideal de cada categoría, que editas en Ajustes → Categorías y presupuesto) y el <b>ingreso percibido</b> (lo que de verdad entró, de la sección Ingresos). Con 3, 6 o 12 meses el presupuesto se multiplica por los meses.</p><p>Con el presupuesto ideal, el <b>ritmo</b> del mes en curso mira solo el día a día: qué parte de lo disponible llevan contra qué parte del mes va.</p>' },
       pagos: { t: 'Próximos pagos', h: '<p>Las fechas de pago de tarjetas y créditos. El color dice qué tan cerca está: <b>rojo</b> vencido o 3 días o menos, <b>naranja</b> hasta 7, <b>dorado</b> hasta 14 y <b>verde</b> más lejos.</p><p>Cuando paguen, toquen <b>Ya pagué</b>: sale de la lista y vuelve sola el mes siguiente con la nueva fecha. Si fue un error, en "pagados este mes" está <b>Deshacer</b>.</p><p>Tocar el nombre lo edita; <b>+ Agregar</b> y <b>Gestionar</b> crean, cambian o borran recordatorios. Solo avisa: no anota el gasto.</p>' },
       pyg: { t: 'P&G', h: '<p>Ingresos contra gastos del período. <b>Neto</b> = ingresos − gastos; si es positivo dice qué parte del ingreso ahorraron.</p><p>La gráfica muestra los últimos meses: barras verdes = ingresos, doradas = gastos, línea = neto (punto verde si sobró, rojo si faltó). Los meses fuera del período elegido se ven más claros.</p><p><b>De dónde vino</b> agrupa los ingresos (CLP, rentas, cripto…) y <b>En qué se fue</b> reparte el gasto en esencial, estilo de vida y gusto. <b>+ Anotar ingreso</b> lleva a la sección Ingresos; en <b>⋯</b> están las fuentes y los CSV.</p>' },
@@ -6128,7 +6205,7 @@ document.addEventListener('alpine:init', () => {
       { sel: ['[data-tour=rev-simulador]'], view: 'revision', title: 'Simulador',
         text: 'Prueba escenarios: bajar restaurantes 30%, todos los gustos 20% o poner un tope por compra, y mira cuánto ahorrarían al mes y al año.' },
       { sel: ['[data-tour=rev-mes]'], view: 'revision', title: 'Mes a mes',
-        text: 'Cada barra es un mes, partida en <b style="color:#4f8bb8">esencial</b>, <b style="color:#8a79c4">estilo de vida</b> y <b style="color:#c98a2e">gusto</b>. La línea punteada es el presupuesto. Pasa el dedo o el mouse por encima para ver los números.' },
+        text: 'Cada barra es un mes, partida en <b style="color:#2a78d6">esencial</b>, <b style="color:#6250d6">estilo de vida</b> y <b style="color:#c98500">gusto</b>. La línea punteada es el presupuesto. Pasa el dedo o el mouse por encima para ver los números.' },
       { sel: ['[data-tour=rev-dona]'], view: 'revision', title: 'Necesario o gusto',
         text: 'Toca un tipo y el ranking de abajo muestra solo ese. En <b>En qué se fue</b>, toca una barra y se abre el detalle de esa categoría.' },
       { sel: ['[data-tour=rev-dias]'], view: 'revision', title: 'Cada día',
@@ -7468,7 +7545,7 @@ function dashboard() {
       this.isDark = dark;
       document.documentElement.classList.toggle('dark', dark);
       const meta = document.getElementById('meta-theme');
-      if (meta) meta.setAttribute('content', dark ? '#141311' : '#f6f5f2');
+      if (meta) meta.setAttribute('content', dark ? '#0b0d11' : '#f5f6f8');
       window.dispatchEvent(new CustomEvent('theme-changed', { detail: { dark } }));
     },
     setThemeMode(m) {
@@ -7601,7 +7678,7 @@ function dashboard() {
     incomeSources: [], pnlSerie: [], pnlPlanMensual: 0,
     ingForm: { source_key: '', monto: '', currency: 'USD', fecha: '', nota: '' },
     ingBusy: false, ingError: null, ingFiltro: null, ingEditId: null, ingEdit: {},
-    COLORES_ING: { clp: '#3d7a55', rentas: '#c98a2e', defi: '#8a79c4', cefi: '#4f8bb8', mineria: '#7e786e', trading: '#b0472c', otros: '#94bfdc' },
+    COLORES_ING: { clp: '#1baf7a', rentas: '#c98500', defi: '#6250d6', cefi: '#2a78d6', mineria: '#6f7680', trading: '#c63a2d', otros: '#6da7ec' },
     async cargarFuentes() {
       try { const r = await fetch('/api/income/sources'); if (r.ok) this.incomeSources = (await r.json()).sources || []; } catch (e) {}
     },
@@ -7641,11 +7718,11 @@ function dashboard() {
       const t = { esencial: 0, estilo: 0, gusto: 0, sin: 0 };
       for (const c of (this.summary.categories || [])) { const k = this._tipoDe(c.categoria); t[t[k] !== undefined ? k : 'sin'] += c.spent_usd || 0; }
       const tot = Object.values(t).reduce((a, b) => a + b, 0) || 1;
-      return [['esencial', 'Esencial', '#6aa3cc'], ['estilo', 'Estilo de vida', '#a99bd6'], ['gusto', 'Gusto', '#e5a54b'], ['sin', 'Sin clasificar', '#a9a297']]
+      return [['esencial', 'Esencial', '#3987e5'], ['estilo', 'Estilo de vida', '#9085e9'], ['gusto', 'Gusto', '#eda100'], ['sin', 'Sin clasificar', '#9aa1ab']]
         .filter(([k]) => t[k] > 0).map(([k, l, c]) => ({ k, label: l, color: c, usd: t[k], pct: Math.round(100 * t[k] / tot) }));
     },
     ingresosPorGrupo() {
-      return this.incomeGroups.map(g => ({ ...g, color: this.COLORES_ING[g.key] || '#94bfdc' })).sort((a, b) => b.total - a.total);
+      return this.incomeGroups.map(g => ({ ...g, color: this.COLORES_ING[g.key] || '#6da7ec' })).sort((a, b) => b.total - a.total);
     },
     // Ingresos: recibido vs plan, por fuente y por grupo
     ingPlan() { return Number(this.pnl && this.pnl.income && this.pnl.income.expected_total_usd) || 0; },
@@ -7665,7 +7742,7 @@ function dashboard() {
       for (const f of fuentes) {
         const gk = this._groupOf({ source_key: f.key, label: f.label });
         const def = this._incomeGroupDefs().find(g => g.key === gk) || { key: 'otros', label: 'Otros', icon: '🏦' };
-        const g = grupos[gk] || (grupos[gk] = { key: gk, label: def.label, icon: def.icon, color: this.COLORES_ING[gk] || '#94bfdc', recibido: 0, plan: 0, items: [] });
+        const g = grupos[gk] || (grupos[gk] = { key: gk, label: def.label, icon: def.icon, color: this.COLORES_ING[gk] || '#6da7ec', recibido: 0, plan: 0, items: [] });
         g.recibido += f.recibido; g.plan += f.plan; g.items.push(f);
       }
       const lista = Object.values(grupos);
@@ -8374,7 +8451,7 @@ function dashboard() {
     },
     analyticsColor(idx) {
       const d = this.analytics.data;
-      if (!d || !d.groups || !window.ResumenDona) return '#a9a297';
+      if (!d || !d.groups || !window.ResumenDona) return '#9aa1ab';
       const filas = d.groups.map(g => ({ tipo: g.key === '__otros__' ? 'sin' : this._tipoDe(g.key) }));
       return ResumenDona.color(filas[idx] || { tipo: 'sin' }, idx, filas);
     },
