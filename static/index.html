@@ -51,15 +51,22 @@
   // cortan con "…". Misma regla que encajar() en patrimonio.
   (() => {
     let pend = false;
+    // Medida exacta (con decimales): ancho del texto contra el espacio de la caja
+    const sobra = (el) => {
+      const cs = getComputedStyle(el), r = document.createRange();
+      r.selectNodeContents(el);
+      const caja = el.getBoundingClientRect().width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      return r.getBoundingClientRect().width > caja + 0.1 || el.scrollWidth > el.clientWidth;
+    };
     const encajar = () => {
       pend = false;
       document.querySelectorAll('.num').forEach((el) => {
         if (!el.offsetParent || getComputedStyle(el).display === 'inline') return;
         el.style.fontSize = '';
-        if (el.scrollWidth <= el.clientWidth + 1) return;
+        if (!sobra(el)) return;
         const base = parseFloat(getComputedStyle(el).fontSize);
         let f = base;
-        while (el.scrollWidth > el.clientWidth + 1 && f > base * 0.6) { f -= 1; el.style.fontSize = f + 'px'; }
+        while (sobra(el) && f > base * 0.6) { f -= 0.5; el.style.fontSize = f + 'px'; }
       });
     };
     const pedir = () => { if (!pend) { pend = true; requestAnimationFrame(encajar); } };
@@ -70,6 +77,7 @@
       new MutationObserver((ms) => { if (ms.some((m) => !(m.type === 'attributes' && m.target.classList && m.target.classList.contains('num')))) pedir(); })
         .observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['style'] });
       pedir();
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(pedir);
     });
   })();
 </script>
@@ -83,13 +91,21 @@
   body { -webkit-font-smoothing: antialiased; font-feature-settings: "tnum" 1, "cv11" 1; }
   /* Números grandes: Inter apretado, como el patrimonio neto de Family Office GG */
   .num { font-family: Inter, system-ui, sans-serif; font-weight: 600; letter-spacing: -.03em; font-feature-settings: "tnum" 1, "lnum" 1; }
+  /* Controles nativos (fechas, listas, casillas) oscuros en modo noche; negrita única = 600 */
+  html.dark { color-scheme: dark; }
+  b, strong { font-weight: 600; }
   /* Tarjetas: en noche el borde fino de patrimonio (la sombra no se ve sobre negro) */
   .dark .shadow-sm { box-shadow: 0 0 0 1px #1f232b; }
   /* Selector Patrimonio / P&G (mismo en las dos plataformas) */
-  .fo-menu { position: absolute; z-index: 70; top: calc(100% + 8px); left: 0; width: 300px; max-width: calc(100vw - 32px);
+  .fo-menu { position: absolute; z-index: 70; top: calc(100% + 6px); left: 0; width: 316px; max-width: calc(100vw - 32px);
+             display: flex; flex-direction: column; gap: 2px;
              background: #fff; border: 1px solid #e5e8ec; border-radius: 16px; padding: 6px;
-             box-shadow: 0 12px 32px rgba(20,23,28,.12); }
-  .dark .fo-menu { background: #13161c; border-color: #262b34; box-shadow: 0 12px 32px rgba(0,0,0,.5); }
+             box-shadow: 0 14px 36px rgba(0,0,0,.28); }
+  .dark .fo-menu { background: #13161c; border-color: #1f232b; }
+  .fo-op[aria-current="page"] { background: #f2f4f7; }
+  .dark .fo-op[aria-current="page"] { background: #1a1e25; }
+  .fo-op[aria-current="page"] .fo-ic { background: #fff; }
+  .dark .fo-op[aria-current="page"] .fo-ic { background: #13161c; }
   .fo-op { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; color: inherit; text-decoration: none; }
   .fo-op:hover, .fo-op:focus-visible { background: #f2f4f7; outline: none; }
   .dark .fo-op:hover, .dark .fo-op:focus-visible { background: #1a1e25; }
@@ -134,7 +150,7 @@
 >
 
   <!-- ════════════════ Menú lateral (escritorio) ════════════════ -->
-  <aside class="hidden lg:flex flex-col w-60 xl:w-64 shrink-0 h-screen sticky top-0 px-5 py-6 overflow-y-auto">
+  <aside class="hidden lg:flex flex-col w-60 xl:w-64 shrink-0 h-screen sticky top-0 z-40 px-5 py-6">
     <!-- Marca + selector Patrimonio / P&G mensual (el mismo que tiene patrimonio arriba a la izquierda) -->
     <div class="relative" x-data="{ fo: false }" @click.outside="fo = false" @keydown.escape.window="fo = false">
       <button type="button" @click="fo = !fo" :aria-expanded="fo" aria-haspopup="menu" title="Cambiar entre Patrimonio y P&amp;G mensual"
@@ -144,6 +160,7 @@
         <svg class="w-4 h-4 shrink-0 text-slate-400 transition" :class="fo && 'rotate-180'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
       </button>
       <div x-show="fo" x-cloak x-transition.opacity.duration.120ms class="fo-menu" role="menu" aria-label="Plataformas">
+        <div class="px-3 pt-1.5 pb-1 text-[11px] font-medium tracking-[.06em] text-slate-500">FAMILY OFFICE GG</div>
         <a href="https://patrimonio-production-4091.up.railway.app" class="fo-op" role="menuitem">
           <span class="fo-ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg></span>
           <span class="min-w-0 flex-1 leading-tight"><span class="block text-sm font-medium">Patrimonio</span><span class="block text-xs text-slate-500 mt-0.5">Activos, pasivos y precios en vivo</span></span>
@@ -157,6 +174,8 @@
         <div class="px-3 pt-2 pb-1.5 mt-1 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-500">Las dos entran con el mismo PIN.</div>
       </div>
     </div>
+    <!-- Lo de abajo de la marca se desplaza si la pantalla es baja; la marca no, para que su menú no quede recortado -->
+    <div class="flex-1 min-h-0 overflow-y-auto flex flex-col -mx-5 px-5 -mb-6 pb-6">
     <button @click="$store.quick.openModal(quickCtx())" data-tour="add"
       class="mt-6 w-full inline-flex items-center justify-center gap-1.5 rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 py-2.5 text-[13px] font-medium hover:opacity-90 transition">
       <span class="text-base leading-none">+</span> Anotar gasto</button>
@@ -200,6 +219,7 @@
           <button class="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200" @click="$store.auth.logout()">Salir</button></div>
       </div>
     </div>
+    </div>
   </aside>
 
   <main class="flex-1 min-w-0 px-4 sm:px-6 lg:pl-2 lg:pr-8 xl:pr-10 pt-5 lg:pt-7 pb-28 lg:pb-10">
@@ -217,7 +237,7 @@
         </button>
         <span class="text-[11px] text-slate-400 truncate" x-show="$store.auth.user" x-text="'· ' + $store.auth.user"></span>
         <div x-show="fo" x-cloak x-transition.opacity.duration.120ms class="fo-menu" role="menu" aria-label="Plataformas">
-          <div class="px-3 pt-1.5 pb-1 text-[11px] font-medium tracking-wide text-slate-500">FAMILY OFFICE GG</div>
+          <div class="px-3 pt-1.5 pb-1 text-[11px] font-medium tracking-[.06em] text-slate-500">FAMILY OFFICE GG</div>
           <a href="https://patrimonio-production-4091.up.railway.app" class="fo-op" role="menuitem">
             <span class="fo-ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg></span>
             <span class="min-w-0 flex-1 leading-tight"><span class="block text-sm font-medium">Patrimonio</span><span class="block text-xs text-slate-500 mt-0.5">Activos, pasivos y precios en vivo</span></span>
@@ -441,9 +461,9 @@
           <div class="text-[11px] text-slate-400 mt-0.5" x-text="$store.review.fmt($store.review.v($store.review.data.totales.por_tipo.gusto)) + ' en el período'"></div>
         </div>
         <div class="bg-ahorro-suave dark:bg-emerald-950/40 rounded-2xl p-4 sm:p-5 shadow-sm min-w-0">
-          <div class="text-xs text-ahorro-medio dark:text-emerald-400">Si bajan los gustos 20%</div>
+          <div class="text-xs text-ahorro dark:text-emerald-400">Si bajan los gustos 20%</div>
           <div class="num text-2xl 2xl:text-3xl font-semibold mt-1 text-ahorro dark:text-emerald-300" x-text="$store.review.fmt(0.2 * $store.review.v($store.review.data.totales.por_tipo.gusto) / $store.review.data.periodo.n_meses)"></div>
-          <div class="text-[11px] text-ahorro-medio dark:text-emerald-400 mt-0.5" x-text="'ahorran al mes · ' + $store.review.fmt(12 * 0.2 * $store.review.v($store.review.data.totales.por_tipo.gusto) / $store.review.data.periodo.n_meses) + ' al año'"></div>
+          <div class="text-[11px] text-ahorro dark:text-emerald-400 mt-0.5" x-text="'ahorran al mes · ' + $store.review.fmt(12 * 0.2 * $store.review.v($store.review.data.totales.por_tipo.gusto) / $store.review.data.periodo.n_meses) + ' al año'"></div>
         </div>
       </div>
 
@@ -546,10 +566,10 @@
             <button @click="$store.review.verDetalle(c.key)" class="text-left bg-white dark:bg-slate-900 rounded-2xl p-4 shadow-sm hover:-translate-y-0.5 transition min-w-0">
               <div class="flex items-center gap-2 min-w-0">
                 <span class="w-8 h-8 rounded-full grid place-items-center shrink-0" :class="$store.review.TIPOS[c.naturaleza].suave" x-text="c.icon"></span>
-                <span class="text-sm font-medium truncate" x-text="c.label"></span>
+                <span class="text-sm font-medium line-clamp-2 break-words min-w-0" x-text="c.label"></span>
               </div>
               <div class="num text-xl sm:text-2xl font-semibold mt-3 truncate" x-text="$store.review.fmt($store.review.v(c))"></div>
-              <div class="text-[11px] text-slate-400 truncate" x-text="c.count + ' veces · ' + $store.review.fmt($store.review.v(c) / $store.review.data.periodo.n_meses) + '/mes'"></div>
+              <div class="text-[11px] text-slate-400" x-text="c.count + ' veces · ' + $store.review.fmt($store.review.v(c) / $store.review.data.periodo.n_meses) + '/mes'"></div>
               <div class="h-12 mt-2" x-show="$store.review.data.periodo.n_meses > 1"><canvas :id="'rev-mini-' + i"></canvas></div>
             </button>
           </template>
@@ -578,7 +598,7 @@
                 <span class="text-base shrink-0" x-text="c.icon"></span>
                 <span class="min-w-0 flex-1">
                   <span class="flex items-center gap-1.5">
-                    <span class="text-sm font-medium truncate" x-text="c.label"></span>
+                    <span class="text-sm font-medium line-clamp-2 break-words min-w-0" x-text="c.label"></span>
                     <span class="text-[9px] uppercase tracking-wide rounded px-1 py-0.5 shrink-0" :class="$store.review.TIPOS[c.naturaleza].chip" x-text="$store.review.TIPOS[c.naturaleza].corto"></span>
                   </span>
                   <span class="block h-1 mt-1 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
@@ -680,7 +700,7 @@
           <div class="mt-4 rounded-2xl bg-ahorro-suave dark:bg-emerald-950/40 px-4 py-3">
             <div class="text-sm text-ahorro dark:text-emerald-300">Ahorrarían <b class="num text-xl" x-text="$store.review.fmt($store.review.simular().mes)"></b> al mes
               · <b x-text="$store.review.fmt(12 * $store.review.simular().mes)"></b> al año</div>
-            <div class="text-[11px] text-ahorro-medio dark:text-emerald-400 mt-1"
+            <div class="text-[11px] text-ahorro dark:text-emerald-400 mt-1"
                  x-text="'El gasto del mes quedaría en ' + $store.review.fmt($store.review.v($store.review.data.totales) / $store.review.data.periodo.n_meses - $store.review.simular().mes)
                    + ($store.review.pctIngreso() !== null ? ' (' + Math.round(100 * ($store.review.v($store.review.data.totales) - $store.review.simular().mes * $store.review.data.periodo.n_meses) / $store.review.v($store.review.data.ingresos)) + '% de lo que entra)' : '')"></div>
           </div>
@@ -818,8 +838,8 @@
           <div class="py-2.5 flex items-center gap-3">
             <span class="shrink-0 min-w-[64px] px-2 text-center rounded-full text-[10px] font-bold py-1 whitespace-nowrap" :class="c.tone.pill" x-text="c.badge"></span>
             <button @click="$store.reminders.openModal(c.id)" class="min-w-0 flex-1 text-left" :title="'Editar ' + c.label">
-              <div class="text-sm font-medium truncate"><span x-text="$store.reminders.icon(c.kind)"></span> <span x-text="c.label"></span></div>
-              <div class="text-[11px] text-slate-400 truncate" x-text="c.subline + ' · ' + $store.reminders.fmtAmount(c)"></div>
+              <div class="text-sm font-medium line-clamp-2 break-words"><span x-text="$store.reminders.icon(c.kind)"></span> <span x-text="c.label"></span></div>
+              <div class="text-[11px] text-slate-400" x-text="c.subline + ' · ' + $store.reminders.fmtAmount(c)"></div>
             </button>
             <button x-show="c.st.state !== 'nodate'" @click="$store.reminders.marcarPagado(c)" :disabled="$store.reminders.busy"
               class="shrink-0 flex items-center gap-1.5 rounded-full border border-slate-200 dark:border-slate-700 hover:border-ahorro hover:text-ahorro dark:hover:text-emerald-400 px-2.5 py-1.5 text-[11px] text-slate-500 transition disabled:opacity-50"
@@ -1042,8 +1062,8 @@
             <button @click="exEntrar(f)" class="w-full text-left py-3 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 -mx-2 px-2 rounded-xl transition">
               <span class="w-9 h-9 rounded-full grid place-items-center shrink-0" :style="'background:' + ResumenDona.color(f, i, exFilas()) + '33'" x-text="f.icon"></span>
               <span class="min-w-0 flex-1">
-                <span class="flex items-baseline gap-2 min-w-0"><span class="font-medium text-sm truncate" x-text="f.label"></span>
-                  <span class="text-[10px] text-slate-400 shrink-0" x-text="f.count + (f.count === 1 ? ' gasto' : ' gastos') + (f.children && f.children.length > 1 ? ' · ' + f.children.length + ' subcategorías' : '')"></span></span>
+                <span class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 min-w-0"><span class="font-medium text-sm break-words min-w-0" x-text="f.label"></span>
+                  <span class="text-[10px] text-slate-400" x-text="f.count + (f.count === 1 ? ' gasto' : ' gastos') + (f.children && f.children.length > 1 ? ' · ' + f.children.length + ' subcategorías' : '')"></span></span>
                 <span class="mt-1.5 block h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden" x-show="f.budget > 0">
                   <span class="block h-full rounded-full bar" :class="f.usd > f.budget ? 'bg-alerta' : (f.usd > 0.9 * f.budget ? 'bg-gusto' : 'bg-ahorro-medio')" :style="'width:' + Math.min(100, 100 * f.usd / f.budget) + '%'"></span></span>
                 <span class="mt-1 block text-[10px] text-slate-400" x-show="!(f.budget > 0)">sin presupuesto</span>
@@ -1215,7 +1235,7 @@
                   :class="ingFiltro === f.key ? 'bg-slate-50 dark:bg-slate-800/60' : ''">
                   <span class="text-base w-6 text-center shrink-0" x-text="f.icon"></span>
                   <span class="min-w-0 flex-1">
-                    <span class="flex items-center gap-2 min-w-0"><span class="text-sm truncate" x-text="f.label"></span>
+                    <span class="flex items-center gap-2 min-w-0"><span class="text-sm line-clamp-2 break-words min-w-0" x-text="f.label"></span>
                       <span x-show="f.plan > 0 && !f.recibido" class="text-[10px] rounded-full px-2 py-0.5 bg-gusto-suave text-gusto-fuerte dark:bg-amber-950/50 dark:text-amber-300 shrink-0">pendiente</span>
                       <span x-show="f.archivada" class="text-[10px] rounded-full px-2 py-0.5 bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 shrink-0">📦 archivada</span>
                       <span x-show="f.n" class="text-[10px] text-slate-400 shrink-0" x-text="f.n + (f.n === 1 ? ' ingreso' : ' ingresos')"></span></span>
@@ -1270,7 +1290,7 @@
           <button @click="ingEditar(e)" class="w-full text-left py-3 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 -mx-2 px-2 rounded-xl transition" title="Toca para editar">
             <span class="w-14 text-xs text-slate-400 shrink-0" x-text="formatDate(e.fecha || (e.period + '-01'))"></span>
             <span class="w-9 h-9 rounded-full bg-ahorro-suave dark:bg-emerald-950/50 grid place-items-center shrink-0" x-text="e.source_icon || '💰'"></span>
-            <span class="min-w-0 flex-1"><span class="block text-sm font-medium truncate" x-text="e.source_label || e.source_key"></span>
+            <span class="min-w-0 flex-1"><span class="block text-sm font-medium line-clamp-2 break-words" x-text="e.source_label || e.source_key"></span>
               <span class="block text-[11px] text-slate-400 truncate" x-text="(e.nota ? e.nota + ' · ' : '') + (e.currency !== 'USD' ? fmtMonto(e.monto, e.currency) : 'en dólares')"></span></span>
             <span class="text-right shrink-0"><span class="block font-semibold text-ahorro dark:text-emerald-400" x-text="'+' + fmtUsd(e.monto_usd)"></span>
               <span class="block text-[10px] text-slate-400" x-show="e.rate_used && e.currency !== 'USD'" x-text="'tasa ' + Number(e.rate_used).toLocaleString('es-CO')"></span></span>
@@ -1490,7 +1510,7 @@
               <td class="py-2.5 px-2 max-w-[340px]">
                 <div class="flex items-center gap-2 min-w-0">
                   <span class="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 grid place-items-center text-sm shrink-0" x-text="catIcon(e.categoria)"></span>
-                  <span class="truncate font-medium" x-text="e.nota || catLabel(e.categoria)"></span>
+                  <span class="line-clamp-2 break-words min-w-0 font-medium" x-text="e.nota || catLabel(e.categoria)"></span>
                   <span x-show="e.clase_contable && e.clase_contable !== 'gasto'" :title="claseLabel(e.clase_contable)" class="text-[11px] shrink-0" x-text="claseIcon(e.clase_contable)"></span>
                   <span x-show="e.recurring_id" title="Gasto fijo mensual (se anota solo cada mes)" class="text-[11px] shrink-0">🔁</span>
                   <span x-show="e.deferred_total > 1" class="text-[10px] bg-gusto-suave dark:bg-amber-900/40 text-gusto-fuerte dark:text-amber-400 rounded-full px-1.5 py-0.5 font-semibold shrink-0"
@@ -1519,7 +1539,7 @@
           <div class="flex-1 min-w-0">
             <div class="flex justify-between items-baseline gap-3">
               <!-- Primary line: the NOTE is the transaction identity. If no note, fall back to category label. -->
-              <span class="font-medium truncate text-sm min-w-0">
+              <span class="font-medium line-clamp-2 break-words text-sm min-w-0">
                 <span x-text="e.nota || catLabel(e.categoria)"></span>
                 <!-- CAPEX badge: only shown if marked as bien/equipo (not 'gasto') -->
                 <span x-show="e.clase_contable && e.clase_contable !== 'gasto'"
@@ -1540,7 +1560,7 @@
               <span class="font-bold whitespace-nowrap text-sm" x-text="fmtUsd(e.monto_usd)"></span>
             </div>
             <div class="text-[11px] text-slate-500 dark:text-slate-400 flex justify-between gap-2 mt-0.5">
-              <span class="truncate">
+              <span class="min-w-0">
                 <span x-text="formatDate(e.fecha)"></span>
                 · <span x-text="e.user_name"></span>
                 · <span class="text-slate-600 dark:text-slate-300" x-text="catLabel(e.categoria)"></span>
@@ -1690,20 +1710,20 @@
           <thead>
             <tr class="text-[11px] text-slate-400 border-b border-slate-100 dark:border-slate-800">
               <th class="text-left py-2 font-medium" x-text="analytics.statGroup === 'category' ? 'Categoría' : 'Método'"></th>
-              <th class="text-right py-2 font-medium">Gastos</th>
-              <th class="text-right py-2 font-medium">Total</th>
-              <th class="text-right py-2 font-medium">Promedio</th>
-              <th class="text-right py-2 font-medium">Mediana</th>
+              <th class="text-right py-2 pl-3 font-medium">Gastos</th>
+              <th class="text-right py-2 pl-3 font-medium">Total</th>
+              <th class="text-right py-2 pl-3 font-medium">Promedio</th>
+              <th class="text-right py-2 pl-3 font-medium">Mediana</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100 dark:divide-slate-800">
             <template x-for="row in analyticsStatRows" :key="'as' + (row.key || row.method)">
               <tr>
-                <td class="py-2 pr-2"><span x-show="row.icon" x-text="row.icon"></span> <span x-text="row.label || row.method"></span></td>
-                <td class="text-right py-2 text-slate-500" x-text="row.count"></td>
-                <td class="text-right py-2 font-medium" x-text="fmtUsd(row.total_usd)"></td>
-                <td class="text-right py-2 text-slate-600 dark:text-slate-300" x-text="fmtUsd(row.mean_usd)"></td>
-                <td class="text-right py-2 font-semibold" x-text="fmtUsd(row.median_usd)"></td>
+                <td class="py-2 pr-2 min-w-[8.5rem]"><span class="whitespace-nowrap"><span x-show="row.icon" x-text="row.icon"></span> <span x-text="row.label || row.method"></span></span></td>
+                <td class="text-right py-2 pl-3 text-slate-500 whitespace-nowrap" x-text="row.count"></td>
+                <td class="text-right py-2 pl-3 font-medium whitespace-nowrap" x-text="fmtUsd(row.total_usd)"></td>
+                <td class="text-right py-2 pl-3 text-slate-600 dark:text-slate-300 whitespace-nowrap" x-text="fmtUsd(row.mean_usd)"></td>
+                <td class="text-right py-2 pl-3 font-semibold whitespace-nowrap" x-text="fmtUsd(row.median_usd)"></td>
               </tr>
             </template>
           </tbody>
@@ -1713,9 +1733,9 @@
     </div>
   </section>
 
-  <footer class="text-center text-[11px] text-slate-400 dark:text-slate-700 mt-8 space-y-1">
+  <footer class="text-center text-[11px] text-slate-500 dark:text-slate-400 mt-8 space-y-1">
     <div>@gastos_gg_bot · TRM <span x-text="rates.TRM"></span> · BOB <span x-text="rates.BOB_RATE"></span> · AED <span x-text="rates.AED_RATE"></span> · CLP <span x-text="rates.CLP_RATE"></span> · ARS <span x-text="rates.ARS_RATE"></span></div>
-    <div class="text-slate-300 dark:text-slate-700">v9 · <span x-text="summary.budget_limit_usd ? '$' + summary.budget_limit_usd + ' USD/mes' : ''"></span></div>
+    <div class="text-slate-400 dark:text-slate-500">v9 · <span x-text="summary.budget_limit_usd ? '$' + summary.budget_limit_usd + ' USD/mes' : ''"></span></div>
   </footer>
   </main>
 
@@ -4340,8 +4360,8 @@
       <!-- ── 8. Patrimonio personal ── -->
       <div x-show="$store.guide.active === 8" class="fade space-y-4">
         <div>
-          <div class="num text-2xl font-semibold">🏛️ Patrimonio personal</div>
-          <p class="text-slate-600 dark:text-slate-400 text-sm mt-1">La otra mitad de Family Office GG: todo lo que tiene la familia y lo que debe, en vivo. Se cambia desde el nombre <b>Family Office GG</b> arriba a la izquierda (en las dos plataformas) y entra con el mismo PIN.</p>
+          <div class="num text-2xl font-semibold">📈 Patrimonio</div>
+          <p class="text-slate-600 dark:text-slate-400 text-sm mt-1">La otra mitad de Family Office GG: todo lo que tiene la familia y lo que debe, en vivo. Se cambia tocando el logo de las dos G arriba a la izquierda (igual en las dos plataformas) y entra con el mismo PIN.</p>
         </div>
         <a href="https://patrimonio-production-4091.up.railway.app"
           class="inline-flex w-full sm:w-auto justify-center rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-5 py-2.5 text-sm font-medium">Ver patrimonio →</a>
@@ -4413,7 +4433,7 @@
   x-cloak
   class="fixed inset-0 z-50 flex items-stretch sm:items-center justify-center modal-backdrop bg-slate-900/40 dark:bg-slate-950/70"
   @click.self="$store.settings.close()"
-  @keydown.escape.window="$store.settings.close()"
+  @keydown.escape.window="$store.settings.open && $store.settings.close()"
 >
   <div
     class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full sm:max-w-2xl sm:rounded-2xl sm:my-8 shadow-xl fade flex flex-col max-h-screen sm:max-h-[90vh]"
@@ -6118,7 +6138,7 @@ document.addEventListener('alpine:init', () => {
   Alpine.store('info', {
     open: false, key: null, style: '',
     T: {
-      patrimonio: { t: 'Patrimonio', h: '<p>La otra mitad de Family Office GG: <b>todo lo que tiene la familia y lo que debe</b>, en vivo. Se abre aquí mismo con el mismo PIN; para volver, toca <b>Family Office GG</b> arriba a la izquierda y elige <b>P&amp;G mensual</b>.</p><p><b>Inicio</b>: el patrimonio neto moviéndose en vivo, el mapa por categoría y lo que tienen de cada activo. <b>Categorías</b>: valor, deuda y cambio en 30 días de cada una. <b>Créditos</b>: leasing, Damac y el crédito de Tuo con su tabla de cuotas. <b>Tuo</b>: la empresa frente al crédito de COP$200M y cómo quedan si liquidan hoy.</p><p>La guía completa está en el botón <b>?</b> → <b>Patrimonio</b>.</p>' },
+      patrimonio: { t: 'Patrimonio', h: '<p>La otra mitad de Family Office GG: <b>todo lo que tiene la familia y lo que debe</b>, en vivo. Se abre aquí mismo con el mismo PIN; para volver, toca el logo de las dos G arriba a la izquierda y elige <b>P&amp;G mensual</b>.</p><p><b>Inicio</b>: el patrimonio neto moviéndose en vivo, el mapa por categoría y lo que tienen de cada activo. <b>Categorías</b>: valor, deuda y cambio en 30 días de cada una. <b>Créditos</b>: leasing, Damac y el crédito de Tuo con su tabla de cuotas. <b>Tuo</b>: la empresa frente al crédito de COP$200M y cómo quedan si liquidan hoy.</p><p>La guía completa está en el botón <b>?</b> → <b>Patrimonio</b>.</p>' },
       gastado: { t: 'Gastado', h: '<p>Todo lo gastado en el período que elegiste arriba.</p><p>La barra separa <b>fijos y cuotas</b> (oscuro: se anotan solos, como hipoteca, administración, suscripciones y cuotas de diferidos) del <b>día a día</b> (dorado: lo que anotan ustedes).</p><p><b>Comparar con</b> tiene dos referencias: el <b>presupuesto ideal</b> (la suma del ideal de cada categoría, que editas en Ajustes → Categorías y presupuesto) y el <b>ingreso percibido</b> (lo que de verdad entró, de la sección Ingresos). Con 3, 6 o 12 meses el presupuesto se multiplica por los meses.</p><p>Con el presupuesto ideal, el <b>ritmo</b> del mes en curso mira solo el día a día: qué parte de lo disponible llevan contra qué parte del mes va.</p>' },
       pagos: { t: 'Próximos pagos', h: '<p>Las fechas de pago de tarjetas y créditos. El color dice qué tan cerca está: <b>rojo</b> vencido o 3 días o menos, <b>naranja</b> hasta 7, <b>dorado</b> hasta 14 y <b>verde</b> más lejos.</p><p>Cuando paguen, toquen <b>Ya pagué</b>: sale de la lista y vuelve sola el mes siguiente con la nueva fecha. Si fue un error, en "pagados este mes" está <b>Deshacer</b>.</p><p>Tocar el nombre lo edita; <b>+ Agregar</b> y <b>Gestionar</b> crean, cambian o borran recordatorios. Solo avisa: no anota el gasto.</p>' },
       pyg: { t: 'P&G', h: '<p>Ingresos contra gastos del período. <b>Neto</b> = ingresos − gastos; si es positivo dice qué parte del ingreso ahorraron.</p><p>La gráfica muestra los últimos meses: barras verdes = ingresos, doradas = gastos, línea = neto (punto verde si sobró, rojo si faltó). Los meses fuera del período elegido se ven más claros.</p><p><b>De dónde vino</b> agrupa los ingresos (CLP, rentas, cripto…) y <b>En qué se fue</b> reparte el gasto en esencial, estilo de vida y gusto. <b>+ Anotar ingreso</b> lleva a la sección Ingresos; en <b>⋯</b> están las fuentes y los CSV.</p>' },
@@ -7039,7 +7059,7 @@ REGLAS:
       { id: 'income',   icon: '💼', label: 'Ingresos / P&G' },
       { id: 'config',   icon: '⚙️', label: 'Configurar' },
       { id: 'faq',      icon: '❓', label: 'FAQ' },
-      { id: 'patrimonio', icon: '🏛️', label: 'Patrimonio' },
+      { id: 'patrimonio', icon: '📈', label: 'Patrimonio' },
     ],
     topCategories: [],
     trm: 3700,
@@ -7635,7 +7655,7 @@ function dashboard() {
                       linea: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200' }[est];
         const tit = { rapido: 'Día a día: va rápido.', bien: 'Día a día: buen ritmo.', linea: 'Día a día: en línea.' }[est];
         return { cls, texto: '<b>' + tit + '</b> Llevan ' + this.fmtUsd(this.diaUsd) + ' de ' + this.fmtUsd(disp) + ' disponibles ('
-          + Math.round(100 * usado) + '%) y va el ' + Math.round(100 * mes) + '% del mes. <span class="opacity-75">Los fijos y cuotas no cuentan para el ritmo.</span>' };
+          + Math.round(100 * usado) + '%) y va el ' + Math.round(100 * mes) + '% del mes. <span class="opacity-90">Los fijos y cuotas no cuentan para el ritmo.</span>' };
       }
       const pct = Math.round(100 * total / ref.v), dentro = total <= ref.v;
       const cls = dentro ? 'bg-ahorro-suave text-ahorro dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-alerta-suave text-alerta-fuerte dark:bg-red-950/40 dark:text-red-300';
