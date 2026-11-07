@@ -109,6 +109,7 @@
   .fo-op { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; color: inherit; text-decoration: none; }
   .fo-op:hover, .fo-op:focus-visible { background: #f2f4f7; outline: none; }
   .dark .fo-op:hover, .dark .fo-op:focus-visible { background: #1a1e25; }
+  .fo-op .text-sm { line-height: 17px; } .fo-op .text-xs { line-height: 15px; }
   .fo-ic { width: 34px; height: 34px; flex: none; display: grid; place-items: center; border-radius: 10px; background: #f2f4f7; color: #3b424b; }
   .dark .fo-ic { background: #1a1e25; color: #c9ced6; }
   /* Mapa de calor de días */
@@ -164,7 +165,7 @@
         <a href="https://patrimonio-production-4091.up.railway.app" class="fo-op" role="menuitem">
           <span class="fo-ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg></span>
           <span class="min-w-0 flex-1 leading-tight"><span class="block text-sm font-medium">Patrimonio</span><span class="block text-xs text-slate-500 mt-0.5">Activos, pasivos y precios en vivo</span></span>
-          <span class="text-slate-400 text-sm" aria-hidden="true">→</span>
+          <span class="text-slate-600 dark:text-slate-400 text-sm" aria-hidden="true">→</span>
         </a>
         <button type="button" @click="fo = false" class="fo-op w-full text-left" role="menuitem" aria-current="page">
           <span class="fo-ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9.5 8h5M9.5 12h5"/></svg></span>
@@ -241,7 +242,7 @@
           <a href="https://patrimonio-production-4091.up.railway.app" class="fo-op" role="menuitem">
             <span class="fo-ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg></span>
             <span class="min-w-0 flex-1 leading-tight"><span class="block text-sm font-medium">Patrimonio</span><span class="block text-xs text-slate-500 mt-0.5">Activos, pasivos y precios en vivo</span></span>
-            <span class="text-slate-400 text-sm" aria-hidden="true">→</span>
+            <span class="text-slate-600 dark:text-slate-400 text-sm" aria-hidden="true">→</span>
           </a>
           <button type="button" @click="fo = false" class="fo-op w-full text-left" role="menuitem" aria-current="page">
             <span class="fo-ic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9.5 8h5M9.5 12h5"/></svg></span>
@@ -566,7 +567,7 @@
             <button @click="$store.review.verDetalle(c.key)" class="text-left bg-white dark:bg-slate-900 rounded-2xl p-4 shadow-sm hover:-translate-y-0.5 transition min-w-0">
               <div class="flex items-center gap-2 min-w-0">
                 <span class="w-8 h-8 rounded-full grid place-items-center shrink-0" :class="$store.review.TIPOS[c.naturaleza].suave" x-text="c.icon"></span>
-                <span class="text-sm font-medium line-clamp-2 break-words min-w-0" x-text="c.label"></span>
+                <span class="text-sm font-medium break-normal min-w-0" x-text="c.label"></span>
               </div>
               <div class="num text-xl sm:text-2xl font-semibold mt-3 truncate" x-text="$store.review.fmt($store.review.v(c))"></div>
               <div class="text-[11px] text-slate-400" x-text="c.count + ' veces · ' + $store.review.fmt($store.review.v(c) / $store.review.data.periodo.n_meses) + '/mes'"></div>
@@ -597,8 +598,8 @@
                 <span class="w-5 text-[11px] text-slate-400 text-right shrink-0" x-text="i + 1"></span>
                 <span class="text-base shrink-0" x-text="c.icon"></span>
                 <span class="min-w-0 flex-1">
-                  <span class="flex items-center gap-1.5">
-                    <span class="text-sm font-medium line-clamp-2 break-words min-w-0" x-text="c.label"></span>
+                  <span class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                    <span class="text-sm font-medium break-normal min-w-0" x-text="c.label"></span>
                     <span class="text-[9px] uppercase tracking-wide rounded px-1 py-0.5 shrink-0" :class="$store.review.TIPOS[c.naturaleza].chip" x-text="$store.review.TIPOS[c.naturaleza].corto"></span>
                   </span>
                   <span class="block h-1 mt-1 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
@@ -1498,7 +1499,7 @@
             <th class="font-medium py-2 px-2">Concepto</th>
             <th class="font-medium py-2 px-2">Categoría</th>
             <th class="font-medium py-2 px-2">Quién</th>
-            <th class="font-medium py-2 px-2 hidden lg:table-cell">Método</th>
+            <th class="font-medium py-2 px-2 hidden xl:table-cell">Método</th>
             <th class="font-medium py-2 px-2 text-right">Pesos</th>
             <th class="font-medium py-2 px-2 text-right">Dólares</th>
           </tr>
@@ -1519,7 +1520,7 @@
               </td>
               <td class="py-2.5 px-2 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap" x-text="catLabel(e.categoria)"></td>
               <td class="py-2.5 px-2 text-xs text-slate-600 dark:text-slate-300" x-text="e.user_name"></td>
-              <td class="py-2.5 px-2 text-xs text-slate-500 hidden lg:table-cell max-w-[200px] truncate" x-text="e.metodo_pago && e.metodo_pago !== 'Sin especificar' ? e.metodo_pago : '—'"></td>
+              <td class="py-2.5 px-2 text-xs text-slate-500 hidden xl:table-cell max-w-[200px] truncate" x-text="e.metodo_pago && e.metodo_pago !== 'Sin especificar' ? e.metodo_pago : '—'"></td>
               <td class="py-2.5 px-2 text-xs text-slate-500 text-right whitespace-nowrap" x-text="'$' + Math.round(e.monto_cop || 0).toLocaleString('de-DE')"></td>
               <td class="py-2.5 px-2 text-right font-semibold whitespace-nowrap" x-text="fmtUsd(e.monto_usd)"></td>
             </tr>
@@ -2194,7 +2195,7 @@
           <div class="flex items-center justify-between gap-2 rounded-lg border px-3 py-2"
                :class="it.active ? 'border-slate-200 dark:border-slate-700' : 'border-slate-100 dark:border-slate-800 opacity-60'">
             <div class="min-w-0 flex-1">
-              <div class="text-sm font-medium truncate" x-text="it.label"></div>
+              <div class="text-sm font-medium line-clamp-2 break-normal" x-text="it.label"></div>
               <div class="flex items-center gap-1 mt-0.5">
                 <input type="number" min="0" :step="it.currency === 'USD' ? '0.01' : '1'"
                   :value="it.currency === 'USD' ? it.monto_usd : it.monto_cop"
@@ -2321,7 +2322,7 @@
                :class="g.estado === 'activo' ? 'border-slate-200 dark:border-slate-700' : 'border-slate-100 dark:border-slate-800 opacity-70'">
             <div class="flex items-start justify-between gap-2">
               <div class="min-w-0 flex-1">
-                <div class="text-sm font-medium truncate" x-text="g.concepto"></div>
+                <div class="text-sm font-medium line-clamp-2 break-normal" x-text="g.concepto"></div>
                 <div class="text-xs mt-0.5">
                   <span class="font-semibold" x-text="$store.deferred.money(g.cuota, g.currency)"></span><span class="text-slate-500">/mes</span>
                   <span class="text-slate-400">·</span>
@@ -2554,7 +2555,7 @@
       <div x-show="$store.review.tiposError" class="text-xs text-rose-600 dark:text-rose-400 mb-2" x-text="$store.review.tiposError"></div>
       <template x-for="c in $store.review.tiposCats" :key="c.key">
         <div class="flex items-center justify-between gap-2 py-1" :class="c.nivel ? 'pl-5' : 'pt-2'">
-          <span class="text-sm min-w-0 truncate" :class="c.nivel ? '' : 'font-semibold'"><span x-text="c.icon"></span> <span x-text="c.label"></span></span>
+          <span class="text-sm min-w-0 line-clamp-2 break-normal" :class="c.nivel ? '' : 'font-semibold'"><span x-text="c.icon"></span> <span x-text="c.label"></span></span>
           <span class="flex gap-1 shrink-0">
             <template x-for="t in ['esencial', 'estilo', 'gusto']" :key="t">
               <button @click="$store.review.setTipo(c.key, t)" :disabled="$store.review.tiposBusy"
@@ -3913,6 +3914,7 @@
         <template x-for="(s, i) in $store.guide.sections" :key="s.id">
           <button
             @click="$store.guide.active = i"
+            x-effect="if ($store.guide.open && $store.guide.active === i) $nextTick(() => $el.scrollIntoView({ block: 'nearest', inline: 'nearest' }))"
             :class="$store.guide.active === i
               ? 'bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100 border-slate-900 dark:border-slate-100'
               : 'text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-700 dark:hover:text-slate-300'"
@@ -5897,7 +5899,8 @@ document.addEventListener('alpine:init', () => {
     v(o) { return o ? (this.moneda === 'cop' ? (o.cop || 0) : (o.usd || 0)) : 0; },
     fmt(x) { return (this.moneda === 'cop' ? '$' : 'US$') + Math.round(x || 0).toLocaleString('de-DE'); },
     mesCorto(ym) { if (!ym) return ''; const [y, m] = ym.split('-'); return REV_MESES[Number(m) - 1] + ' ' + y.slice(2); },
-    fechaCorta(f) { if (!f) return ''; const [y, m, d] = f.slice(0, 10).split('-'); return Number(d) + '-' + REV_MESES[Number(m) - 1] + '-' + y.slice(2); },
+    // guion que no parte la fecha en dos líneas (13‑abr‑26)
+    fechaCorta(f) { if (!f) return ''; const [y, m, d] = f.slice(0, 10).split('-'); return Number(d) + '\u2011' + REV_MESES[Number(m) - 1] + '\u2011' + y.slice(2); },
     rangoLabel() {
       const d = this.data; if (!d) return '';
       return this.mesCorto(d.periodo.desde) + (d.periodo.desde !== d.periodo.hasta ? ' → ' + this.mesCorto(d.periodo.hasta) : '')
@@ -6289,6 +6292,8 @@ document.addEventListener('alpine:init', () => {
       tourEl = el;
       const r0 = el.getBoundingClientRect();
       const fijo = getComputedStyle(el).position === 'fixed' || el.closest('aside');
+      // en el menú lateral (pantallas bajas) lo señalado puede estar abajo de su zona con scroll
+      if (el.closest('aside') && (r0.top < 0 || r0.bottom > innerHeight)) el.scrollIntoView({ block: 'nearest' });
       if (!fijo && innerWidth < 1024) {
         // celular: lo señalado arriba y la tarjeta abajo
         if (r0.top < 8 || r0.top > 90) window.scrollBy({ top: r0.top - 12, behavior: 'instant' });
@@ -7655,7 +7660,7 @@ function dashboard() {
                       linea: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200' }[est];
         const tit = { rapido: 'Día a día: va rápido.', bien: 'Día a día: buen ritmo.', linea: 'Día a día: en línea.' }[est];
         return { cls, texto: '<b>' + tit + '</b> Llevan ' + this.fmtUsd(this.diaUsd) + ' de ' + this.fmtUsd(disp) + ' disponibles ('
-          + Math.round(100 * usado) + '%) y va el ' + Math.round(100 * mes) + '% del mes. <span class="opacity-90">Los fijos y cuotas no cuentan para el ritmo.</span>' };
+          + Math.round(100 * usado) + '%) y va el ' + Math.round(100 * mes) + '% del mes. <span>Los fijos y cuotas no cuentan para el ritmo.</span>' };
       }
       const pct = Math.round(100 * total / ref.v), dentro = total <= ref.v;
       const cls = dentro ? 'bg-ahorro-suave text-ahorro dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-alerta-suave text-alerta-fuerte dark:bg-red-950/40 dark:text-red-300';
