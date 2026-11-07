@@ -60,7 +60,8 @@ AUTH_IP_MAX_FAILS = 5
 AUTH_IP_LOCK_SECONDS = 15 * 60
 AUTH_GLOBAL_MAX_FAILS = 30
 AUTH_GLOBAL_WINDOW_SECONDS = 60 * 60
-_AUTH_OPEN_PATHS = {"/api/health", "/api/login", "/api/logout", "/api/auth/status", "/favicon.ico", "/static/tw.css"}
+_AUTH_OPEN_PATHS = {"/api/health", "/api/login", "/api/logout", "/api/auth/status", "/favicon.ico", "/static/tw.css",
+                    "/static/icono.svg", "/static/icono-32.png", "/static/icono-180.png"}
 _auth_fails_by_ip: dict[str, list[float]] = {}
 _auth_fails_global: list[float] = []
 _auth_secret_cache: dict[str, bytes] = {}
@@ -200,37 +201,40 @@ LOGIN_HTML = """<!doctype html>
 <html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
-<meta name="theme-color" content="#f6f5f2">
-<title>Gastos GG · Entrar</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💰</text></svg>">
+<meta name="theme-color" content="#f5f6f8">
+<title>P&amp;G mensual · Family Office GG</title>
+<link rel="icon" href="/static/icono.svg" type="image/svg+xml">
+<link rel="icon" href="/static/icono-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/static/icono-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Fraunces:opsz,wght@9..144,600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..700&display=swap" rel="stylesheet">
 <script>(function(){var t=null;try{t=localStorage.getItem('theme_mode')}catch(e){}var h=new Date().getHours();
 if(t==='dark'||((!t||t==='auto')&&(h>=18||h<6)))document.documentElement.className='dark';})();</script>
 <style>
-:root{--bg:#f6f5f2;--card:#fff;--ink:#1e1c19;--mute:#7e786e;--line:#e8e4dc;--field:#f3f1ec;--btn:#1e1c19;--btnink:#faf9f6;--err:#b0472c}
-html.dark{--bg:#141311;--card:#1e1c19;--ink:#f3f1ec;--mute:#a9a297;--line:#2d2a26;--field:#2d2a26;--btn:#f3f1ec;--btnink:#1e1c19;--err:#e07a5f}
+:root{--bg:#f5f6f8;--card:#fff;--ink:#14171c;--mute:#5f6771;--line:#e5e8ec;--field:#f2f4f7;--btn:#14171c;--btnink:#fff;--err:#c63a2d;--foco:#2a78d6}
+html.dark{--bg:#0b0d11;--card:#13161c;--ink:#f1f2f4;--mute:#9aa1ab;--line:#1f232b;--field:#1a1e25;--btn:#f1f2f4;--btnink:#0b0d11;--err:#f07a6a;--foco:#6da7ec;color-scheme:dark}
 *{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
 background:var(--bg);color:var(--ink);font-family:Inter,system-ui,-apple-system,sans-serif;padding:16px;-webkit-font-smoothing:antialiased}
-form{width:100%;max-width:360px;background:var(--card);border-radius:24px;padding:32px 26px;
-box-shadow:0 1px 2px rgba(30,28,25,.04),0 8px 24px rgba(30,28,25,.06)}
-.logo{width:40px;height:40px;border-radius:50%;background:var(--btn);color:var(--btnink);display:grid;place-items:center;font-weight:600;font-size:14px;margin-bottom:18px}
-h1{margin:0 0 4px;font-family:Fraunces,Georgia,serif;font-weight:600;font-size:30px;letter-spacing:-.02em}p{margin:0 0 22px;color:var(--mute);font-size:14px}
-input[type=password]{width:100%;font-size:24px;letter-spacing:.35em;text-align:center;padding:14px;border:0;
-border-radius:16px;background:var(--field);color:var(--ink)}
-input[type=password]:focus{outline:2px solid #e5a54b;outline-offset:2px}
+form{width:100%;max-width:360px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:28px 24px}
+.marca{display:flex;align-items:center;gap:10px;margin-bottom:26px;font-size:15px;font-weight:500}
+h1{margin:0 0 4px;font-weight:600;font-size:26px;letter-spacing:-.02em}p{margin:0 0 22px;color:var(--mute);font-size:14px}
+input[type=password]{width:100%;font:600 24px Inter,system-ui,sans-serif;letter-spacing:.35em;text-align:center;padding:13px;
+border:1px solid var(--line);border-radius:10px;background:var(--field);color:var(--ink)}
+input[type=password]:focus{outline:2px solid var(--foco);outline-offset:2px}
 label{display:flex;gap:8px;align-items:center;margin:16px 0 20px;font-size:14px;color:var(--mute)}
 input[type=checkbox]{accent-color:var(--btn);width:16px;height:16px}
-button{width:100%;padding:13px;border:0;border-radius:999px;background:var(--btn);color:var(--btnink);font-size:15px;font-weight:600;cursor:pointer}
+button{width:100%;padding:13px;border:0;border-radius:999px;background:var(--btn);color:var(--btnink);font:600 15px Inter,system-ui,sans-serif;cursor:pointer}
 button:disabled{opacity:.5}.err{color:var(--err);font-size:13px;min-height:18px;margin-top:12px;text-align:center}
+.otra{display:block;text-align:center;margin-top:14px;font-size:13px;color:var(--mute);text-decoration:none}.otra:hover{color:var(--ink)}
 </style></head><body>
 <form id="f" autocomplete="on">
-<div class="logo">gg</div><h1>Gastos GG</h1><p>Escribe tu PIN para entrar.</p>
+<div class="marca"><svg width="26" height="26" viewBox="0 0 64 64" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="4.4"><path d="M45.38 19.96 A18 18 0 1 0 50 32 L44.24 32"/><path d="M39.06 25.64 A9.5 9.5 0 1 0 41.5 32 L36.27 32"/></g></svg>Family Office GG</div><h1>P&amp;G mensual</h1><p>Escribe tu PIN para entrar.</p>
 <input type="text" name="username" value="gastos-gg" autocomplete="username" hidden>
 <input id="pin" type="password" name="password" inputmode="numeric" autocomplete="current-password" required autofocus aria-label="PIN">
 <label><input id="rem" type="checkbox" checked> Recordar este dispositivo</label>
 <button id="b" type="submit">Entrar</button>
 <div class="err" id="e" role="alert"></div>
+<a class="otra" href="https://patrimonio-production-4091.up.railway.app">Ir a Patrimonio →</a>
 </form>
 <script>
 document.getElementById('f').addEventListener('submit', async (ev) => {
