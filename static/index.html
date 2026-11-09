@@ -1864,12 +1864,48 @@
           </template>
         </div>
       </div>
+      <!-- Diferir: ya pagado, repartido en varios meses (igual que 📅 Diferidos, modo "pagado de una") -->
+      <div x-show="$store.quick.tipo === 'gasto'" data-q-diferir class="rounded-2xl bg-slate-100 dark:bg-slate-800 px-3 py-2.5">
+        <label class="flex items-start gap-2.5 cursor-pointer select-none">
+          <input type="checkbox" x-model="$store.quick.dif.on" @change="$store.quick.error = null"
+            class="mt-0.5 h-4 w-4 shrink-0 rounded accent-slate-900 dark:accent-slate-100">
+          <span class="min-w-0">
+            <span class="block text-sm font-semibold">Diferir en varios meses</span>
+            <span class="block text-[11px] leading-[15px] text-slate-500 dark:text-slate-400">Ya está pagado: cada mes del P&amp;G lleva su parte.</span>
+          </span>
+        </label>
+        <div x-show="$store.quick.dif.on" x-transition.opacity class="mt-3 space-y-2.5">
+          <div>
+            <span class="text-[11px] text-slate-500 dark:text-slate-400 px-1">¿En cuántos meses?</span>
+            <div class="mt-0.5 flex items-center gap-1.5">
+              <template x-for="n in [3, 6, 12]" :key="'qdn' + n">
+                <button type="button" @click="$store.quick.dif.meses = n; $store.quick.error = null"
+                  class="flex-1 rounded-full py-1.5 text-sm transition"
+                  :class="Number($store.quick.dif.meses) === n ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-semibold' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300'"
+                  x-text="n"></button>
+              </template>
+              <input type="number" min="2" max="60" step="1" inputmode="numeric" aria-label="Número de meses"
+                x-model.number="$store.quick.dif.meses" @input="$store.quick.error = null"
+                class="num w-[4.5rem] shrink-0 bg-white dark:bg-slate-900 rounded-xl px-2 py-1.5 text-sm text-center">
+            </div>
+          </div>
+          <label class="block">
+            <span class="text-[11px] text-slate-500 dark:text-slate-400 px-1">Primera cuota</span>
+            <select @change="$store.quick.dif.inicio = $event.target.value" class="mt-0.5 w-full bg-white dark:bg-slate-900 rounded-xl px-3 py-2 text-sm">
+              <template x-for="m in $store.quick.difMeses()" :key="'qdm' + m.v">
+                <option :value="m.v" x-text="m.t" :selected="m.v === $store.quick.difInicio()"></option>
+              </template>
+            </select>
+          </label>
+          <div x-show="$store.quick.difPreview()" class="text-[13px] leading-[18px] font-semibold break-words" x-text="$store.quick.difPreview()"></div>
+        </div>
+      </div>
       <div x-show="$store.quick.error" class="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/50 rounded-xl px-3 py-2" x-text="$store.quick.error"></div>
       <button type="submit" :disabled="$store.quick.busy"
         class="w-full rounded-full py-3 text-sm font-semibold disabled:opacity-50 transition"
         :class="$store.quick.tipo === 'ingreso' ? 'bg-ahorro text-white hover:opacity-90' : 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'"
-        x-text="$store.quick.busy ? 'Guardando…' : ($store.quick.tipo === 'ingreso' ? 'Guardar ingreso' : 'Guardar gasto')"></button>
-      <p class="text-[11px] text-slate-400 text-center" x-text="$store.quick.tipo === 'ingreso' ? 'Cuenta en el mes de la fecha, con la tasa de ese mes.' : 'Queda igual que si lo mandaras al bot de Telegram.'"></p>
+        x-text="$store.quick.busy ? 'Guardando…' : ($store.quick.tipo === 'ingreso' ? 'Guardar ingreso' : ($store.quick.dif.on ? 'Guardar gasto diferido' : 'Guardar gasto'))"></button>
+      <p class="text-[11px] text-slate-400 dark:text-slate-500 text-center" x-text="$store.quick.tipo === 'ingreso' ? 'Cuenta en el mes de la fecha, con la tasa de ese mes.' : ($store.quick.dif.on ? 'Queda en Diferidos como ya pagado: no entra a Próximos pagos.' : 'Queda igual que si lo mandaras al bot de Telegram.')"></p>
     </form>
   </div>
 </div>
@@ -6066,7 +6102,38 @@ document.addEventListener('alpine:init', () => {
     monedas: ['COP', 'USD', 'BOB', 'AED', 'CLP', 'ARS'],
     categorias: [], metodos: [], frecuentes: [], rates: {}, fuentes: [], fuentesTop: [], source_key: '',
     form: { monto: '', moneda: 'COP', categoria: '', nota: '', metodo_pago: 'Sin especificar', user_name: 'Daniel', fecha: '' },
+    // Diferir (ya pagado): meses e inicio ('' = el mes de la fecha)
+    dif: { on: false, meses: 6, inicio: '' },
     hoy() { return qHoy(); },
+    _mesNom: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'],
+    _ym(ym, k) { let [y, m] = ym.split('-').map(Number); const t = y * 12 + (m - 1) + k; return Math.floor(t / 12) + '-' + String(t % 12 + 1).padStart(2, '0'); },
+    _mesTxt(ym) { const [y, m] = ym.split('-'); return this._mesNom[Number(m) - 1] + ' ' + y; },
+    _baseYm() { return (this.form.fecha || qHoy()).slice(0, 7); },
+    // Opciones para la primera cuota: 3 meses antes y 6 después del mes de la fecha
+    difMeses() {
+      const b = this._baseYm(), out = [];
+      for (let k = -3; k <= 6; k++) { const v = this._ym(b, k); out.push({ v, t: this._mesTxt(v) + (k === 0 ? ' (mes de la fecha)' : '') }); }
+      return out;
+    },
+    difInicio() {
+      const b = this._baseYm(), v = this.dif.inicio;
+      return v && this.difMeses().some(o => o.v === v) ? v : b;
+    },
+    difN() { const n = Number(this.dif.meses); return Number.isInteger(n) && n >= 2 && n <= 60 ? n : 0; },
+    difPreview() {
+      const n = this.difN(), monto = this.parse();
+      if (!n || !(monto > 0)) return '';
+      const ini = this.difInicio(), fin = this._ym(ini, n - 1), m = this.form.moneda, r = this.rates || {};
+      const f = (x, d) => x.toLocaleString('de-DE', { maximumFractionDigits: d });
+      let cuota;
+      if (m === 'COP') cuota = '$' + f(Math.round(monto / n), 0);
+      else if (m === 'USD') cuota = 'US$' + f(monto / n, 2);
+      else {
+        const div = { BOB: r.BOB_RATE, AED: r.AED_RATE, CLP: r.CLP_RATE, ARS: r.ARS_RATE }[m];
+        cuota = div ? '≈ US$' + f(monto / div / n, 2) : f(monto / n, 2) + ' ' + m;
+      }
+      return n + ' meses de ' + cuota + ' · de ' + this._mesTxt(ini) + ' a ' + this._mesTxt(fin);
+    },
     openModal(ctx) {
       ctx = ctx || {};
       this.categorias = ctx.categorias || this.categorias;
@@ -6080,6 +6147,7 @@ document.addEventListener('alpine:init', () => {
       const metodo = qGet('quick_metodo_' + quien);
       this.form = { monto: '', moneda: qGet('quick_moneda_' + quien) || 'COP', categoria: '', nota: '',
         metodo_pago: metodo && this.metodos.includes(metodo) ? metodo : 'Sin especificar', user_name: quien, fecha: qHoy() };
+      this.dif = { on: false, meses: 6, inicio: '' };
       this.error = null; this.busy = false; this.open = true;
       setTimeout(() => document.querySelector('[x-ref="qmonto"]')?.focus(), 80);
     },
@@ -6099,16 +6167,25 @@ document.addEventListener('alpine:init', () => {
       if (!(monto > 0)) { this.error = 'Escribe un monto mayor que cero.'; return; }
       if (!this.form.categoria) { this.error = 'Elige una categoría.'; return; }
       if (this.form.fecha && this.form.fecha > qHoy()) { this.error = 'La fecha no puede ser futura.'; return; }
+      const diferir = this.dif.on;
+      if (diferir && !this.difN()) { this.error = 'Para diferir, elige entre 2 y 60 meses.'; return; }
       this.busy = true; this.error = null;
       try {
         const body = { ...this.form, monto, nota: (this.form.nota || '').trim() };
+        if (diferir) { body.diferir_meses = this.difN(); body.diferir_inicio = this.difInicio(); }
         const r = await fetch('/api/expenses/quick', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         const d = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(d.detail || ('No se pudo guardar (' + r.status + ')'));
+        if (!r.ok) throw new Error(typeof d.detail === 'string' ? d.detail : ('No se pudo guardar (' + r.status + ')'));
         qSet('quick_moneda_' + this.form.user_name, this.form.moneda);
         qSet('quick_metodo_' + this.form.user_name, this.form.metodo_pago);
         this.busy = false; this.open = false;
-        this.aviso('✓ Guardado: $' + Math.round(d.monto_cop || 0).toLocaleString('de-DE') + ' (US$' + (d.monto_usd || 0).toLocaleString('es-CO', { maximumFractionDigits: 2 }) + ')');
+        if (d.diferido) {
+          const g = d.diferido, dfr = Alpine.store('deferred');
+          this.aviso('✓ Diferido en ' + g.cuotas_total + ' meses: ' + dfr.money(g.cuota, g.currency) + ' al mes, ya pagado');
+          dfr.load();
+        } else {
+          this.aviso('✓ Guardado: $' + Math.round(d.monto_cop || 0).toLocaleString('de-DE') + ' (US$' + (d.monto_usd || 0).toLocaleString('es-CO', { maximumFractionDigits: 2 }) + ')');
+        }
         window.dispatchEvent(new CustomEvent('expenses-changed'));
         const rv = Alpine.store('review'); if (rv.loaded) rv.load(true);
       } catch (e) { this.error = e.message || String(e); }

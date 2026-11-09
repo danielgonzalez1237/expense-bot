@@ -85,6 +85,10 @@ class QuickExpense(BaseModel):
     metodo_pago: Optional[str] = "Sin especificar"
     user_name: Optional[str] = None      # si no viene, la persona que entró con su PIN
     fecha: Optional[str] = None          # YYYY-MM-DD; si no viene, hoy (hora Colombia)
+    # Diferir (ya pagado): se reparte en N cuotas mensuales como los de 📅 Diferidos
+    # (modo 'upfront'). diferir_inicio = YYYY-MM de la cuota 1 (por defecto, el mes de la fecha).
+    diferir_meses: Optional[int] = None
+    diferir_inicio: Optional[str] = None
 
 
 # Versión del recorrido guiado: al cambiarla, a todos les vuelve a salir.
@@ -453,6 +457,33 @@ def _deferred_summary(rows: list[dict], meta: Optional[tuple], today: str) -> di
                     "monto_cop": r["monto_cop"], "monto_usd": r["monto_usd"],
                     "pagada": r["fecha"][:10] <= today} for r in rows],
     }
+
+
+def _insertar_diferido(conn, *, concepto: str, categoria: str, valores: list[float], currency: str,
+                       fecha_inicio: str, user_name: str, metodo_pago: str, mode: str, clase: str) -> int:
+    """Crea las N cuotas de un diferido (una fila de expenses por mes desde
+    fecha_inicio, con la TRM de cada mes) y su fila en deferred_meta.
+    No hace commit: lo hace quien llama. Devuelve el group_id (= id de la cuota 1).
+    La usan 📅 Diferidos → Nuevo y ➕ Anotar gasto con "Diferir"."""
+    n = len(valores)
+    now = datetime.now().isoformat()
+    gid = None
+    for k in range(1, n + 1):
+        fecha = _month_offset(fecha_inicio[:10], k - 1)
+        cop, usd = _amounts_for(conn, fecha, valores[k - 1], currency)
+        cur = conn.execute(
+            "INSERT INTO expenses (user_id, user_name, fecha, monto_cop, monto_usd, categoria, nota, "
+            "created_at, metodo_pago, clase_contable, deferred_total, deferred_index, "
+            "deferred_group_id, deferred_mode) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_name, fecha, cop, usd, categoria, concepto, now, metodo_pago, clase, n, k, gid, mode),
+        )
+        if gid is None:
+            gid = cur.lastrowid
+            conn.execute("UPDATE expenses SET deferred_group_id = ? WHERE id = ?", (gid, gid))
+    conn.execute(
+        "INSERT OR REPLACE INTO deferred_meta (group_id, concepto, currency, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?)", (gid, concepto, currency, now, now))
+    return gid
 
 
 # ──────────────── Reconciliación de extractos bancarios v2 ────────────────
@@ -4278,27 +4309,13 @@ def make_api_app() -> FastAPI:
         valores = (_split_cuotas(float(body.monto), n, cur_code) if tipo == "total"
                    else [round(float(body.monto), 0 if cur_code == "COP" else 2)] * n)
         concepto = body.concepto.strip()
-        now = datetime.now().isoformat()
         conn = sqlite3.connect(bot.DB_PATH)
         try:
             conn.execute("BEGIN")
-            gid = None
-            for k in range(1, n + 1):
-                fecha = _month_offset(body.fecha_inicio[:10], k - 1)
-                cop, usd = _amounts_for(conn, fecha, valores[k - 1], cur_code)
-                cur = conn.execute(
-                    "INSERT INTO expenses (user_id, user_name, fecha, monto_cop, monto_usd, categoria, nota, "
-                    "created_at, metodo_pago, clase_contable, deferred_total, deferred_index, "
-                    "deferred_group_id, deferred_mode) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (body.user_name or "Daniel", fecha, cop, usd, body.categoria.strip(), concepto, now,
-                     body.metodo_pago or "Sin especificar", clase, n, k, gid, mode),
-                )
-                if gid is None:
-                    gid = cur.lastrowid
-                    conn.execute("UPDATE expenses SET deferred_group_id = ? WHERE id = ?", (gid, gid))
-            conn.execute(
-                "INSERT OR REPLACE INTO deferred_meta (group_id, concepto, currency, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?)", (gid, concepto, cur_code, now, now))
+            gid = _insertar_diferido(conn, concepto=concepto, categoria=body.categoria.strip(), valores=valores,
+                                     currency=cur_code, fecha_inicio=body.fecha_inicio[:10],
+                                     user_name=body.user_name or "Daniel",
+                                     metodo_pago=body.metodo_pago or "Sin especificar", mode=mode, clase=clase)
             conn.execute("COMMIT")
             return {"ok": True, "group": _deferred_view(conn, gid)}
         except Exception:
@@ -4779,12 +4796,51 @@ def make_api_app() -> FastAPI:
         quien = (body.user_name or "").strip() or (_auth_request_user(request) or "Daniel")
         if quien in ("api", "dashboard"):
             quien = "Daniel"
+        n_dif = int(body.diferir_meses or 0)
+        if n_dif:
+            if n_dif < 2 or n_dif > DEFERRED_MAX_CUOTAS:
+                raise HTTPException(400, f"para diferir, los meses deben estar entre 2 y {DEFERRED_MAX_CUOTAS}")
+            inicio = (body.diferir_inicio or fecha[:7])[:7]
+            try:
+                iy, im = (int(x) for x in inicio.split("-"))
+                assert 1 <= im <= 12
+            except Exception:
+                raise HTTPException(400, f"mes de inicio inválido {inicio!r}, se espera YYYY-MM")
+            desfase = (iy * 12 + im) - (int(fecha[:4]) * 12 + int(fecha[5:7]))
+            if abs(desfase) > 12:
+                raise HTTPException(400, "el mes de inicio debe estar a menos de un año de la fecha del gasto")
         conn = sqlite3.connect(bot.DB_PATH)
         try:
             rates = _rates_for_period(conn, fecha[:7])
             monto_usd, _ = _to_usd(float(body.monto), moneda, rates)
             monto_cop = float(body.monto) if moneda == "COP" else float(round(monto_usd * float(rates.get("TRM") or bot.TRM)))
             nota = (body.nota or "").strip()
+            if n_dif:
+                # Ya pagado y repartido en N meses: mismas filas que 📅 Diferidos (modo 'upfront').
+                # COP y USD quedan en su moneda; las demás se pasan a dólares con la tasa del mes de la fecha.
+                cur_code = "COP" if moneda == "COP" else "USD"
+                total = float(body.monto) if moneda in ("COP", "USD") else float(monto_usd)
+                cat = body.categoria.strip()
+                concepto = nota or ((bot.BUDGET.get(cat) or {}).get("label") or cat)
+                try:
+                    conn.execute("BEGIN")
+                    gid = _insertar_diferido(conn, concepto=concepto, categoria=cat,
+                                             valores=_split_cuotas(total, n_dif, cur_code), currency=cur_code,
+                                             fecha_inicio=_month_offset(fecha, desfase), user_name=quien,
+                                             metodo_pago=(body.metodo_pago or "Sin especificar").strip(),
+                                             mode="upfront", clase="gasto")
+                    conn.execute("COMMIT")
+                except Exception:
+                    try:
+                        conn.execute("ROLLBACK")
+                    except Exception:
+                        pass
+                    raise
+                grupo = _deferred_view(conn, gid)
+                print(f"[quick] diferido #{gid} {quien} {body.monto} {moneda} {cat} en {n_dif} meses")
+                return {"ok": True, "id": gid, "user_name": quien, "fecha": fecha, "monto_cop": grupo["total_cop"],
+                        "monto_usd": round(sum(q["monto_usd"] or 0 for q in grupo["cuotas"]), 2), "categoria": cat,
+                        "nota": concepto, "moneda": moneda, "diferido": grupo}
             cur = conn.execute(
                 "INSERT INTO expenses (user_id, user_name, fecha, monto_cop, monto_usd, categoria, nota, created_at, "
                 "metodo_pago, clase_contable, deferred_total, deferred_index) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, 'gasto', 1, 1)",
