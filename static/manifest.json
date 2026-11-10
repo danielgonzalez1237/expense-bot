@@ -1,0 +1,13 @@
+{
+  "name": "P&G mensual · Family Office GG",
+  "short_name": "P&G GG",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f5f6f8",
+  "theme_color": "#f5f6f8",
+  "icons": [
+    { "src": "/static/icono-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/static/icono.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

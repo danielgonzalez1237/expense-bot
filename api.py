@@ -61,7 +61,8 @@ AUTH_IP_LOCK_SECONDS = 15 * 60
 AUTH_GLOBAL_MAX_FAILS = 30
 AUTH_GLOBAL_WINDOW_SECONDS = 60 * 60
 _AUTH_OPEN_PATHS = {"/api/health", "/api/login", "/api/logout", "/api/auth/status", "/favicon.ico", "/static/tw.css",
-                    "/static/icono.svg", "/static/icono-32.png", "/static/icono-180.png"}
+                    "/static/icono.svg", "/static/icono-32.png", "/static/icono-180.png",
+                    "/static/manifest.json"}
 _auth_fails_by_ip: dict[str, list[float]] = {}
 _auth_fails_global: list[float] = []
 _auth_secret_cache: dict[str, bytes] = {}
@@ -205,15 +206,21 @@ LOGIN_HTML = """<!doctype html>
 <html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
-<meta name="theme-color" content="#f5f6f8">
+<meta name="theme-color" content="#f5f6f8" id="meta-theme">
 <title>P&amp;G mensual · Family Office GG</title>
+<link rel="manifest" href="/static/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="P&amp;G GG">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="icon" href="/static/icono.svg" type="image/svg+xml">
 <link rel="icon" href="/static/icono-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="/static/icono-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..700&display=swap" rel="stylesheet">
 <script>(function(){var t=null;try{t=localStorage.getItem('theme_mode')}catch(e){}var h=new Date().getHours();
-if(t==='dark'||((!t||t==='auto')&&(h>=18||h<6)))document.documentElement.className='dark';})();</script>
+if(t==='dark'||((!t||t==='auto')&&(h>=18||h<6))){document.documentElement.className='dark';
+var m=document.getElementById('meta-theme');if(m)m.setAttribute('content','#0b0d11');}})();</script>
 <style>
 :root{--bg:#f5f6f8;--card:#fff;--ink:#14171c;--mute:#5f6771;--line:#e5e8ec;--field:#f2f4f7;--btn:#14171c;--btnink:#fff;--err:#c63a2d;--foco:#2a78d6}
 html.dark{--bg:#0b0d11;--card:#13161c;--ink:#f1f2f4;--mute:#9aa1ab;--line:#1f232b;--field:#1a1e25;--btn:#f1f2f4;--btnink:#0b0d11;--err:#f07a6a;--foco:#6da7ec;color-scheme:dark}

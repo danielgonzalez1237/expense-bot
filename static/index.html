@@ -9,6 +9,10 @@
 <link rel="icon" href="/static/icono-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="/static/icono-180.png">
 <meta name="apple-mobile-web-app-title" content="P&amp;G GG">
+<link rel="manifest" href="/static/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..700&display=swap" rel="stylesheet">
@@ -24,6 +28,24 @@
     if (dark) document.documentElement.classList.add('dark');
     var m = document.getElementById('meta-theme');
     if (m) m.setAttribute('content', dark ? '#0b0d11' : '#f5f6f8');
+  })();
+</script>
+
+<!-- Instalada en la pantalla de inicio (modo app): un enlace a Patrimonio abriría el navegador
+     con su barra encima. Patrimonio es su propia app, así que avisamos en vez de salir. -->
+<script>
+  (function() {
+    var app = window.navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+    if (!app) return;
+    document.documentElement.classList.add('modo-app');
+    document.addEventListener('click', function(e) {
+      var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+      if (!a || a.origin === location.origin || a.hostname.indexOf('patrimonio') === -1) return;
+      e.preventDefault();
+      var msg = 'Patrimonio es la otra app: ábrela desde su ícono FO GG en tu pantalla de inicio.';
+      var q = window.Alpine && window.Alpine.store && window.Alpine.store('quick');
+      if (q && q.aviso) q.aviso(msg); else alert(msg);
+    }, true);
   })();
 </script>
 
@@ -296,10 +318,11 @@
       </div>
     </div>
     <div class="absolute right-0 top-0 lg:static flex items-center gap-1.5" :class="esPeriodo() ? '' : 'lg:ml-auto'">
-      <a href="https://patrimonio-production-4091.up.railway.app" data-tour="patrimonio-movil"
-        class="lg:hidden w-9 h-9 rounded-full bg-white dark:bg-slate-900 shadow-sm grid place-items-center text-slate-600 dark:text-slate-300"
-        title="Ver patrimonio" aria-label="Ver patrimonio">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg></a>
+      <button @click="view = 'ajustes'" data-tour="ajustes-movil" :aria-current="view === 'ajustes' ? 'page' : null"
+        class="lg:hidden w-9 h-9 rounded-full shadow-sm grid place-items-center transition"
+        :class="view === 'ajustes' ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300'"
+        title="Ajustes" aria-label="Ajustes">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></button>
       <button @click="$store.guide.open = true" data-tour="guia-movil"
         class="lg:hidden w-9 h-9 rounded-full bg-white dark:bg-slate-900 shadow-sm grid place-items-center text-sm font-semibold text-slate-600 dark:text-slate-300"
         title="Guía de uso" aria-label="Guía de uso">?</button>
@@ -1119,7 +1142,7 @@
       <div class="mt-3 space-y-1 max-h-80 overflow-y-auto scroll-area pr-1">
         <template x-for="m in (summary.by_payment_method || [])" :key="'pm' + m.method">
           <button @click="methodFilter = m.method; goMovimientos()" class="w-full text-left rounded-xl px-2 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition" :title="'Ver los gastos pagados con ' + m.method">
-            <div class="flex justify-between text-sm gap-2"><span class="truncate"><span x-text="m.flag"></span> <span x-text="m.method"></span></span><span class="font-semibold shrink-0" x-text="fmtUsd(m.total_usd)"></span></div>
+            <div class="flex justify-between text-sm gap-2"><span class="min-w-0 line-clamp-2"><span x-text="m.flag"></span> <span x-text="m.method"></span></span><span class="font-semibold shrink-0" x-text="fmtUsd(m.total_usd)"></span></div>
             <div class="mt-1 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden"><div class="h-full rounded-full bg-esencial bar" :style="'width:' + (summary.by_payment_method[0].total_usd ? 100 * m.total_usd / summary.by_payment_method[0].total_usd : 0) + '%'"></div></div>
             <div class="text-[10px] text-slate-400 mt-0.5" x-text="m.count + (m.count === 1 ? ' gasto' : ' gastos') + ' · $' + Math.round(m.total_cop || 0).toLocaleString('de-DE') + ' COP'"></div>
           </button>
@@ -1434,14 +1457,14 @@
         <span class="text-[10px] uppercase tracking-wide text-slate-400 dark:text-slate-600 self-center font-semibold w-16">Categoría</span>
         <select
           x-model="categoryFilter"
-          class="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-xs flex-1 max-w-xs"
+          class="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md px-2 py-1 text-xs flex-1 min-w-0 max-w-xs"
         >
           <option :value="null">— Todas las categorías —</option>
           <template x-for="opt in categoryOptions" :key="opt.key">
             <option :value="opt.key" x-text="opt.label"></option>
           </template>
         </select>
-        <span class="ml-auto text-[11px] text-slate-400 dark:text-slate-600 self-center">tap para editar</span>
+        <span class="ml-auto text-[11px] text-slate-400 dark:text-slate-600 self-center whitespace-nowrap shrink-0 hidden min-[360px]:inline">tap para editar</span>
       </div>
     </div>
 
@@ -1740,24 +1763,31 @@
   </footer>
   </main>
 
-  <!-- ════════════════ Barra flotante (celular) con "+" en el centro ════════════════ -->
-  <nav class="lg:hidden fixed inset-x-3 z-40 rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur shadow-lg border border-slate-200/70 dark:border-slate-800 px-1.5 py-1.5 flex items-center justify-around text-[10px] text-slate-500"
+  <!-- ════════════════ Barra flotante (celular): 2 | + | 2 en cinco columnas iguales ════════════════ -->
+  <nav class="lg:hidden fixed inset-x-3 z-40 rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur shadow-lg border border-slate-200/70 dark:border-slate-800 px-1 py-1 grid grid-cols-5 items-center text-[10px] tracking-[-.01em] text-slate-500"
        style="bottom: max(env(safe-area-inset-bottom), 12px)" data-tour="nav-movil" aria-label="Secciones">
-    <template x-for="t in views.slice(0, 2)" :key="'nb' + t.key">
-        <button @click="view = t.key" class="flex flex-col items-center gap-0.5 px-2 py-1 min-w-[56px] rounded-full transition"
-          :class="view === t.key ? 'text-slate-900 dark:text-slate-100 font-semibold' : ''">
-          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" :stroke-width="view === t.key ? 2.2 : 1.7" stroke-linecap="round" stroke-linejoin="round" x-html="t.svg"></svg>
-          <span x-text="t.corto || t.label"></span>
-        </button>
+    <template x-for="t in views.filter(v => v.key !== 'ajustes').slice(0, 2)" :key="'nb' + t.key">
+      <button @click="view = t.key" :aria-current="view === t.key ? 'page' : null"
+        class="flex flex-col items-center justify-center gap-1 h-12 w-full min-w-0 rounded-full transition"
+        :class="view === t.key ? 'text-slate-900 dark:text-slate-100 font-semibold' : ''">
+        <svg class="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" :stroke-width="view === t.key ? 2.2 : 1.7" stroke-linecap="round" stroke-linejoin="round" x-html="t.svg"></svg>
+        <span class="leading-none whitespace-nowrap min-[360px]:hidden" x-text="t.corto || t.label"></span>
+        <span class="leading-none whitespace-nowrap hidden min-[360px]:inline" x-text="t.label"></span>
+      </button>
     </template>
-    <button @click="$store.quick.openModal(quickCtx())" data-tour="add-movil" aria-label="Anotar gasto"
-      class="w-12 h-12 -my-3 rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 grid place-items-center text-2xl font-light shadow-lg shrink-0">+</button>
-    <template x-for="t in views.slice(2)" :key="'nb' + t.key">
-        <button @click="view = t.key" class="flex flex-col items-center gap-0.5 px-2 py-1 min-w-[56px] rounded-full transition"
-          :class="view === t.key ? 'text-slate-900 dark:text-slate-100 font-semibold' : ''">
-          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" :stroke-width="view === t.key ? 2.2 : 1.7" stroke-linecap="round" stroke-linejoin="round" x-html="t.svg"></svg>
-          <span x-text="t.corto || t.label"></span>
-        </button>
+    <div class="grid place-items-center">
+      <button @click="$store.quick.openModal(quickCtx())" data-tour="add-movil" aria-label="Anotar gasto"
+        class="w-12 h-12 -my-2 rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 grid place-items-center shadow-lg">
+        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+    </div>
+    <template x-for="t in views.filter(v => v.key !== 'ajustes').slice(2)" :key="'nb' + t.key">
+      <button @click="view = t.key" :aria-current="view === t.key ? 'page' : null"
+        class="flex flex-col items-center justify-center gap-1 h-12 w-full min-w-0 rounded-full transition"
+        :class="view === t.key ? 'text-slate-900 dark:text-slate-100 font-semibold' : ''">
+        <svg class="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" :stroke-width="view === t.key ? 2.2 : 1.7" stroke-linecap="round" stroke-linejoin="round" x-html="t.svg"></svg>
+        <span class="leading-none whitespace-nowrap min-[360px]:hidden" x-text="t.corto || t.label"></span>
+        <span class="leading-none whitespace-nowrap hidden min-[360px]:inline" x-text="t.label"></span>
+      </button>
     </template>
   </nav>
 </div>
@@ -3977,7 +4007,7 @@
         <div class="grid sm:grid-cols-2 gap-3">
           <div class="rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-4">
             <div class="font-semibold text-sm">🧭 Cuatro secciones</div>
-            <p class="text-xs text-slate-600 dark:text-slate-400 mt-1"><b>Resumen</b> (el mes), <b>Revisión</b> (gráficas), <b>Movimientos</b> (cada gasto) y <b>Ajustes</b>. En el computador están en el menú de la izquierda; en el celular, en la barra de abajo.</p>
+            <p class="text-xs text-slate-600 dark:text-slate-400 mt-1"><b>Resumen</b> (el mes), <b>Revisión</b> (gráficas), <b>Movimientos</b> (cada gasto) y <b>Ajustes</b>. En el computador están en el menú de la izquierda; en el celular, en la barra de abajo, y <b>Ajustes</b> en el botón de arriba a la derecha.</p>
           </div>
           <div class="rounded-2xl bg-slate-100/70 dark:bg-slate-800/60 p-4">
             <div class="font-semibold text-sm">➕ Anotar gasto</div>
@@ -6279,7 +6309,7 @@ document.addEventListener('alpine:init', () => {
       { title: (u) => '¡Hola' + (u ? ' ' + u : '') + '! 👋',
         text: 'Renovamos la página de gastos: más clara, con gráficas nuevas, un Resumen más fácil de revisar, modo de noche automático, un botón para anotar gastos y una <b><i>i</i></b> de ayuda en cada módulo. Te muestro lo nuevo en un minuto.' },
       { sel: ['[data-tour=nav]', '[data-tour=nav-movil]'], view: 'resumen', title: 'Las secciones',
-        text: '<b>Resumen</b> es el período con su P&amp;G. <b>Revisión</b> son las gráficas de dónde se va la plata. <b>Movimientos</b> es cada gasto, <b>Ingresos</b> es lo que entra y <b>Ajustes</b> es todo lo que se configura.' },
+        text: '<b>Resumen</b> es el período con su P&amp;G. <b>Revisión</b> son las gráficas de dónde se va la plata. <b>Movimientos</b> es cada gasto, <b>Ingresos</b> es lo que entra y <b>Ajustes</b> es todo lo que se configura (en el celular, en el botón de arriba a la derecha).' },
       { sel: ['[data-tour=add]', '[data-tour=add-movil]'], view: 'resumen', title: 'Anotar gasto o ingreso',
         text: 'Con el botón <b>+</b> anotas un <b>gasto</b> o un <b>ingreso</b> aquí mismo: monto, moneda y categoría o fuente. Los gastos quedan igual que si los mandaras al bot de Telegram, que sigue funcionando como siempre.' },
       { sel: ['[data-tour=periodo]'], view: 'resumen', title: 'Elige el período',
