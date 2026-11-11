@@ -183,7 +183,7 @@ function fallo(msg) { enviando = false; revisar(); $("pie").className = "pie err
 async function emparejar() {
   const a = new Alert();
   a.title = "Activar Anotar gasto";
-  a.message = "En P&G GG ve a Ajustes → Teléfonos y Macs → «Código para un iPhone» y escribe aquí el código (vale 10 minutos y una sola vez).";
+  a.message = "Este código sale de GASTOS DEL MES (no de Patrimonio): Ajustes → Teléfonos y Macs → «Código para un iPhone». Vale 10 minutos y una sola vez.";
   a.addTextField("ABCD-EFGH");
   a.addAction("Activar");
   a.addCancelAction("Cancelar");
@@ -198,7 +198,7 @@ async function emparejar() {
     Keychain.set(CLAVE, j.llave);
     return true;
   }
-  await avisar("No se pudo activar", j.detail || "Revisa el código y vuelve a intentar.");
+  await avisar("No se pudo activar", (j.detail || "Revisa el código y vuelve a intentar.") + "\n\nOjo: Anotar gasto usa el código de Gastos del mes → Ajustes → Teléfonos y Macs, no el de Patrimonio.");
   return false;
 }
 
