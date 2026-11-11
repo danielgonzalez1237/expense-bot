@@ -14,12 +14,11 @@ const BASE = "https://expense-bot-production-04c4.up.railway.app";
 const CLAVE = "pyg.llave";
 
 // ---------- la hoja (HTML) ----------
-function hoja(d, prefs, previo, llave) {
-  const datos = JSON.stringify({ d, prefs, previo, llave }).replace(/</g, "\\u003c");
+function hoja(d, prefs, previo, llave, guardado) {
+  const datos = JSON.stringify({ d, prefs, previo, llave, guardado: !!guardado }).replace(/</g, "\\u003c");
   return `<!doctype html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..600&display=swap" rel="stylesheet">
 <style>
 :root{--tope:62px;--fondo:#f5f6f8;--hoja:#ffffff;--txt:#111318;--apag:#64748b;--borde:#e5e8ec;--suave:#f2f4f7;--gris:#e3e6eb;--grist:#9aa3b2;--oro:#eda100;--orot:#8a5f00;--orosuave:#fdf3dc;--alerta:#c63a2d;--sombra:0 1px 2px rgba(16,24,40,.06)}
 @media (prefers-color-scheme: dark){:root{--fondo:#0b0d11;--hoja:#13161c;--txt:#f1f3f5;--apag:#94a3b8;--borde:#1f232b;--suave:#1a1e25;--gris:#1f232b;--grist:#5b6575;--orot:#f2b730;--orosuave:rgba(237,161,0,.13);--alerta:#f07a6a;--sombra:0 0 0 1px #1f232b}}
@@ -184,7 +183,9 @@ button:active{transform:scale(.97)}
   </div>
 </div>
 <script>
-const {d, prefs, previo, llave} = ${datos};
+const {d, prefs, previo, llave, guardado} = ${datos};
+// hoy siempre sale del reloj del teléfono (hora Colombia): lo guardado puede ser de otro día
+try { d.hoy = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Bogota" }).format(new Date()) || d.hoy; } catch (e) { /* queda el del servidor */ }
 const $ = (id) => document.getElementById(id);
 const MESES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
 const DIAS = ["domingo","lunes","martes","miércoles","jueves","viernes","sábado"];
@@ -195,7 +196,7 @@ const FLECHA = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stro
 const ABAJO = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
 const COLOR = { bdb: "#2563d6", bbva: "#1464a5", bancolombia: "#e0b000", falabella: "#22a05a", wio: "#6d48e6", enbd: "#1c76b8",
   usdt: "#26a17b", rappicard: "#ff6a4d", efectivo: "#2f9a62", chase: "#117aca" };
-const tasas = d.tasas || {};
+let tasas = d.tasas || {};
 let resumen = d.resumen || {};
 let mets = d.metodos_sugeridos.filter(m => m !== "Sin especificar");
 const est = { moneda: (prefs && prefs.moneda && d.monedas.includes(prefs.moneda)) ? prefs.moneda : "COP", cat: null,
@@ -482,7 +483,23 @@ $("monto").addEventListener("input", () => { puntos(); revisar(); });
 $("nota").addEventListener("input", revisar);
 $("nota").addEventListener("keydown", (e) => { if (e.key === "Enter") $("nota").blur(); });
 window.addEventListener("resize", ajustarCifra);
-if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { pintarCats(); ajustarCifra(); });
+window.addEventListener("load", () => {
+  const l = document.createElement("link"); l.rel = "stylesheet";
+  l.href = "https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..600&display=swap";
+  l.onload = () => { if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { pintarCats(); ajustarCifra(); }); };
+  document.head.appendChild(l);
+});
+// si abrió con lo guardado, el presupuesto se pide ya mismo y se muestra cuando llega (nunca una cifra vieja)
+if (guardado) {
+  $("pP").style.visibility = "hidden";
+  fetch("/api/anotar/datos", { headers: { "X-Equipo": llave } })
+    .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+    .then((n) => { resumen = n.resumen || resumen; tasas = n.tasas || tasas; $("pP").style.visibility = ""; revisar(); })
+    .catch((st) => {
+      if (st === 401) fallo("Este teléfono ya no está activo: pide un código nuevo en Gastos del mes → Ajustes → Teléfonos y Macs.");
+      else { $("pP").style.visibility = ""; revisar(); }
+    });
+}
 setTimeout(() => { if (!previo || !previo.monto) $("monto").focus(); }, 300);
 
 // ----- anotar -----
@@ -598,17 +615,36 @@ async function main() {
   let prefs = {};
   try { if (fm.fileExists(PREF)) prefs = JSON.parse(fm.readString(PREF)); } catch (e) { prefs = {}; }
 
-  if (!Keychain.contains(CLAVE) && !(await emparejar())) return;
-  let { code, j: datos } = await api("/api/anotar/datos");
-  if (code === 401) {
-    Keychain.remove(CLAVE);
-    await avisar("Este teléfono ya no está activo", "Se quitó en Ajustes → Teléfonos y Macs. Pide un código nuevo para activarlo otra vez.");
+  // los últimos datos (categorías, métodos, presupuesto) quedan en este teléfono para abrir al instante
+  const DATOS = fm.joinPath(fm.documentsDirectory(), "anotar-datos.json");
+  const guardar = (x) => { try { fm.writeString(DATOS, JSON.stringify(x)); } catch (e) { /* no importa */ } };
+  let datos = null;
+  try { if (fm.fileExists(DATOS)) datos = JSON.parse(fm.readString(DATOS)); } catch (e) { datos = null; }
+  if (!Keychain.contains(CLAVE)) {
+    if (fm.fileExists(DATOS)) fm.remove(DATOS);
+    datos = null;
     if (!(await emparejar())) return;
-    ({ code, j: datos } = await api("/api/anotar/datos"));
   }
-  if (code !== 200 || !datos) {
-    await avisar("Sin conexión", "No pude hablar con P&G GG. Revisa el internet y vuelve a intentar.");
-    return;
+  const guardado = !!(datos && datos.persona && datos.categorias);
+  if (guardado) {
+    // se abre ya con lo guardado; esto trae lo nuevo para la próxima vez (sin tocar la hoja)
+    api("/api/anotar/datos").then(({ code, j }) => {
+      if (code === 200 && j) guardar(j);
+      else if (code === 401) { Keychain.remove(CLAVE); if (fm.fileExists(DATOS)) fm.remove(DATOS); }
+    }).catch(() => {});
+  } else {
+    let { code, j } = await api("/api/anotar/datos");
+    if (code === 401) {
+      Keychain.remove(CLAVE);
+      await avisar("Este teléfono ya no está activo", "Se quitó en Ajustes → Teléfonos y Macs. Pide un código nuevo para activarlo otra vez.");
+      if (!(await emparejar())) return;
+      ({ code, j } = await api("/api/anotar/datos"));
+    }
+    if (code !== 200 || !j) {
+      await avisar("Sin conexión", "No pude hablar con P&G GG. Revisa el internet y vuelve a intentar.");
+      return;
+    }
+    datos = j; guardar(j);
   }
 
   const wv = new WebView();
@@ -622,7 +658,7 @@ async function main() {
     return true;
   };
   // la hoja se carga "como si fuera" P&G GG, así puede anotar directo con la llave de este teléfono
-  await wv.loadHTML(hoja(datos, prefs, entrada(), Keychain.get(CLAVE)), BASE);
+  await wv.loadHTML(hoja(datos, prefs, entrada(), Keychain.get(CLAVE), guardado), BASE);
   await wv.present(false);
 }
 
