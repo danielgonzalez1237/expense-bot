@@ -114,6 +114,12 @@ class AnotarBody(BaseModel):
     categoria: str
     metodo_pago: Optional[str] = "Sin especificar"
     nota: Optional[str] = ""
+    fecha: Optional[str] = None          # YYYY-MM-DD; hoy o hasta 90 días atrás
+
+
+class SugerirBody(BaseModel):
+    """📱 Comercio que llegó de Apple Pay, para proponer la categoría de la última vez."""
+    comercio: str
 
 
 # Versión del recorrido guiado: al cambiarla, a todos les vuelve a salir.
@@ -5084,24 +5090,25 @@ def make_api_app() -> FastAPI:
         persona = eq["persona"]
         hoy = datetime.now(bot.COL_TZ)
         ym = hoy.strftime("%Y-%m")
-        desde90 = (hoy - timedelta(days=90)).strftime("%Y-%m-%d")
+        # Lo de cada persona: sus categorías y sus métodos de los últimos 6 meses, con el último mes pesando el triple
+        desde180 = (hoy - timedelta(days=180)).strftime("%Y-%m-%d")
+        desde30 = (hoy - timedelta(days=30)).strftime("%Y-%m-%d")
         libre = "recurring_id IS NULL AND deferred_group_id IS NULL"
+        peso = "SUM(CASE WHEN fecha >= ? THEN 3 ELSE 1 END)"
         conn = sqlite3.connect(bot.DB_PATH)
         try:
-            n_mes = dict(conn.execute(f"SELECT categoria, COUNT(*) FROM expenses WHERE substr(fecha, 1, 7) = ? AND {libre} "
-                                      "GROUP BY categoria", (ym,)).fetchall())
-            n_90 = dict(conn.execute(f"SELECT categoria, COUNT(*) FROM expenses WHERE fecha >= ? AND {libre} "
-                                     "GROUP BY categoria", (desde90,)).fetchall())
+            n_cat = dict(conn.execute(f"SELECT categoria, {peso} FROM expenses WHERE user_name = ? AND fecha >= ? AND {libre} "
+                                      "GROUP BY categoria", (desde30, persona, desde180)).fetchall())
             met = [r[0] for r in conn.execute(
-                f"SELECT metodo_pago, COUNT(*) AS n FROM expenses WHERE user_name = ? AND fecha >= ? AND {libre} "
-                "AND COALESCE(metodo_pago, '') NOT IN ('', 'Sin especificar') GROUP BY metodo_pago ORDER BY n DESC LIMIT 3",
-                (persona, desde90))]
-            ult = conn.execute(f"SELECT metodo_pago FROM expenses WHERE user_name = ? AND {libre} "
-                               "AND COALESCE(metodo_pago, '') NOT IN ('', 'Sin especificar') ORDER BY id DESC LIMIT 1",
-                               (persona,)).fetchone()
+                f"SELECT metodo_pago, {peso} AS n FROM expenses WHERE user_name = ? AND fecha >= ? AND {libre} "
+                "AND COALESCE(metodo_pago, '') NOT IN ('', 'Sin especificar') GROUP BY metodo_pago ORDER BY n DESC",
+                (desde30, persona, desde180))]
             pagos = _proximos_pagos(conn, hoy)
+            t = _rates_for_period(conn, ym)
         finally:
             conn.close()
+        tasas = {"USD": 1.0, "COP": t.get("TRM"), "BOB": t.get("BOB_RATE"), "AED": t.get("AED_RATE"),
+                 "CLP": t.get("CLP_RATE"), "ARS": t.get("ARS_RATE")}
         budget = bot.BUDGET or {}
         padres = {v.get("parent") for v in budget.values() if isinstance(v, dict) and v.get("parent")}
         def cat(k):
@@ -5109,16 +5116,17 @@ def make_api_app() -> FastAPI:
             p = budget.get(b.get("parent")) or {}
             return {"key": k, "label": b.get("label") or k, "icon": b.get("icon") or "📦", "grupo": p.get("label") or ""}
         hojas = [k for k, v in budget.items() if isinstance(v, dict) and k not in padres]
-        orden = sorted([k for k in hojas if n_mes.get(k)], key=lambda k: -n_mes[k])
-        orden += [k for k in sorted(hojas, key=lambda k: -n_90.get(k, 0)) if n_90.get(k) and k not in orden]
+        orden = sorted([k for k in hojas if n_cat.get(k)], key=lambda k: -n_cat[k])
         metodos = _metodos_lista()
-        ultimo = ult[0] if ult and ult[0] in metodos else None
-        sugeridos = list(dict.fromkeys(([ultimo] if ultimo else []) + [m for m in met if m in metodos] + ["Efectivo"]))[:4]
+        suyos = [m for m in met if m in metodos]
+        ultimo = suyos[0] if suyos else None  # el que más usa queda marcado
+        sugeridos = list(dict.fromkeys(suyos[:5] + ["Efectivo"]))[:6]
         return {"persona": persona, "equipo": eq["nombre"], "hoy": hoy.strftime("%Y-%m-%d"), "hora": hoy.strftime("%H:%M"),
-                "monedas": list(_SUPPORTED_CURRENCIES), "frecuentes": [cat(k) for k in orden[:6]],
+                "monedas": list(_SUPPORTED_CURRENCIES), "frecuentes": [cat(k) for k in orden[:8]],
                 "categorias": sorted([cat(k) for k in hojas], key=lambda c: (c["grupo"] or c["label"], c["label"])),
                 "metodos": metodos, "metodos_sugeridos": sugeridos, "metodo_ultimo": ultimo,
-                "resumen": _resumen_mes(ym), "pagos": pagos[:5]}
+                "resumen": _resumen_mes(ym), "pagos": pagos[:5],
+                "tasas": {k: float(v) for k, v in tasas.items() if v}}
 
     @api.post("/api/anotar/gasto")
     def anotar_gasto(body: AnotarBody, request: Request):
@@ -5127,15 +5135,58 @@ def make_api_app() -> FastAPI:
         cat = (body.categoria or "").strip()
         if cat not in (bot.BUDGET or {}):
             raise HTTPException(400, "Esa categoría no existe")
+        fecha = None
+        if body.fecha:
+            hoy = datetime.now(bot.COL_TZ).date()
+            try:
+                f = datetime.strptime(body.fecha[:10], "%Y-%m-%d").date()
+            except ValueError:
+                raise HTTPException(400, "Fecha inválida")
+            if f > hoy or (hoy - f).days > 90:
+                raise HTTPException(400, "La fecha debe ser de hoy o de los últimos 90 días")
+            fecha = f.isoformat()
         q = QuickExpense(monto=body.monto, moneda=body.moneda or "COP", categoria=cat,
                          nota=(body.nota or "").strip()[:200],
                          metodo_pago=((body.metodo_pago or "").strip() or "Sin especificar")[:80],
-                         user_name=eq["persona"])
+                         user_name=eq["persona"], fecha=fecha)
         r = quick_expense(q, request)
         info = (bot.BUDGET or {}).get(cat) or {}
         print(f"[equipos] {eq['persona']} anotó desde «{eq['nombre']}» #{r.get('id')}")
         return {**r, "categoria_label": info.get("label") or cat, "icon": info.get("icon") or "📦",
                 "resumen": _resumen_mes(r["fecha"][:7])}
+
+    @api.post("/api/anotar/sugerir")
+    def anotar_sugerir(body: SugerirBody, request: Request):
+        """La categoría que más usó esta persona en ese comercio (por la nota), para dejarla marcada."""
+        import unicodedata
+        eq = _equipo_o_401(request)
+        def norm(x):
+            x = unicodedata.normalize("NFD", str(x or "")).encode("ascii", "ignore").decode().lower()
+            return " ".join(re.sub(r"[^a-z0-9]+", " ", x).split())
+        com = norm(body.comercio)[:80]
+        if len(com) < 3:
+            return {"categoria": None, "veces": 0}
+        desde = (datetime.now(bot.COL_TZ) - timedelta(days=365)).strftime("%Y-%m-%d")
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            filas = conn.execute("SELECT categoria, nota FROM expenses WHERE user_name = ? AND fecha >= ? "
+                                 "AND recurring_id IS NULL AND deferred_group_id IS NULL AND COALESCE(nota, '') != '' "
+                                 "ORDER BY id DESC", (eq["persona"], desde)).fetchall()
+        finally:
+            conn.close()
+        cuenta, orden = {}, []
+        for cat, nota in filas:
+            n = norm(nota)
+            if len(n) < 3 or cat not in (bot.BUDGET or {}):
+                continue
+            if n == com or (len(com) >= 4 and com in n) or (len(n) >= 4 and n in com):
+                cuenta[cat] = cuenta.get(cat, 0) + 1
+                if cat not in orden:
+                    orden.append(cat)
+        if not cuenta:
+            return {"categoria": None, "veces": 0}
+        mejor = max(orden, key=lambda k: (cuenta[k], -orden.index(k)))
+        return {"categoria": mejor, "veces": cuenta[mejor]}
 
     @api.post("/api/anotar/pagado/{rid}")
     def anotar_pagado(rid: int, body: ReminderPaid, request: Request):
