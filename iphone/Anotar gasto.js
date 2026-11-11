@@ -63,7 +63,10 @@ button:active{transform:scale(.97)}
 .presu-t{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 10px;margin-top:6px;font-size:11.5px;color:var(--apag)}
 .presu-t b{font-weight:600;color:var(--txt)}
 .presu.pasado .presu-t b{color:var(--alerta)}
-.tit{font-size:13px;font-weight:600;margin:13px 0 6px}
+.tit{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13px;font-weight:600;margin:13px 0 6px}
+.ver{border:0;background:transparent;color:var(--orot);font-size:12.5px;font-weight:500;display:inline-flex;align-items:center;gap:2px;padding:3px 0}
+.todas .buscar{margin:0 0 8px}
+.todas{padding-bottom:4px}
 .rejilla{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
 .cat{border:1px solid var(--borde);background:var(--hoja);border-radius:13px;padding:8px 2px 7px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:4px;min-height:58px;box-shadow:var(--sombra)}
 .cat .emo{font-size:20px;line-height:1}
@@ -92,14 +95,8 @@ button:active{transform:scale(.97)}
 .anotar small{font-size:11.5px;font-weight:500;opacity:.78;text-align:center;line-height:1.25}
 .anotar:disabled{background:var(--gris);color:var(--grist);transform:none}
 .capa{position:fixed;top:var(--tope);left:0;right:0;bottom:0;z-index:20;background:var(--fondo);display:none;flex-direction:column}
-.capa.si{display:flex;animation:sube .2s ease-out}
-.capa-arriba{flex-shrink:0;padding:2px 18px 8px;max-width:520px;width:100%;margin:0 auto}
-.capa-cab{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.capa-cab b{font-size:16px;font-weight:600}
-.capa-cab button{border:0;background:transparent;color:var(--orot);font-size:14.5px;font-weight:600;padding:4px 0}
 .buscar{display:flex;align-items:center;gap:7px;margin-top:8px;background:var(--hoja);border:1px solid var(--borde);border-radius:11px;padding:0 11px;color:var(--apag)}
 .buscar input{flex:1;min-width:0;border:0;background:transparent;color:var(--txt);font:inherit;font-size:16px;padding:8px 0;outline:none}
-.capa-lista{position:relative;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:0 18px calc(20px + env(safe-area-inset-bottom));max-width:520px;width:100%;margin:0 auto}
 .lista-g{background:var(--hoja);border:1px solid var(--borde);border-radius:14px;overflow:hidden;box-shadow:var(--sombra)}
 .fila{width:100%;border:0;background:transparent;display:flex;align-items:center;gap:10px;padding:10px 12px;font-size:14.5px;text-align:left}
 .fila+.fila,.subs+.fila{border-top:1px solid var(--borde)}
@@ -157,28 +154,22 @@ button:active{transform:scale(.97)}
     <div class="presu" id="pP"><div class="barra"><i class="g" id="pG"></i><i class="e" id="pE"></i></div><div class="presu-t"><span id="pI"></span><b id="pD"></b></div></div>
   </section>
 
-  <div class="tit">¿En qué?</div>
+  <div class="tit"><span>¿En qué?</span><button class="ver" id="verCats" aria-expanded="false"></button></div>
   <div class="rejilla" id="cats"></div>
+  <div class="todas oculto" id="todasCats"><label class="buscar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg><input id="buscaCats" placeholder="Buscar categoría" autocomplete="off" enterkeyhint="search"></label><div id="listaCats"></div></div>
 
-  <div class="tit">¿De qué fue?</div>
+  <div class="tit" id="titNota"><span>¿De qué fue?</span></div>
   <label class="tarjeta campo" id="campoNota"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg><input class="nota" id="nota" maxlength="120" placeholder="Comercio o detalle" autocomplete="off" enterkeyhint="done"></label>
 
-  <div class="tit">¿Con qué?</div>
+  <div class="tit"><span>¿Con qué?</span><button class="ver" id="verMets" aria-expanded="false"></button></div>
   <div class="metodos" id="mets"></div>
+  <div class="todas oculto" id="todosMets"><label class="buscar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg><input id="buscaMets" placeholder="Buscar método" autocomplete="off" enterkeyhint="search"></label><div id="listaMets"></div></div>
 
-  <div class="pie">
+  <div class="pie" id="pie">
     <div class="error oculto" id="error"></div>
     <button class="anotar" id="anotar" disabled><b id="aT">Confirmar</b><small id="aS" class="oculto"></small></button>
   </div>
 </div></div>
-
-<div class="capa" id="capa" role="dialog" aria-modal="true" aria-labelledby="capaT">
-  <div class="capa-arriba">
-    <div class="capa-cab"><b id="capaT"></b><button id="capaX">Cerrar</button></div>
-    <label class="buscar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg><input id="buscar" autocomplete="off" enterkeyhint="search"></label>
-  </div>
-  <div class="capa-lista" id="capaL"></div>
-</div>
 
 <div class="listo" id="listo" role="status">
   <div class="listo-in">
@@ -200,8 +191,8 @@ const DIAS = ["domingo","lunes","martes","miércoles","jueves","viernes","sábad
 const ENTERAS = ["COP","CLP","ARS"];
 const SIMB = { COP: "$", USD: "US$", AED: "AED", BOB: "Bs", CLP: "CLP", ARS: "ARS" };
 const CHECK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
-const REJILLA = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="2"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="2"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="2"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="2"/></svg>';
 const FLECHA = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
+const ABAJO = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
 const COLOR = { bdb: "#2563d6", bbva: "#1464a5", bancolombia: "#e0b000", falabella: "#22a05a", wio: "#6d48e6", enbd: "#1c76b8",
   usdt: "#26a17b", rappicard: "#ff6a4d", efectivo: "#2f9a62", chase: "#117aca" };
 const tasas = d.tasas || {};
@@ -274,19 +265,18 @@ const grupoDe = (c) => (repite[c.label] && repite[c.label].size > 1 && c.grupo) 
 const catDe = (k) => d.categorias.find(x => x.key === k) || cats.find(x => x.key === k);
 function elegirCat(c) {
   est.cat = c.key;
-  if (!cats.slice(0, 7).some(x => x.key === c.key)) cats = [c].concat(cats.filter(x => x.key !== c.key));
+  if (!cats.slice(0, 8).some(x => x.key === c.key)) cats = [c].concat(cats.filter(x => x.key !== c.key));
   $("monto").blur(); pintarCats(); revisar();
 }
 function pintarCats() {
   const cont = $("cats"); cont.innerHTML = "";
-  cats.slice(0, 7).forEach(c => {
+  cats.slice(0, 8).forEach(c => {
     const on = est.cat === c.key, b = el("button", "cat" + (on ? " on" : ""));
     b.setAttribute("aria-pressed", on);
     b.appendChild(el("span", "emo", c.icon)); b.appendChild(el("span", "et", c.label));
     const g = grupoDe(c); if (g) b.appendChild(el("span", "gr", g));
     b.onclick = () => elegirCat(c); cont.appendChild(b);
   });
-  const m = el("button", "cat mas"); m.innerHTML = REJILLA; m.appendChild(el("span", "et", "Todas")); m.onclick = () => abrirCapa("cats"); cont.appendChild(m);
   // una sola letra para todas las casillas: la que deja caber completa la palabra más larga
   const ancho = (cont.firstChild ? cont.firstChild.clientWidth : 78) - 6;
   const palabras = [...cont.querySelectorAll(".et")].flatMap(e => e.textContent.split(" "));
@@ -310,39 +300,52 @@ function pintarMets() {
     b.onclick = () => { est.met = m; pintarMets(); revisar(); };
     cont.appendChild(b);
   });
-  const o = el("button", "chip otro", "Otro…"); o.onclick = () => abrirCapa("mets"); cont.appendChild(o);
 }
 
-// ----- listas completas, como el menú de Telegram: grupos con sus subcategorías y métodos por banco -----
+// ----- ver todas / ver todos: se despliega aquí mismo, como el menú de Telegram -----
 const GRUPOS = d.grupos || [];
 const hijos = {}; d.categorias.forEach(c => { if (c.padre && GRUPOS.some(g => g.key === c.padre)) (hijos[c.padre] = hijos[c.padre] || []).push(c); });
 Object.values(hijos).forEach(l => l.sort((a, b) => a.label.localeCompare(b.label, "es")));
 const ARRIBA = GRUPOS.filter(g => hijos[g.key]).map(g => ({ grupo: g }))
   .concat(d.categorias.filter(c => !(c.padre && hijos[c.padre])).map(c => ({ hoja: c })))
   .sort((a, b) => (a.grupo || a.hoja).label.localeCompare((b.grupo || b.hoja).label, "es", { sensitivity: "base" }));
-let capaModo = null, abierto = null;
-function abrirCapa(modo) {
-  capaModo = modo;
-  $("capaT").textContent = modo === "cats" ? "Todas las categorías" : "¿Con qué pagaste?";
-  $("buscar").value = ""; $("buscar").placeholder = modo === "cats" ? "Buscar categoría" : "Buscar método";
-  abierto = (modo === "cats" && est.cat && catDe(est.cat)) ? (catDe(est.cat).padre || null) : null;
-  $("monto").blur(); $("nota").blur();
-  pintarCapa(); $("capa").classList.add("si"); $("capaL").scrollTop = 0;
+let desplegado = null, abierto = null;   // "cats" | "mets" | null; el grupo de categorías abierto
+const VER = { cats: "Ver todas", mets: "Ver todos" };
+function pintarVer() {
+  [["cats", "verCats"], ["mets", "verMets"]].forEach(([k, id]) => {
+    const ab = desplegado === k;
+    $(id).innerHTML = ""; $(id).appendChild(document.createTextNode(ab ? "Ocultar" : VER[k]));
+    const ic = el("span"); ic.style.display = "inline-flex"; ic.innerHTML = ab ? ABAJO : FLECHA; $(id).appendChild(ic);
+    $(id).setAttribute("aria-expanded", ab);
+  });
+  $("cats").classList.toggle("oculto", desplegado === "cats"); $("todasCats").classList.toggle("oculto", desplegado !== "cats");
+  $("mets").classList.toggle("oculto", desplegado === "mets"); $("todosMets").classList.toggle("oculto", desplegado !== "mets");
 }
-function cerrarCapa() { $("buscar").blur(); $("capa").classList.remove("si"); }
-function pintarCapa() { if (capaModo === "cats") pintarCapaCats(); else pintarCapaMets(); }
-function vacio(cont) { cont.appendChild(el("div", "capa-vacio", "Nada con «" + $("buscar").value.trim() + "»")); }
+function desplegar(k) {
+  desplegado = desplegado === k ? null : k;
+  $("monto").blur(); $("nota").blur(); $("buscaCats").blur(); $("buscaMets").blur();
+  if (desplegado === "cats") { $("buscaCats").value = ""; abierto = (est.cat && catDe(est.cat)) ? (catDe(est.cat).padre || null) : null; pintarTodasCats(); }
+  if (desplegado === "mets") { $("buscaMets").value = ""; pintarTodosMets(); }
+  pintarVer();
+  if (desplegado === "cats" && abierto) mostrarAbierto();                         // el grupo de la categoría marcada queda a la vista
+  if (desplegado === "mets") $("marco").scrollTop = $("titNota").offsetTop - 4;   // la lista de métodos queda a la vista
+  else if (!desplegado) $("marco").scrollTop = 0;
+}
+function plegar() { desplegado = null; abierto = null; pintarVer(); $("marco").scrollTop = 0; }
+$("verCats").onclick = () => desplegar("cats");
+$("verMets").onclick = () => desplegar("mets");
+function vacio(cont, q) { cont.appendChild(el("div", "capa-vacio", "Nada con «" + q + "»")); }
 function subCat(c) {
   const b = el("button", "sub" + (est.cat === c.key ? " on" : ""));
   b.appendChild(el("span", "", c.icon)); b.appendChild(el("span", "", c.label));
-  b.onclick = () => { cerrarCapa(); elegirCat(c); };
+  b.onclick = () => { elegirCat(c); plegar(); };
   return b;
 }
-function pintarCapaCats() {
-  const q = sinTildes($("buscar").value.trim()), cont = $("capaL"); cont.innerHTML = "";
+function pintarTodasCats() {
+  const crudo = $("buscaCats").value.trim(), q = sinTildes(crudo), cont = $("listaCats"); cont.innerHTML = "";
   if (q) {   // al buscar: lo que coincide, agrupado por su categoría
     const hits = d.categorias.filter(c => sinTildes(c.label + " " + c.grupo).includes(q));
-    if (!hits.length) return vacio(cont);
+    if (!hits.length) return vacio(cont, crudo);
     const por = {}; hits.forEach(c => { const g = hijos[c.padre] ? c.grupo : ""; (por[g] = por[g] || []).push(c); });
     Object.keys(por).sort((a, b) => a.localeCompare(b, "es")).forEach(g => {
       const gi = GRUPOS.find(x => x.label === g);
@@ -357,56 +360,57 @@ function pintarCapaCats() {
       const c = it.hoja, on = est.cat === c.key, f = el("button", "fila" + (on ? " on" : ""));
       f.appendChild(el("span", "emo", c.icon)); f.appendChild(el("span", "t", c.label));
       if (on) { const k = el("span", "flecha"); k.innerHTML = CHECK; k.style.color = "var(--oro)"; f.appendChild(k); }
-      f.onclick = () => { cerrarCapa(); elegirCat(c); };
+      f.onclick = () => { elegirCat(c); plegar(); };
       caja.appendChild(f); return;
     }
     const g = it.grupo, ab = abierto === g.key, tiene = hijos[g.key].some(c => c.key === est.cat);
     const f = el("button", "fila" + (ab ? " abierto" : "") + (tiene ? " on" : "")); f.setAttribute("aria-expanded", ab);
     f.appendChild(el("span", "emo", g.icon)); f.appendChild(el("span", "t", g.label));
     f.appendChild(el("span", "cuenta", String(hijos[g.key].length)));
-    const fl = el("span", "flecha"); fl.innerHTML = FLECHA; f.appendChild(fl);
-    f.onclick = () => { abierto = ab ? null : g.key; pintarCapa(); mostrarAbierto(); };
+    const fl = el("span", "flecha"); fl.innerHTML = ab ? ABAJO : FLECHA; f.appendChild(fl);
+    f.onclick = () => { abierto = ab ? null : g.key; pintarTodasCats(); mostrarAbierto(); };
     caja.appendChild(f);
     if (ab) { const w = el("div", "subs"); hijos[g.key].forEach(c => w.appendChild(subCat(c))); caja.appendChild(w); }
   });
   cont.appendChild(caja);
 }
-function mostrarAbierto() {   // el grupo que se abre queda a la vista completo, sin mover la página
-  const L = $("capaL"), f = L.querySelector(".fila.abierto"); if (!f) return;
-  const sub = f.nextElementSibling, fin = sub ? sub.offsetTop + sub.offsetHeight : f.offsetTop + f.offsetHeight;
-  if (fin > L.scrollTop + L.clientHeight) L.scrollTop = Math.min(f.offsetTop - 6, fin - L.clientHeight + 10);
-  else if (f.offsetTop < L.scrollTop) L.scrollTop = f.offsetTop - 6;
+function mostrarAbierto() {   // el grupo que se abre queda completo a la vista, encima del botón
+  const M = $("marco"), f = $("listaCats").querySelector(".fila.abierto"); if (!f) return;
+  const mr = M.getBoundingClientRect(), tope = mr.top + 4, piso = mr.bottom - $("pie").offsetHeight - 6;
+  const fin = (f.nextElementSibling || f).getBoundingClientRect().bottom, ini = f.getBoundingClientRect().top;
+  if (fin > piso) M.scrollTop += Math.min(fin - piso, ini - tope);
+  else if (ini < tope) M.scrollTop -= tope - ini;
 }
-function pintarCapaMets() {
-  const q = sinTildes($("buscar").value.trim()), cont = $("capaL"); cont.innerHTML = "";
+function pintarTodosMets() {
+  const crudo = $("buscaMets").value.trim(), q = sinTildes(crudo), cont = $("listaMets"); cont.innerHTML = "";
   const lista = d.metodos.filter(m => m !== "Sin especificar" && (!q || sinTildes(m).includes(q)));
-  if (!lista.length) return vacio(cont);
+  if (!lista.length) return vacio(cont, crudo);
   const DUENO = { dani: "Daniel", mado: "Mado" };
   const duenoDe = (m) => { const w = m.split(" "); return w.length > 1 && w[0] !== "Transferencia" ? DUENO[w[w.length - 1].toLowerCase()] || null : null; };
-  const grupoDe = (m) => {
+  const grupoMet = (m) => {
     const w = m.split(" "), du = duenoDe(m);
     if (du) return du === d.persona ? "Tus tarjetas" : "Tarjetas de " + du;
     if (w[0] === "Transferencia") return "Transferencias";
     return w.length === 1 ? "Efectivo y otros" : "Otras tarjetas";
   };
   const ORDEN = (g) => g === "Tus tarjetas" ? 0 : g.startsWith("Tarjetas de") ? 1 : g === "Transferencias" ? 2 : g === "Otras tarjetas" ? 3 : 4;
-  const por = {}; lista.forEach(m => { const g = grupoDe(m); (por[g] = por[g] || []).push(m); });
+  const por = {}; lista.forEach(m => { const g = grupoMet(m); (por[g] = por[g] || []).push(m); });
   Object.keys(por).sort((a, b) => ORDEN(a) - ORDEN(b) || a.localeCompare(b, "es")).forEach(g => {
-    const items = por[g];
     cont.appendChild(el("div", "capa-g", g));
     const w = el("div", "pares");
-    items.forEach(m => {
-      const texto = m;
+    por[g].forEach(m => {
       const b = el("button", "sub" + (est.met === m ? " on" : "")), pt = el("i", "punto"); pt.style.background = colorDe(m);
-      b.appendChild(pt); b.appendChild(el("span", "", texto));
-      b.onclick = () => { cerrarCapa(); est.met = m; if (!mets.includes(m)) mets.unshift(m); pintarMets(); revisar(); };
+      b.appendChild(pt); b.appendChild(el("span", "", m));
+      b.onclick = () => { est.met = m; if (!mets.includes(m)) mets.unshift(m); pintarMets(); revisar(); plegar(); };
       w.appendChild(b);
     });
     cont.appendChild(w);
   });
 }
-$("buscar").addEventListener("input", pintarCapa);
-$("capaX").onclick = cerrarCapa;
+$("buscaCats").addEventListener("input", pintarTodasCats);
+$("buscaMets").addEventListener("input", pintarTodosMets);
+$("buscaCats").addEventListener("keydown", (e) => { if (e.key === "Enter") $("buscaCats").blur(); });
+$("buscaMets").addEventListener("keydown", (e) => { if (e.key === "Enter") $("buscaMets").blur(); });
 
 // ----- cuándo -----
 function pintarDias() {
@@ -473,7 +477,7 @@ if (previo && previo.monto) {
 // ----- arranque -----
 $("avatar").textContent = String(d.persona || "?").charAt(0).toUpperCase();
 $("quien").textContent = "Family Office GG · " + d.persona;
-pintarMonedas(); puntos(); pintarCats(); pintarMets(); pintarDias(); revisar();
+pintarMonedas(); puntos(); pintarCats(); pintarMets(); pintarDias(); pintarVer(); revisar();
 $("monto").addEventListener("input", () => { puntos(); revisar(); });
 $("nota").addEventListener("input", revisar);
 $("nota").addEventListener("keydown", (e) => { if (e.key === "Enter") $("nota").blur(); });
@@ -511,6 +515,7 @@ function fallo(msg) { enviando = false; revisar(); $("error").textContent = msg;
 $("otro").onclick = () => {
   $("listo").classList.remove("si"); enviando = false;
   est.cat = null; est.fecha = d.hoy; $("monto").value = ""; $("nota").value = ""; $("origen").classList.add("oculto");
+  desplegado = null; abierto = null; pintarVer();
   pintarCats(); pintarDias(); revisar(); $("marco").scrollTop = 0;
   setTimeout(() => $("monto").focus(), 150);
 };
