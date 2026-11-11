@@ -145,6 +145,7 @@ function pieBase() {
 // lo que llega de Apple Pay
 if (previo && previo.monto) {
   $("aviso").classList.remove("oculto");
+  if (previo.moneda && d.monedas.includes(previo.moneda)) est.moneda = previo.moneda;
   $("monto").value = String(previo.monto);
   if (previo.comercio) $("nota").value = previo.comercio;
   if (previo.tarjeta) { const t = String(previo.tarjeta).toLowerCase(); const m = d.metodos.find(x => x.toLowerCase().includes(t) || t.includes(x.toLowerCase().replace(/^\\S+\\s/, ""))); if (m) est.met = m; }
@@ -221,12 +222,31 @@ async function api(ruta, cuerpo) {
 }
 
 // ---------- lo que viene de un atajo (Apple Pay) ----------
+// El importe de Wallet llega como texto con el formato del iPhone: "$58.000", "COP 58.000,00", "AED 49.00", "US$12.50".
+function leerImporte(v) {
+  if (typeof v === "number") return { monto: v, moneda: null };
+  let t = String(v || "");
+  const moneda = /AED|د\.إ/i.test(t) ? "AED" : /US\$|USD/i.test(t) ? "USD" : /COP|\$/.test(t) ? "COP" : null;
+  t = t.replace(/[^0-9.,]/g, "");
+  const ip = t.lastIndexOf("."), ic = t.lastIndexOf(",");
+  let n;
+  if (ip >= 0 && ic >= 0) {                       // los dos: el último es el decimal
+    const dec = ip > ic ? "." : ",", mil = dec === "." ? "," : ".";
+    n = Number(t.split(mil).join("").replace(dec, "."));
+  } else if (ip >= 0 || ic >= 0) {                // uno solo: con 3 cifras después (o varios) es de miles
+    const partes = t.split(ip >= 0 ? "." : ",");
+    n = (partes.length > 2 || partes[partes.length - 1].length === 3) ? Number(partes.join("")) : Number(partes.join("."));
+  } else n = Number(t);
+  return { monto: isFinite(n) ? n : 0, moneda };
+}
+
 function entrada() {
   let p = typeof args !== "undefined" ? args.shortcutParameter : null;
   if (typeof p === "string") { try { p = JSON.parse(p); } catch (e) { p = null; } }
   if (!p || typeof p !== "object") return null;
-  const monto = Number(String(p.monto || p.amount || "").replace(/[^0-9.,]/g, "").replace(",", "."));
-  return monto > 0 ? { monto, comercio: p.comercio || p.merchant || "", tarjeta: p.tarjeta || p.card || "", categoria: p.categoria || "" } : null;
+  const imp = leerImporte(p.monto ?? p.amount);
+  const moneda = String(p.moneda || imp.moneda || "").toUpperCase() || null;
+  return imp.monto > 0 ? { monto: imp.monto, moneda, comercio: p.comercio || p.merchant || "", tarjeta: p.tarjeta || p.card || "", categoria: p.categoria || "" } : null;
 }
 
 // ---------- correr ----------
