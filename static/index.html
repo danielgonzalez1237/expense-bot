@@ -16,6 +16,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..700&display=swap" rel="stylesheet">
+<!-- Bloqueo: 30 min sin tocar la página → pide el PIN otra vez (los widgets y Anotar gasto siguen con su llave) -->
+<script>window.FOGG_CANDADO = { salir: '/api/logout' };</script>
+<script src="/static/candado.js?v=1"></script>
 
 <!-- Tema ANTES de pintar (sin parpadeo). 'auto' (por defecto) = claro de día,
      oscuro de noche (18:00–6:00, hora del dispositivo). 'light'/'dark' = fijo. -->

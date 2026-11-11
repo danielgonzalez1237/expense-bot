@@ -307,7 +307,7 @@ button:disabled{opacity:.5}.err{color:var(--err);font-size:13px;min-height:18px;
 .otra{display:block;text-align:center;margin-top:14px;font-size:13px;color:var(--mute);text-decoration:none}.otra:hover{color:var(--ink)}
 </style></head><body>
 <form id="f" autocomplete="on">
-<div class="marca"><svg width="26" height="26" viewBox="0 0 64 64" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="4.4"><path d="M45.38 19.96 A18 18 0 1 0 50 32 L44.24 32"/><path d="M39.06 25.64 A9.5 9.5 0 1 0 41.5 32 L36.27 32"/></g></svg>Family Office GG</div><h1>P&amp;G mensual</h1><p>Escribe tu PIN para entrar.</p>
+<div class="marca"><svg width="26" height="26" viewBox="0 0 64 64" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="4.4"><path d="M45.38 19.96 A18 18 0 1 0 50 32 L44.24 32"/><path d="M39.06 25.64 A9.5 9.5 0 1 0 41.5 32 L36.27 32"/></g></svg>Family Office GG</div><h1>P&amp;G mensual</h1><p id="motivo">Escribe tu PIN para entrar.</p>
 <input type="text" name="username" value="gastos-gg" autocomplete="username" hidden>
 <input id="pin" type="password" name="password" inputmode="numeric" autocomplete="current-password" required autofocus aria-label="PIN">
 <label><input id="rem" type="checkbox" checked> Recordar este dispositivo</label>
@@ -315,6 +315,10 @@ button:disabled{opacity:.5}.err{color:var(--err);font-size:13px;min-height:18px;
 <div class="err" id="e" role="alert"></div>
 <a class="otra" href="https://patrimonio-production-4091.up.railway.app">Ir a Patrimonio →</a>
 </form>
+<script>(function(){var m=null;try{m=sessionStorage.getItem('fogg-motivo');sessionStorage.removeItem('fogg-motivo')}catch(e){}
+var p=document.getElementById('motivo');if(!p)return;
+if(m==='inactividad')p.textContent='Se bloqueó tras 30 minutos sin uso. Escribe tu PIN para seguir donde ibas.';
+if(m==='manual')p.textContent='Bloqueado. Escribe tu PIN para seguir donde ibas.';})();</script>
 <script>
 document.getElementById('f').addEventListener('submit', async (ev) => {
   ev.preventDefault();
@@ -323,7 +327,7 @@ document.getElementById('f').addEventListener('submit', async (ev) => {
   try {
     const r = await fetch('/api/login', {method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({pin: document.getElementById('pin').value, remember: document.getElementById('rem').checked})});
-    if (r.ok) { location.replace('/' + location.hash); return; }
+    if (r.ok) { (function(){try{localStorage.setItem('fogg-ultimo-uso',String(Date.now()))}catch(e){}})(),(location.pathname === '/' ? location.reload() : location.replace('/' + location.hash)); return; }
     const d = await r.json().catch(() => ({}));
     e.textContent = d.detail || ('No se pudo entrar (' + r.status + ')');
     document.getElementById('pin').select();
