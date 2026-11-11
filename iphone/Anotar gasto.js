@@ -14,9 +14,9 @@ const BASE = "https://expense-bot-production-04c4.up.railway.app";
 const CLAVE = "pyg.llave";
 
 // ---------- la hoja (HTML) ----------
-function hoja(d, prefs, previo) {
+function hoja(d, prefs, previo, llave) {
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-  const datos = JSON.stringify({ d, prefs, previo }).replace(/</g, "\\u003c");
+  const datos = JSON.stringify({ d, prefs, previo, llave }).replace(/</g, "\\u003c");
   return `<!doctype html><html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <style>
@@ -59,7 +59,7 @@ html,body{margin:0;background:var(--fondo);color:var(--txt);font-family:-apple-s
 <div class="hoja">
   <div class="cab">
     <div class="marca"><svg width="22" height="22" viewBox="0 0 64 64" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="5"><path d="M45.38 19.96 A18 18 0 1 0 50 32 L44.24 32"/><path d="M39.06 25.64 A9.5 9.5 0 1 0 41.5 32 L36.27 32"/></g></svg>Anotar gasto</div>
-    <div style="display:flex;align-items:center;gap:10px"><span class="quien" id="quien"></span><button class="cerrar" id="cerrar" aria-label="Cerrar">✕</button></div>
+    <span class="quien" id="quien"></span>
   </div>
   <div class="aviso oculto" id="aviso">Llegó de Apple Pay · todo se puede cambiar antes de Anotar</div>
   <div class="valor">
@@ -78,9 +78,9 @@ html,body{margin:0;background:var(--fondo);color:var(--txt);font-family:-apple-s
   <button class="anotar" id="anotar" disabled>Anotar</button>
   <div class="pie" id="pie"></div>
 </div>
-<div class="listo" id="listo"><div class="caja"><div class="ok"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#14171c" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg></div><div><b id="l1"></b><span id="l2"></span><span class="oro" id="l3"></span></div></div></div>
+<div class="listo" id="listo"><div class="caja"><div class="ok"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#14171c" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"/></svg></div><div><b id="l1"></b><span id="l2"></span><span class="oro" id="l3"></span><span id="l4"></span></div></div></div>
 <script>
-const {d, prefs, previo} = ${datos};
+const {d, prefs, previo, llave} = ${datos};
 const $ = (id) => document.getElementById(id);
 const MESES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
 const ENTERAS = ["COP","CLP","ARS"];
@@ -166,14 +166,21 @@ $("anotar").onclick = () => {
   if (enviando || $("anotar").disabled) return;
   enviando = true; $("anotar").disabled = true; $("anotar").textContent = "Anotando…";
   const datos = { monto: parse($("monto").value, est.moneda), moneda: est.moneda, categoria: est.cat, metodo_pago: est.met || "Sin especificar", nota: $("nota").value.trim() };
-  if (window.enviar) window.enviar(datos);
+  fetch("/api/anotar/gasto", { method: "POST", headers: { "Content-Type": "application/json", "X-Equipo": llave }, body: JSON.stringify(datos) })
+    .then(async (r) => {
+      let j = {}; try { j = await r.json(); } catch (e) { j = {}; }
+      if (r.ok && j.ok) { listo(j); location.href = "anotar-hecho://" + encodeURIComponent(JSON.stringify({ moneda: datos.moneda })); return; }
+      fallo(r.status === 401 ? "Este teléfono ya no está activo: pide un código nuevo en Gastos del mes → Ajustes → Teléfonos y Macs." :
+        (j.detail ? String(j.detail) : "No se pudo anotar. Revisa el internet y vuelve a intentar."));
+    })
+    .catch(() => fallo("No se pudo anotar. Revisa el internet y vuelve a intentar."));
 };
-$("cerrar").onclick = () => { if (window.enviar) window.enviar(null); };
 function listo(r) {
   const mes = MESES[Number(r.fecha.slice(5, 7)) - 1];
   $("l1").textContent = "Anotado: " + fmt(parse(String(r.moneda === "COP" ? r.monto_cop : $("monto").value), r.moneda), r.moneda);
   $("l2").textContent = r.icon + " " + r.categoria_label + " · " + (est.met || "Sin especificar");
   $("l3").textContent = r.resumen && r.resumen.queda_usd != null ? "Quedan " + usd(r.resumen.queda_usd) + " del presupuesto de " + mes : "";
+  $("l4").textContent = "Toca Close para salir.";
   $("listo").classList.add("si");
 }
 function fallo(msg) { enviando = false; revisar(); $("pie").className = "pie error"; $("pie").textContent = msg; }
@@ -270,30 +277,18 @@ async function main() {
   }
 
   const wv = new WebView();
-  await wv.loadHTML(hoja(datos, prefs, entrada()));
-  let cerrada = false;
-  const vista = wv.present(false).then(() => { cerrada = true; return null; });
-  while (!cerrada) {
-    const pedido = await Promise.race([wv.evaluateJavaScript("window.enviar = (x) => completion(x); 0;", true), vista]);
-    if (!pedido) break;
-    const { code: c2, j: res } = await api("/api/anotar/gasto", pedido);
-    if (c2 === 200 && res && res.ok) {
-      try { fm.writeString(PREF, JSON.stringify({ moneda: pedido.moneda })); } catch (e) { /* no importa */ }
-      await wv.evaluateJavaScript("listo(" + JSON.stringify(res) + ")", false);
-      const n = new Notification();
-      n.title = "Anotado en P&G GG";
-      const valor = ["COP", "CLP", "ARS"].includes(pedido.moneda)
-        ? (pedido.moneda === "COP" ? "$" : pedido.moneda + " ") + Math.round(pedido.monto).toLocaleString("de-DE")
-        : pedido.moneda + " " + pedido.monto.toLocaleString("en-US", { maximumFractionDigits: 2 });
-      n.body = valor + " · " + (res.icon || "") + " " + (res.categoria_label || res.categoria) + " · " + pedido.metodo_pago;
-      n.schedule();
-      await new Promise((ok) => Timer.schedule(1600, false, ok));
-      break;
+  // cuando la hoja anota bien, avisa con un enlace propio: se guarda la última moneda y no se navega a ningún lado
+  wv.shouldAllowRequest = (req) => {
+    const u = (req && req.url) || "";
+    if (u.startsWith("anotar-hecho://")) {
+      try { fm.writeString(PREF, JSON.stringify({ moneda: JSON.parse(decodeURIComponent(u.slice(15))).moneda })); } catch (e) { /* no importa */ }
+      return false;
     }
-    const msg = c2 === 401 ? "Este teléfono ya no está activo: pide un código nuevo en Ajustes." :
-      (res && res.detail ? String(res.detail) : "No se pudo anotar. Revisa el internet y vuelve a intentar.");
-    await wv.evaluateJavaScript("fallo(" + JSON.stringify(msg) + ")", false);
-  }
+    return true;
+  };
+  // la hoja se carga "como si fuera" P&G GG, así puede anotar directo con la llave de este teléfono
+  await wv.loadHTML(hoja(datos, prefs, entrada(), Keychain.get(CLAVE)), BASE);
+  await wv.present(false);
 }
 
 if (typeof Script !== "undefined") {
