@@ -2637,6 +2637,74 @@
   </div>
 </div>
 
+<!-- ──────────────── Teléfonos y Macs: llave propia para Anotar gasto y los widgets ──────────────── -->
+<div
+  x-data
+  x-show="$store.equipos.open"
+  x-cloak
+  class="fixed inset-0 z-50 flex items-stretch sm:items-center justify-center modal-backdrop bg-slate-900/40 dark:bg-slate-950/70"
+  @click.self="$store.equipos.close()"
+  @keydown.escape.window="$store.equipos.close()"
+>
+  <div
+    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full sm:max-w-lg sm:rounded-2xl sm:my-8 shadow-xl fade flex flex-col max-h-screen sm:max-h-[92vh]"
+    x-show="$store.equipos.open"
+    x-transition
+  >
+    <div class="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-5 pt-5 pb-3 sm:rounded-t-2xl z-10">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="text-xs text-slate-500 uppercase tracking-wide">📱 Ajustes</div>
+          <div class="text-lg font-bold">Teléfonos y Macs</div>
+          <div class="text-[11px] text-slate-500">Cada equipo tiene su propia llave y anota a nombre de quien lo emparejó. Lo puedes quitar cuando quieras.</div>
+        </div>
+        <button @click="$store.equipos.close()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 shrink-0" aria-label="Cerrar">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="p-5 overflow-y-auto space-y-4">
+      <div x-show="$store.equipos.error" class="rounded-xl bg-alerta-suave text-alerta-fuerte dark:bg-red-950/40 dark:text-red-300 text-sm px-3 py-2" x-text="$store.equipos.error"></div>
+
+      <div class="space-y-2">
+        <template x-for="it in $store.equipos.items" :key="'eq' + it.id">
+          <div class="rounded-xl border border-slate-200 dark:border-slate-700 px-3 py-2.5 flex items-center gap-3">
+            <div class="text-xl shrink-0" x-text="/mac/i.test(it.nombre) ? '💻' : '📱'"></div>
+            <div class="min-w-0 flex-1">
+              <div class="text-sm font-semibold break-words" x-text="it.nombre + ' · ' + it.persona"></div>
+              <div class="text-[11px] text-slate-500" x-text="'Último uso: ' + $store.equipos.cuando(it.ultimo_uso)"></div>
+            </div>
+            <button @click="$store.equipos.quitar(it)" :disabled="$store.equipos.busy"
+                    class="shrink-0 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50">Quitar</button>
+          </div>
+        </template>
+        <div x-show="$store.equipos.loaded && !$store.equipos.items.length" class="text-sm text-slate-500">Todavía no hay teléfonos ni Macs emparejados.</div>
+      </div>
+
+      <div class="rounded-2xl bg-slate-50 dark:bg-slate-800/60 p-4 space-y-3">
+        <div class="text-sm font-semibold">Emparejar un iPhone</div>
+        <template x-if="!$store.equipos.codigo">
+          <button @click="$store.equipos.nuevoCodigo()" :disabled="$store.equipos.busy"
+                  class="w-full rounded-xl bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 font-semibold text-sm py-2.5 disabled:opacity-50">Código para un iPhone</button>
+        </template>
+        <template x-if="$store.equipos.codigo">
+          <div class="text-center space-y-1">
+            <div class="num text-3xl font-semibold tracking-[0.12em]" x-text="$store.equipos.codigo.codigo"></div>
+            <div class="text-xs text-slate-500" x-text="'Vale ' + $store.equipos.codigo.minutos + ' minutos y una sola vez. Queda a nombre de ' + $store.equipos.codigo.persona + '.'"></div>
+          </div>
+        </template>
+        <ol class="text-xs text-slate-600 dark:text-slate-300 space-y-1 list-decimal pl-4">
+          <li>En el iPhone abre Scriptable y toca el script <b>Anotar gasto</b>. La primera vez pide este código.</li>
+          <li>En Atajos, crea un atajo con la acción de Scriptable <b>Run Script</b> → Anotar gasto y llámalo Anotar gasto.</li>
+          <li>En la pantalla bloqueada: mantén presionado → Personalizar → quita la linterna → + → Atajo → Anotar gasto.</li>
+        </ol>
+        <div class="text-[11px] text-slate-500">La app del Mac pide su llave sola cuando abres Gastos del mes con tu PIN.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ──────────────── Próximos pagos: gestionar recordatorios ──────────────── -->
 <div
   x-data
@@ -6594,6 +6662,52 @@ document.addEventListener('alpine:init', () => {
     nodate: { card: 'bg-white border-dashed border-slate-300 dark:bg-slate-900 dark:border-slate-700',
               pill: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400', bar: 'bg-slate-300' },
   };
+  // 📱 Teléfonos y Macs con llave propia (botón Anotar gasto del iPhone, widgets y la app del Mac)
+  Alpine.store('equipos', {
+    open: false, busy: false, loaded: false, error: null, items: [], codigo: null,
+    async openModal() { this.open = true; this.codigo = null; this.error = null; await this.load(); },
+    close() { if (!this.busy) this.open = false; },
+    async load() {
+      try {
+        const r = await fetch('/api/equipos');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        this.items = (await r.json()).equipos || [];
+        this.error = null;
+      } catch (e) { this.error = 'No se pudieron cargar los equipos.'; }
+      this.loaded = true;
+    },
+    async nuevoCodigo() {
+      if (this.busy) return;
+      this.busy = true; this.error = null;
+      try {
+        const r = await fetch('/api/equipos/codigo', { method: 'POST' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.detail || 'HTTP ' + r.status);
+        this.codigo = j;
+      } catch (e) { this.error = 'No se pudo crear el código: ' + e.message; }
+      finally { this.busy = false; }
+    },
+    async quitar(it) {
+      if (this.busy || !confirm('¿Quitar «' + it.nombre + '» de ' + it.persona + '? Ese equipo ya no podrá anotar gastos ni mostrar los widgets.')) return;
+      this.busy = true; this.error = null;
+      try {
+        const r = await fetch('/api/equipos/quitar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: it.id }) });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        this.busy = false;
+        await this.load();
+        Alpine.store('quick').aviso('Equipo quitado');
+      } catch (e) { this.error = 'No se pudo quitar: ' + e.message; }
+      finally { this.busy = false; }
+    },
+    cuando(iso) {
+      if (!iso) return 'todavía no';
+      const d = new Date(iso);
+      if (isNaN(d)) return iso;
+      const m = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'][d.getMonth()];
+      return d.getDate() + ' ' + m + ', ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    },
+  });
+
   Alpine.store('reminders', {
     loaded: false, open: false, busy: false, error: null, expanded: false, focusId: null,
     items: [], cards: [], cardOptions: [], rates: { TRM: 3300, AED_RATE: 3.67 },
@@ -8037,6 +8151,7 @@ function dashboard() {
         { key: 'ingresos', icon: '💵', label: 'Fuentes de ingreso', desc: 'Crear fuentes y su plan mensual. Los ingresos se anotan en la sección Ingresos.', run: () => this.openFuentes() },
         { key: 'tasas', icon: '💱', label: 'Tasas de cambio', desc: 'TRM y otras monedas, mes a mes.', run: () => Alpine.store('fx').openFor(this.month) },
         { key: 'pagos', icon: '📅', label: 'Fechas de pago', desc: 'Tarjetas, créditos e hipoteca: cuándo vence cada uno.', run: () => Alpine.store('reminders').openModal() },
+        { key: 'telefonos', icon: '📱', label: 'Teléfonos y Macs', desc: 'El botón Anotar gasto y los widgets: emparejar un iPhone o quitar un equipo.', run: () => Alpine.store('equipos').openModal(), show: () => Alpine.store('auth').enabled },
         { key: 'conciliacion', icon: '🔄', label: 'Conciliación', desc: 'Cruzar extractos del banco con lo registrado.', run: () => this.openReconcile() },
         { key: 'guia', icon: '📖', label: 'Guía de uso', desc: 'Cómo funciona el bot y el dashboard.', run: () => { Alpine.store('guide').open = true; } },
         { key: 'analisis', icon: '📈', label: 'Análisis diario', desc: 'Gasto día a día por categoría, con promedios y medianas.', run: () => this.openAnalytics() },
