@@ -1534,6 +1534,22 @@ def init_db():
 
     _run_migration("020_naturaleza", _migration_020_naturaleza)
 
+    def _migration_021_equipos(conn):
+        """Teléfonos con llave propia para anotar gastos desde el atajo del
+        iPhone (Daniel 11-nov). Solo crea dos tablas nuevas; no toca nada más.
+        De la llave solo se guarda su huella (SHA-256). Idempotente.
+        """
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS equipos (id INTEGER PRIMARY KEY AUTOINCREMENT, persona TEXT NOT NULL, "
+            "nombre TEXT, huella TEXT NOT NULL UNIQUE, creado TEXT NOT NULL, ultimo_uso TEXT, quitado TEXT)")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS equipo_codigos (huella TEXT PRIMARY KEY, persona TEXT NOT NULL, "
+            "vence REAL NOT NULL, usado INTEGER NOT NULL DEFAULT 0)")
+        conn.commit()
+        print("[migration 021] tablas equipos y equipo_codigos listas")
+
+    _run_migration("021_equipos", _migration_021_equipos)
+
     conn.close()
 
 

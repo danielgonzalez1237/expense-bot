@@ -62,7 +62,7 @@ AUTH_GLOBAL_MAX_FAILS = 30
 AUTH_GLOBAL_WINDOW_SECONDS = 60 * 60
 _AUTH_OPEN_PATHS = {"/api/health", "/api/login", "/api/logout", "/api/auth/status", "/favicon.ico", "/static/tw.css",
                     "/static/icono.svg", "/static/icono-32.png", "/static/icono-180.png",
-                    "/static/manifest.json"}
+                    "/static/manifest.json", "/api/equipos/emparejar"}
 _auth_fails_by_ip: dict[str, list[float]] = {}
 _auth_fails_global: list[float] = []
 _auth_secret_cache: dict[str, bytes] = {}
@@ -90,6 +90,30 @@ class QuickExpense(BaseModel):
     # (modo 'upfront'). diferir_inicio = YYYY-MM de la cuota 1 (por defecto, el mes de la fecha).
     diferir_meses: Optional[int] = None
     diferir_inicio: Optional[str] = None
+
+
+class EmparejarBody(BaseModel):
+    """📱 Emparejar un teléfono con el código de un solo uso de Ajustes → Teléfonos."""
+    codigo: str
+    nombre: Optional[str] = None
+
+
+class QuitarEquipoBody(BaseModel):
+    id: int
+
+
+class LlaveEquipoBody(BaseModel):
+    """💻 Llave para la app del Mac (la pide sola con la sesión del PIN)."""
+    nombre: Optional[str] = None
+
+
+class AnotarBody(BaseModel):
+    """📱 Gasto anotado desde el atajo del iPhone (la persona sale de la llave del teléfono)."""
+    monto: float
+    moneda: Optional[str] = "COP"
+    categoria: str
+    metodo_pago: Optional[str] = "Sin especificar"
+    nota: Optional[str] = ""
 
 
 # Versión del recorrido guiado: al cambiarla, a todos les vuelve a salir.
@@ -200,6 +224,44 @@ def _auth_request_user(request: Request) -> Optional[str]:
     if api_tok and given and hmac.compare_digest(given, api_tok):
         return "api"
     return _auth_token_user(request.cookies.get(AUTH_COOKIE, ""))
+
+
+# ──────────────── 📱 Teléfonos y Macs con llave propia (Daniel 11-nov) ────────────────
+# Cada equipo tiene su llave (header X-Equipo) y anota a nombre de quien lo emparejó.
+# De la llave solo se guarda su huella. Solo abre las rutas /api/anotar/…, nada más.
+EQUIPO_CODIGO_MIN = 10
+EQUIPO_PREFIJO = "/api/anotar/"
+_EQUIPO_LETRAS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def _equipo_huella(texto: str) -> str:
+    return hashlib.sha256(texto.encode()).hexdigest()
+
+
+def _equipo_ahora() -> str:
+    return datetime.now(bot.COL_TZ).isoformat(timespec="seconds")
+
+
+def _equipo_de(request: Request) -> Optional[dict]:
+    """Equipo emparejado que hace la petición (header X-Equipo) o None."""
+    llave = (request.headers.get("x-equipo") or "").strip()
+    if not llave.startswith("pg_") or len(llave) > 200:
+        return None
+    conn = sqlite3.connect(bot.DB_PATH)
+    try:
+        row = conn.execute("SELECT id, persona, nombre FROM equipos WHERE huella = ? AND quitado IS NULL",
+                           (_equipo_huella(llave),)).fetchone()
+        if row:
+            conn.execute("UPDATE equipos SET ultimo_uso = ? WHERE id = ?", (_equipo_ahora(), row[0]))
+            conn.commit()
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        conn.close()
+    pins = _auth_pins()
+    if not row or (pins and row[1] not in pins):   # si a esa persona le quitan el PIN, su equipo deja de servir
+        return None
+    return {"id": row[0], "persona": row[1], "nombre": row[2]}
 
 
 LOGIN_HTML = """<!doctype html>
@@ -1084,6 +1146,8 @@ def make_api_app() -> FastAPI:
     async def _require_pin(request: Request, call_next):
         path = request.url.path
         if not _auth_enabled() or path in _AUTH_OPEN_PATHS or _auth_request_user(request):
+            return await call_next(request)
+        if path.startswith(EQUIPO_PREFIJO) and _equipo_de(request):   # llave de un teléfono o Mac: solo /api/anotar/…
             return await call_next(request)
         if request.method == "GET" and path in ("/", "/index.html"):
             return HTMLResponse(LOGIN_HTML, headers={"Cache-Control": "no-store"})
@@ -4861,6 +4925,225 @@ def make_api_app() -> FastAPI:
         print(f"[quick] gasto #{new_id} {quien} {body.monto} {moneda} {body.categoria}")
         return {"ok": True, "id": new_id, "user_name": quien, "fecha": fecha, "monto_cop": monto_cop,
                 "monto_usd": monto_usd, "categoria": body.categoria.strip(), "nota": nota, "moneda": moneda}
+
+    # ──────────────── 📱 Teléfonos y Macs: emparejar, quitar, anotar y el widget ────────────────
+    def _persona_sesion(request: Request) -> str:
+        u = _auth_request_user(request)
+        if not u or u == "api":
+            raise HTTPException(403, "Entra con tu PIN para manejar los teléfonos")
+        return u
+
+    def _nueva_llave(conn, persona: str, nombre: str) -> str:
+        llave = "pg_" + secrets.token_urlsafe(32)
+        nombre = re.sub(r"[\x00-\x1f]", "", (nombre or "iPhone").strip())[:40] or "iPhone"
+        conn.execute("INSERT INTO equipos (persona, nombre, huella, creado) VALUES (?, ?, ?, ?)",
+                     (persona, nombre, _equipo_huella(llave), _equipo_ahora()))
+        return llave
+
+    @api.post("/api/equipos/codigo")
+    def equipo_codigo(request: Request):
+        """Código de un solo uso (10 min) para emparejar un iPhone a nombre de quien entró con su PIN."""
+        persona = _persona_sesion(request)
+        crudo = "".join(secrets.choice(_EQUIPO_LETRAS) for _ in range(8))
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            conn.execute("DELETE FROM equipo_codigos WHERE usado = 1 OR vence < ?", (time.time(),))
+            conn.execute("INSERT INTO equipo_codigos (huella, persona, vence, usado) VALUES (?, ?, ?, 0)",
+                         (_equipo_huella(crudo), persona, time.time() + EQUIPO_CODIGO_MIN * 60))
+            conn.commit()
+        finally:
+            conn.close()
+        print(f"[equipos] código nuevo para {persona}")
+        return {"codigo": crudo[:4] + "-" + crudo[4:], "minutos": EQUIPO_CODIGO_MIN, "persona": persona}
+
+    @api.post("/api/equipos/emparejar")
+    def equipo_emparejar(body: EmparejarBody, request: Request):
+        """Cambia el código por la llave del teléfono. Sin sesión, con el mismo bloqueo por IP que el PIN."""
+        now = time.time()
+        ip = _auth_client_ip(request)
+        fails = [t for t in _auth_fails_by_ip.get(ip, []) if now - t < AUTH_IP_LOCK_SECONDS]
+        _auth_fails_global[:] = [t for t in _auth_fails_global if now - t < AUTH_GLOBAL_WINDOW_SECONDS]
+        if len(fails) >= AUTH_IP_MAX_FAILS or len(_auth_fails_global) >= AUTH_GLOBAL_MAX_FAILS:
+            raise HTTPException(429, "Demasiados intentos. Espera unos minutos.")
+        crudo = re.sub(r"[^A-Z0-9]", "", (body.codigo or "").upper())
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            row = None
+            if len(crudo) == 8:
+                row = conn.execute("SELECT persona FROM equipo_codigos WHERE huella = ? AND usado = 0 AND vence >= ?",
+                                   (_equipo_huella(crudo), now)).fetchone()
+            if not row:
+                fails.append(now)
+                _auth_fails_by_ip[ip] = fails
+                _auth_fails_global.append(now)
+                print(f"[equipos] código inválido desde {ip} ({len(fails)}/{AUTH_IP_MAX_FAILS})")
+                raise HTTPException(400, "El código no sirve o ya venció. Pide uno nuevo en Ajustes → Teléfonos.")
+            conn.execute("UPDATE equipo_codigos SET usado = 1 WHERE huella = ?", (_equipo_huella(crudo),))
+            llave = _nueva_llave(conn, row[0], body.nombre or "iPhone")
+            conn.commit()
+        finally:
+            conn.close()
+        _auth_fails_by_ip.pop(ip, None)
+        print(f"[equipos] {row[0]} emparejó un teléfono")
+        return {"llave": llave, "persona": row[0]}
+
+    @api.post("/api/equipos/llave")
+    def equipo_llave(body: LlaveEquipoBody, request: Request):
+        """Llave para la app del Mac: la pide sola con la sesión de quien entró con su PIN (el código no aplica)."""
+        persona = _persona_sesion(request)
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            llave = _nueva_llave(conn, persona, body.nombre or "Mac")
+            conn.commit()
+        finally:
+            conn.close()
+        print(f"[equipos] {persona} creó la llave de un Mac")
+        return {"llave": llave, "persona": persona}
+
+    @api.get("/api/equipos")
+    def equipos_lista(request: Request):
+        _persona_sesion(request)
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            filas = conn.execute("SELECT id, persona, nombre, creado, ultimo_uso FROM equipos "
+                                 "WHERE quitado IS NULL ORDER BY id").fetchall()
+        finally:
+            conn.close()
+        return {"equipos": [{"id": a, "persona": b, "nombre": c, "creado": d, "ultimo_uso": e} for a, b, c, d, e in filas]}
+
+    @api.post("/api/equipos/quitar")
+    def equipos_quitar(body: QuitarEquipoBody, request: Request):
+        persona = _persona_sesion(request)
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            n = conn.execute("UPDATE equipos SET quitado = ? WHERE id = ? AND quitado IS NULL",
+                             (_equipo_ahora(), body.id)).rowcount
+            conn.commit()
+        finally:
+            conn.close()
+        if not n:
+            raise HTTPException(404, "Ese equipo ya no está")
+        print(f"[equipos] {persona} quitó el equipo #{body.id}")
+        return {"ok": True}
+
+    def _equipo_o_401(request: Request) -> dict:
+        eq = _equipo_de(request)
+        if not eq:
+            raise HTTPException(401, "auth_required")
+        return eq
+
+    def _metodos_lista() -> list:
+        """Los mismos métodos que la ventana Anotar gasto del tablero."""
+        out = ["Sin especificar", "Efectivo"]
+        pm = bot.PAYMENT_METHODS or {}
+        for bank, cards in pm.items():
+            if bank in ("Efectivo", "Transferencia"):
+                continue
+            out += [bank + " " + c for c in cards]
+        out += ["Transferencia " + b for b in pm.get("Transferencia", [])]
+        return list(dict.fromkeys(out))
+
+    def _proximos_pagos(conn, hoy) -> list:
+        """Fechas de pago activas: la de este mes si no está pagada, si no la del mes siguiente."""
+        import calendar
+        ym = hoy.strftime("%Y-%m")
+        pagados = {(r, p) for r, p in conn.execute("SELECT reminder_id, period FROM payment_reminder_paid")}
+        out = []
+        for rid, label, dia, monto, moneda in conn.execute(
+                "SELECT id, label, due_day, amount, currency FROM payment_reminders WHERE active = 1 AND due_day IS NOT NULL"):
+            y, m = hoy.year, hoy.month
+            if (rid, ym) in pagados:
+                y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+            d = min(int(dia), calendar.monthrange(y, m)[1])
+            fecha = datetime(y, m, d).date()
+            out.append({"id": rid, "label": label, "fecha": fecha.isoformat(), "dias": (fecha - hoy.date()).days,
+                        "periodo": f"{y}-{m:02d}", "monto": monto, "moneda": moneda or "COP"})
+        return sorted(out, key=lambda x: x["fecha"])
+
+    def _resumen_mes(ym: str) -> dict:
+        """Las mismas cifras del Resumen y del P&G: gastado, presupuesto ideal, fijos, ingresos y neto del mes."""
+        s = get_summary(month=ym, frm=None, to=None)
+        p = (pnl_mensual(desde=ym, hasta=ym).get("meses") or [{}])[0]
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            fijos = conn.execute("SELECT COALESCE(SUM(monto_usd), 0) FROM expenses WHERE substr(fecha, 1, 7) = ? "
+                                 "AND (recurring_id IS NOT NULL OR COALESCE(deferred_total, 1) > 1)", (ym,)).fetchone()[0]
+        finally:
+            conn.close()
+        total = float(s.get("total_usd") or 0)
+        return {"mes": ym, "gastado_usd": round(total, 2), "gastado_cop": s.get("total_cop"),
+                "tope_usd": s.get("budget_limit_usd"), "queda_usd": s.get("available_usd"),
+                "fijos_usd": round(float(fijos or 0), 2), "dia_a_dia_usd": round(max(0.0, total - float(fijos or 0)), 2),
+                "ingresos_usd": p.get("ingresos_usd", 0), "neto_usd": p.get("neto_usd", 0),
+                "plan_ingresos_usd": s.get("expected_income_monthly_usd")}
+
+    @api.get("/api/anotar/datos")
+    def anotar_datos(request: Request):
+        """Lo que necesita la hoja Anotar gasto y el widget: persona, categorías más usadas, métodos y el mes."""
+        eq = _equipo_o_401(request)
+        persona = eq["persona"]
+        hoy = datetime.now(bot.COL_TZ)
+        ym = hoy.strftime("%Y-%m")
+        desde90 = (hoy - timedelta(days=90)).strftime("%Y-%m-%d")
+        libre = "recurring_id IS NULL AND deferred_group_id IS NULL"
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            n_mes = dict(conn.execute(f"SELECT categoria, COUNT(*) FROM expenses WHERE substr(fecha, 1, 7) = ? AND {libre} "
+                                      "GROUP BY categoria", (ym,)).fetchall())
+            n_90 = dict(conn.execute(f"SELECT categoria, COUNT(*) FROM expenses WHERE fecha >= ? AND {libre} "
+                                     "GROUP BY categoria", (desde90,)).fetchall())
+            met = [r[0] for r in conn.execute(
+                f"SELECT metodo_pago, COUNT(*) AS n FROM expenses WHERE user_name = ? AND fecha >= ? AND {libre} "
+                "AND COALESCE(metodo_pago, '') NOT IN ('', 'Sin especificar') GROUP BY metodo_pago ORDER BY n DESC LIMIT 3",
+                (persona, desde90))]
+            ult = conn.execute(f"SELECT metodo_pago FROM expenses WHERE user_name = ? AND {libre} "
+                               "AND COALESCE(metodo_pago, '') NOT IN ('', 'Sin especificar') ORDER BY id DESC LIMIT 1",
+                               (persona,)).fetchone()
+            pagos = _proximos_pagos(conn, hoy)
+        finally:
+            conn.close()
+        budget = bot.BUDGET or {}
+        padres = {v.get("parent") for v in budget.values() if isinstance(v, dict) and v.get("parent")}
+        def cat(k):
+            b = budget.get(k) or {}
+            p = budget.get(b.get("parent")) or {}
+            return {"key": k, "label": b.get("label") or k, "icon": b.get("icon") or "📦", "grupo": p.get("label") or ""}
+        hojas = [k for k, v in budget.items() if isinstance(v, dict) and k not in padres]
+        orden = sorted([k for k in hojas if n_mes.get(k)], key=lambda k: -n_mes[k])
+        orden += [k for k in sorted(hojas, key=lambda k: -n_90.get(k, 0)) if n_90.get(k) and k not in orden]
+        metodos = _metodos_lista()
+        ultimo = ult[0] if ult and ult[0] in metodos else None
+        sugeridos = list(dict.fromkeys(([ultimo] if ultimo else []) + [m for m in met if m in metodos] + ["Efectivo"]))[:4]
+        return {"persona": persona, "equipo": eq["nombre"], "hoy": hoy.strftime("%Y-%m-%d"), "hora": hoy.strftime("%H:%M"),
+                "monedas": list(_SUPPORTED_CURRENCIES), "frecuentes": [cat(k) for k in orden[:6]],
+                "categorias": sorted([cat(k) for k in hojas], key=lambda c: (c["grupo"] or c["label"], c["label"])),
+                "metodos": metodos, "metodos_sugeridos": sugeridos, "metodo_ultimo": ultimo,
+                "resumen": _resumen_mes(ym), "pagos": pagos[:5]}
+
+    @api.post("/api/anotar/gasto")
+    def anotar_gasto(body: AnotarBody, request: Request):
+        """Anota el gasto a nombre de la persona del teléfono, con la misma lógica que ➕ del tablero."""
+        eq = _equipo_o_401(request)
+        cat = (body.categoria or "").strip()
+        if cat not in (bot.BUDGET or {}):
+            raise HTTPException(400, "Esa categoría no existe")
+        q = QuickExpense(monto=body.monto, moneda=body.moneda or "COP", categoria=cat,
+                         nota=(body.nota or "").strip()[:200],
+                         metodo_pago=((body.metodo_pago or "").strip() or "Sin especificar")[:80],
+                         user_name=eq["persona"])
+        r = quick_expense(q, request)
+        info = (bot.BUDGET or {}).get(cat) or {}
+        print(f"[equipos] {eq['persona']} anotó desde «{eq['nombre']}» #{r.get('id')}")
+        return {**r, "categoria_label": info.get("label") or cat, "icon": info.get("icon") or "📦",
+                "resumen": _resumen_mes(r["fecha"][:7])}
+
+    @api.post("/api/anotar/pagado/{rid}")
+    def anotar_pagado(rid: int, body: ReminderPaid, request: Request):
+        """Botón Pagado del menú del Mac: lo mismo que marcarlo en Fechas de pago."""
+        eq = _equipo_o_401(request)
+        r = mark_reminder_paid(rid, body)
+        print(f"[equipos] {eq['persona']} marcó pagado el recordatorio #{rid} ({body.period})")
+        return r
 
     # ──────────────── 🧭 Recorrido guiado: quién ya lo vio ────────────────
     def _tour_user(request: Request) -> str:
