@@ -5045,6 +5045,9 @@ def make_api_app() -> FastAPI:
         for bank, cards in pm.items():
             if bank in ("Efectivo", "Transferencia"):
                 continue
+            if cards == [bank]:          # grupo de un solo método (USDT): se llama como el grupo, igual que en Telegram
+                out.append(bank)
+                continue
             out += [bank + " " + c for c in cards]
         out += ["Transferencia " + b for b in pm.get("Transferencia", [])]
         return list(dict.fromkeys(out))
@@ -5114,7 +5117,8 @@ def make_api_app() -> FastAPI:
         def cat(k):
             b = budget.get(k) or {}
             p = budget.get(b.get("parent")) or {}
-            return {"key": k, "label": b.get("label") or k, "icon": b.get("icon") or "📦", "grupo": p.get("label") or ""}
+            return {"key": k, "label": b.get("label") or k, "icon": b.get("icon") or "📦", "grupo": p.get("label") or "",
+                    "padre": b.get("parent") or ""}
         hojas = [k for k, v in budget.items() if isinstance(v, dict) and k not in padres]
         orden = sorted([k for k in hojas if n_cat.get(k)], key=lambda k: -n_cat[k])
         metodos = _metodos_lista()
@@ -5124,6 +5128,9 @@ def make_api_app() -> FastAPI:
         return {"persona": persona, "equipo": eq["nombre"], "hoy": hoy.strftime("%Y-%m-%d"), "hora": hoy.strftime("%H:%M"),
                 "monedas": list(_SUPPORTED_CURRENCIES), "frecuentes": [cat(k) for k in orden[:8]],
                 "categorias": sorted([cat(k) for k in hojas], key=lambda c: (c["grupo"] or c["label"], c["label"])),
+                # los grupos con subcategorías, como el menú de Telegram (emoji + nombre)
+                "grupos": sorted([{"key": k, "label": (budget.get(k) or {}).get("label") or k, "icon": (budget.get(k) or {}).get("icon") or "📦"}
+                                  for k in padres if k in budget], key=lambda g: g["label"].lower()),
                 "metodos": metodos, "metodos_sugeridos": sugeridos, "metodo_ultimo": ultimo,
                 "resumen": _resumen_mes(ym), "pagos": pagos[:5],
                 "tasas": {k: float(v) for k, v in tasas.items() if v}}
