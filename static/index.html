@@ -2915,7 +2915,7 @@
         <span class="font-semibold" x-text="($store.fx.lastResult && $store.fx.lastResult.recomputed_income_entries) || 0"></span> ingresos.
         <span x-show="$store.fx.lastResult && $store.fx.lastResult.skipped_expenses_non_cop"
               class="block text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-          (<span x-text="$store.fx.lastResult && $store.fx.lastResult.skipped_expenses_non_cop"></span> gastos en Wio/USDT/Chase no se tocan — no se cobran en COP)
+          (<span x-text="$store.fx.lastResult && $store.fx.lastResult.skipped_expenses_non_cop"></span> gastos en Wio/USDT/ARQ/Chase no se tocan — no se cobran en COP)
         </span>
       </div>
 
@@ -6750,7 +6750,7 @@ document.addEventListener('alpine:init', () => {
         const list = [];
         for (const bank in m) for (const c of m[bank]) {
           const name = (bank === 'Efectivo' || c === bank) ? bank : bank + ' ' + c;
-          if (!/^(Transferencia|Efectivo|USDT|Sin especificar)/i.test(name)) list.push(name);
+          if (!/^(Transferencia|Efectivo|USDT|ARQ|Sin especificar)/i.test(name)) list.push(name);
         }
         this.cardOptions = list;
       } catch (e) { /* noop */ }

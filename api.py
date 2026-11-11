@@ -1616,7 +1616,7 @@ def make_api_app() -> FastAPI:
     # su USD no depende de la TRM, así que NO se recalculan al editar la TRM del
     # mes. El resto (BDB/BBVA/Bancolombia/Falabella/Efectivo/Transferencias
     # locales/Sin especificar) sí cobra en COP → monto_usd = monto_cop / TRM.
-    _NON_COP_METHOD_HINTS = ("WIO", "ENBD", "USDT", "CHASE")
+    _NON_COP_METHOD_HINTS = ("WIO", "ENBD", "USDT", "ARQ", "CHASE")  # ARQ (Dollar App) paga en dólares, como USDT (11-nov)
 
     def _active_currencies_for(raw) -> list:
         """Parsea el JSON de active_currencies; si viene vacío/None devuelve el
@@ -2056,7 +2056,7 @@ def make_api_app() -> FastAPI:
             # Solo se recalculan los gastos que se COBRAN EN COP (tarjetas
             # colombianas, efectivo, transferencias locales, sin especificar):
             # ahí monto_cop es el cargo real y monto_usd = monto_cop / TRM.
-            # Los métodos que NO cobran en COP (Wio/AED, ENBD, USDT, Chase) se
+            # Los métodos que NO cobran en COP (Wio/AED, ENBD, USDT, ARQ, Chase) se
             # SALTAN: su monto_cop es un valor derivado y su USD no depende de
             # la TRM colombiana — recalcularlos los corrompería.
             #

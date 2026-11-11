@@ -1957,7 +1957,7 @@ def make_payment_keyboard(expense_id):
     """Build inline keyboard for payment method selection, organized by bank."""
     rows = []
     # Iconos para grupos "singleton" (un solo método con el mismo nombre del grupo).
-    _SINGLETON_ICONS = {"Efectivo": "💵", "USDT": "₮"}
+    _SINGLETON_ICONS = {"Efectivo": "💵", "USDT": "₮", "ARQ": "💲"}
     for bank, methods in PAYMENT_METHODS.items():
         # Grupos singleton (Efectivo, USDT, etc.): un solo botón cuyo
         # callback es solo el nombre del grupo. Evita guardar "USDT USDT"
