@@ -17,6 +17,6 @@ COPY static/ ./static/
 RUN /usr/local/bin/tailwindcss -c ./tailwind.config.js -i ./tailwind.input.css -o ./static/tw.css --minify \
     && test -s ./static/tw.css
 
-COPY bot.py api.py ./
+COPY bot.py api.py tasas_dia.py ./
 EXPOSE 8080
 CMD ["python", "-u", "bot.py"]

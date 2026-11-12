@@ -9,7 +9,7 @@ la primera ejecución. Después de eso, el bot lee siempre de la DB, y la API
 (api.py) puede mutarlas sin redeploy.
 """
 
-import os, re, json, sqlite3, csv, io, traceback
+import os, re, json, sqlite3, csv, io, traceback, sys
 from datetime import datetime, timedelta, time as dtime, timezone
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
@@ -1550,6 +1550,21 @@ def init_db():
 
     _run_migration("021_equipos", _migration_021_equipos)
 
+    def _migration_022_tasas_dia(conn):
+        """Tasa de cada día (Daniel 12-nov): tabla tasas_dia, columna expenses.tasa_fija y los disparadores
+        que valoran los gastos en pesos colombianos con la TRM de su fecha. Los 47 gastos que se registraron
+        en otra moneda (USD, AED, BOB) con un método colombiano quedan con tasa_fija = 1: conservan su valor
+        en dólares (cantidad en COP con más de 2 decimales, o dólares redondos que dan justo esos pesos
+        con la TRM del mes). No cambia ningún valor: el recálculo se hace aparte, con su vista previa."""
+        import tasas_dia
+        tasas_dia.preparar(conn)
+        tasas_dia.marcar_fijos(conn, [2, 39, 45, 55, 73, 140, 237, 238, 243, 259, 283, 294, 295, 484, 487, 521, 524, 566,
+                                      587, 588, 590, 598, 635, 715, 721, 733, 777, 783, 784, 785, 787, 789, 790, 794,
+                                      800, 801, 803, 812, 830, 876, 877, 903, 909, 934, 1139, 1143, 1248])
+        print("[migration 022] tasas_dia, tasa_fija y disparadores listos")
+
+    _run_migration("022_tasas_dia", _migration_022_tasas_dia)
+
     conn.close()
 
 
@@ -1591,7 +1606,7 @@ def load_config():
 
     # Rates
     r = json.loads(rows.get("rates", "{}"))
-    TRM = int(r.get("TRM", _DEFAULT_RATES["TRM"]))
+    TRM = float(r.get("TRM", _DEFAULT_RATES["TRM"]))   # con decimales: la TRM del día (tasas_dia, 12-nov)
     BOB_RATE = float(r.get("BOB_RATE", _DEFAULT_RATES["BOB_RATE"]))
     AED_RATE = float(r.get("AED_RATE", _DEFAULT_RATES["AED_RATE"]))
     CLP_RATE = float(r.get("CLP_RATE", _DEFAULT_RATES["CLP_RATE"]))
@@ -1609,13 +1624,15 @@ def load_config():
         if cat not in ALIASES:
             ALIASES[cat] = cat
 
-def add_expense(user_id, user_name, monto_cop, categoria, nota=""):
+def add_expense(user_id, user_name, monto_cop, categoria, nota="", fija=False):
+    """fija=True: se registró en otra moneda (USD, AED, BOB…): conserva su valor en dólares.
+    En pesos colombianos, el disparador de tasas_dia lo valora con la TRM del día."""
     conn = sqlite3.connect(DB_PATH)
     now = datetime.now()
     monto_usd = round(monto_cop / TRM, 2)
     conn.execute(
-        "INSERT INTO expenses (user_id, user_name, fecha, monto_cop, monto_usd, categoria, nota, created_at) VALUES (?,?,?,?,?,?,?,?)",
-        (user_id, user_name, now.strftime("%Y-%m-%d"), monto_cop, monto_usd, categoria, nota, now.isoformat())
+        "INSERT INTO expenses (user_id, user_name, fecha, monto_cop, monto_usd, categoria, nota, created_at, tasa_fija) VALUES (?,?,?,?,?,?,?,?,?)",
+        (user_id, user_name, now.strftime("%Y-%m-%d"), monto_cop, monto_usd, categoria, nota, now.isoformat(), 1 if fija else 0)
     )
     conn.commit()
     last_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -2056,10 +2073,16 @@ async def cmd_gasto(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
+def _en_otra_moneda(display):
+    """'$100 USD', '350 BOB', '50 AED'… → True; '$240.000 COP' o nada → False."""
+    d = (display or "").strip().upper()
+    return bool(d) and not d.endswith("COP")
+
+
 async def register_and_confirm(message, user, monto_cop, categoria, nota="", display=None):
     """Register expense and send aesthetic confirmation."""
     user_name = user.first_name or "Unknown"
-    exp_id, monto_usd = add_expense(user.id, user_name, monto_cop, categoria, nota)
+    exp_id, monto_usd = add_expense(user.id, user_name, monto_cop, categoria, nota, fija=_en_otra_moneda(display))
 
     if not display:
         display = fmt(monto_cop) + " COP"
@@ -2473,7 +2496,7 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
         user_name = user.first_name or "Unknown"
         try:
-            exp_id, monto_usd = add_expense(user.id, user_name, monto_cop, cat, nota)
+            exp_id, monto_usd = add_expense(user.id, user_name, monto_cop, cat, nota, fija=_en_otra_moneda(pending.get("display")))
         except Exception as e:
             _clear_pending(ctx)
             await update.message.reply_text(f"❌ Error al guardar el gasto: {e}")
@@ -2767,6 +2790,12 @@ async def recurring_poster(context: ContextTypes.DEFAULT_TYPE):
 def main():
     init_db()
     load_config()
+    # Tasa de cada día (12-nov): baja las tasas cada 3 horas, pone las de hoy como vigentes y repasa los gastos recientes
+    try:
+        import tasas_dia
+        tasas_dia.iniciar(DB_PATH, sys.modules[__name__])
+    except Exception as e:
+        print(f"[tasas] ⚠️ no arrancó: {e!r}")
     # Postear los gastos fijos recurrentes del mes en curso si faltan. Un
     # fallo aquí no debe tumbar el bot ni el dashboard (el job diario reintenta).
     try:

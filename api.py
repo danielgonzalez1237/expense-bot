@@ -35,6 +35,7 @@ from pydantic import BaseModel
 # re-reading the config table on every request. It also means bot.py is the
 # single source of truth for schema and config — api.py is a thin wrapper.
 import bot
+import tasas_dia
 
 STATIC_DIR = Path(os.environ.get("STATIC_DIR", "/app/static"))
 if not STATIC_DIR.exists():
@@ -115,6 +116,14 @@ class AnotarBody(BaseModel):
     metodo_pago: Optional[str] = "Sin especificar"
     nota: Optional[str] = ""
     fecha: Optional[str] = None          # YYYY-MM-DD; hoy o hasta 90 días atrás
+
+
+class RecalcTasasBody(BaseModel):
+    """💱 Pasar los gastos en pesos colombianos a la TRM de su día (tasas_dia, 12-nov)."""
+    desde: Optional[str] = None      # YYYY-MM-DD
+    hasta: Optional[str] = None
+    aplicar: bool = False            # False = solo vista previa
+    periodos: bool = False           # también la tasa de cada mes = promedio real (y los ingresos)
 
 
 class SugerirBody(BaseModel):
@@ -553,8 +562,9 @@ def _insertar_diferido(conn, *, concepto: str, categoria: str, valores: list[flo
         cur = conn.execute(
             "INSERT INTO expenses (user_id, user_name, fecha, monto_cop, monto_usd, categoria, nota, "
             "created_at, metodo_pago, clase_contable, deferred_total, deferred_index, "
-            "deferred_group_id, deferred_mode) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (user_name, fecha, cop, usd, categoria, concepto, now, metodo_pago, clase, n, k, gid, mode),
+            "deferred_group_id, deferred_mode, tasa_fija) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_name, fecha, cop, usd, categoria, concepto, now, metodo_pago, clase, n, k, gid, mode,
+             0 if currency == "COP" else 1),   # en dólares: conserva su valor (tasas_dia)
         )
         if gid is None:
             gid = cur.lastrowid
@@ -1222,6 +1232,7 @@ def make_api_app() -> FastAPI:
     @api.on_event("startup")
     def _hydrate_config_on_startup():
         bot.load_config()
+        tasas_dia.agregar_modulo(bot)
         print(
             f"🌐 API startup: BUDGET={len(bot.BUDGET)} cats, "
             f"PAYMENT_METHODS={len(bot.PAYMENT_METHODS)} groups, TRM={bot.TRM}"
@@ -2049,41 +2060,11 @@ def make_api_app() -> FastAPI:
                 )
             conn.commit()
 
-            # Recompute monto_usd de los EGRESOS del período a la TRM del mes.
-            # Daniel registra la TRM promedio del mes a ojo y quiere que el mes
-            # entero quede valorado a esa tasa.
-            #
-            # Solo se recalculan los gastos que se COBRAN EN COP (tarjetas
-            # colombianas, efectivo, transferencias locales, sin especificar):
-            # ahí monto_cop es el cargo real y monto_usd = monto_cop / TRM.
-            # Los métodos que NO cobran en COP (Wio/AED, ENBD, USDT, ARQ, Chase) se
-            # SALTAN: su monto_cop es un valor derivado y su USD no depende de
-            # la TRM colombiana — recalcularlos los corrompería.
-            #
-            # También se SALTAN los gastos posteados por un fijo recurrente en
-            # USD (ej. Claude Pro $100): su valor real es el USD, no el COP.
-            trm_new = float(rates.TRM)
-            exp_rows = conn.execute(
-                "SELECT e.id, e.monto_cop, COALESCE(e.metodo_pago, ''), "
-                "COALESCE(r.currency, 'COP') "
-                "FROM expenses e LEFT JOIN recurring_expenses r ON r.id = e.recurring_id "
-                "WHERE e.fecha LIKE ?",
-                (period + "%",),
-            ).fetchall()
-            recomputed_expenses = 0
-            skipped_expenses = 0
-            skipped_usd_fixed = 0
-            for eid, monto_cop, metodo, rec_currency in exp_rows:
-                if rec_currency == "USD":
-                    skipped_usd_fixed += 1
-                    continue
-                m = (metodo or "").upper()
-                if any(h in m for h in _NON_COP_METHOD_HINTS):
-                    skipped_expenses += 1
-                    continue
-                new_usd = round(float(monto_cop or 0) / trm_new, 2)
-                conn.execute("UPDATE expenses SET monto_usd = ? WHERE id = ?", (new_usd, eid))
-                recomputed_expenses += 1
+            # Los EGRESOS en pesos colombianos se valoran con la TRM de SU DÍA (tasas_dia, Daniel 12-nov),
+            # ya no con la tasa del mes. Los pagados en otra moneda (Wio, ENBD, USDT, ARQ, Chase), los fijos en
+            # dólares y los marcados con tasa_fija conservan su valor. La tasa del mes queda para los ingresos.
+            rr = tasas_dia.recalcular(conn, desde=period + "-01", hasta=period + "-31", aplicar=True)
+            recomputed_expenses, skipped_expenses, skipped_usd_fixed = rr["cambiados"], 0, 0
             conn.commit()
         finally:
             conn.close()
@@ -2095,6 +2076,65 @@ def make_api_app() -> FastAPI:
             "skipped_expenses_non_cop": skipped_expenses,
             "skipped_expenses_usd_fixed": skipped_usd_fixed,
         }
+
+    # ──────────────── 💱 Tasa de cada día (Daniel 12-nov) ────────────────
+    @api.get("/api/rates/daily")
+    def rates_daily(desde: Optional[str] = Query(None), hasta: Optional[str] = Query(None)):
+        """La bitácora de tasas: la de cada día (la que usan los gastos de ese día) y las de hoy."""
+        hoy = datetime.now(bot.COL_TZ).date()
+        d = (desde or (hoy - timedelta(days=30)).isoformat())[:10]
+        h = (hasta or hoy.isoformat())[:10]
+        for x in (d, h):
+            try:
+                datetime.strptime(x, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(400, f"fecha inválida {x!r}")
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            fuentes = dict(conn.execute("SELECT moneda, fuente FROM tasas_dia GROUP BY moneda").fetchall())
+            return {"hoy": tasas_dia.de_hoy(conn), "fuentes": {**fuentes, "AED": "fija al dólar"},
+                    "dias": tasas_dia.bitacora(conn, d, h)}
+        finally:
+            conn.close()
+
+    @api.post("/api/rates/daily/recalcular")
+    def rates_daily_recalcular(body: RecalcTasasBody):
+        """Pasa los gastos en pesos colombianos a la TRM de su día. Con aplicar=false solo muestra qué cambiaría
+        (mes por mes: cuántos gastos, dólares antes y después). Con periodos=true, la tasa de cada mes pasa a
+        ser el promedio real del mes y los ingresos de ese mes se recalculan con ella."""
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            g = tasas_dia.recalcular(conn, body.desde, body.hasta, aplicar=body.aplicar)
+            per = {}
+            if body.periodos:
+                now = datetime.now().isoformat()
+                filas = conn.execute("SELECT period, trm, bob_rate, aed_rate, clp_rate, ars_rate FROM exchange_rates_history ORDER BY period").fetchall()
+                for period, trm, bob, aed, clp, ars in filas:
+                    if body.desde and period < body.desde[:7] or body.hasta and period > body.hasta[:7]:
+                        continue
+                    pr = {m: tasas_dia.promedio_mes(conn, m, period) for m in ("COP", "BOB", "CLP", "ARS")}
+                    nuevo = {"TRM": round(pr["COP"], 2) if pr["COP"] else trm, "BOB_RATE": round(pr["BOB"], 4) if pr["BOB"] else bob,
+                             "AED_RATE": tasas_dia.AED_FIJA, "CLP_RATE": round(pr["CLP"], 2) if pr["CLP"] else clp,
+                             "ARS_RATE": round(pr["ARS"], 2) if pr["ARS"] else ars}
+                    entries = conn.execute("SELECT id, monto, currency, monto_usd FROM income_entries WHERE period = ?", (period,)).fetchall()
+                    antes, despues, upd = 0.0, 0.0, []
+                    for eid, monto, cur, usd in entries:
+                        nu, rate = _to_usd(monto, cur, nuevo)
+                        antes += float(usd or 0); despues += nu
+                        upd.append((nu, rate, now, eid))
+                    per[period] = {"antes": {"TRM": trm, "BOB_RATE": bob, "AED_RATE": aed, "CLP_RATE": clp, "ARS_RATE": ars},
+                                   "despues": nuevo, "ingresos": [len(entries), round(antes, 2), round(despues, 2)]}
+                    if body.aplicar:
+                        conn.execute("UPDATE exchange_rates_history SET trm = ?, bob_rate = ?, aed_rate = ?, clp_rate = ?, ars_rate = ?, "
+                                     "updated_at = ? WHERE period = ?", (nuevo["TRM"], nuevo["BOB_RATE"], nuevo["AED_RATE"],
+                                                                         nuevo["CLP_RATE"], nuevo["ARS_RATE"], now, period))
+                        conn.executemany("UPDATE income_entries SET monto_usd = ?, rate_used = ?, updated_at = ? WHERE id = ?", upd)
+                if body.aplicar:
+                    conn.commit()
+            print(f"[tasas] recalcular {'APLICADO' if body.aplicar else 'vista previa'}: {g['cambiados']} gastos, {len(per)} meses")
+            return {"gastos": g, "periodos": per}
+        finally:
+            conn.close()
 
     # ──────────────── P&L — THE main view ────────────────
 
@@ -4892,7 +4932,12 @@ def make_api_app() -> FastAPI:
                 raise HTTPException(400, "el mes de inicio debe estar a menos de un año de la fecha del gasto")
         conn = sqlite3.connect(bot.DB_PATH)
         try:
-            rates = _rates_for_period(conn, fecha[:7])
+            rates = dict(_rates_for_period(conn, fecha[:7]))
+            # tasa del día de la fecha (tasas_dia, 12-nov); si no hay, la del mes
+            for mon, clave in (("COP", "TRM"), ("BOB", "BOB_RATE"), ("AED", "AED_RATE"), ("CLP", "CLP_RATE"), ("ARS", "ARS_RATE")):
+                t = tasas_dia.tasa(conn, mon, fecha)
+                if t:
+                    rates[clave] = t
             monto_usd, _ = _to_usd(float(body.monto), moneda, rates)
             monto_cop = float(body.monto) if moneda == "COP" else float(round(monto_usd * float(rates.get("TRM") or bot.TRM)))
             nota = (body.nota or "").strip()
@@ -4924,9 +4969,9 @@ def make_api_app() -> FastAPI:
                         "nota": concepto, "moneda": moneda, "diferido": grupo}
             cur = conn.execute(
                 "INSERT INTO expenses (user_id, user_name, fecha, monto_cop, monto_usd, categoria, nota, created_at, "
-                "metodo_pago, clase_contable, deferred_total, deferred_index) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, 'gasto', 1, 1)",
+                "metodo_pago, clase_contable, deferred_total, deferred_index, tasa_fija) VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?, 'gasto', 1, 1, ?)",
                 (quien, fecha, monto_cop, monto_usd, body.categoria.strip(), nota, datetime.now().isoformat(),
-                 (body.metodo_pago or "Sin especificar").strip()),
+                 (body.metodo_pago or "Sin especificar").strip(), 0 if moneda == "COP" else 1),
             )
             conn.commit()
             new_id = cur.lastrowid
