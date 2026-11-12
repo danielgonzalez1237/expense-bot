@@ -2690,6 +2690,77 @@ async def send_monthly_csv(context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_document(cid, document=io.BytesIO(csv_bytes), filename=f"gastos_{year}_{month:02d}.csv", caption=f"Detalle gastos {month_name} {year}")
 
 # ════════════════════════════════════════
+# RECORDATORIO 1 y 16: PONERSE AL DÍA (plataforma de patrimonio)
+# ════════════════════════════════════════
+# La plataforma arma el mensaje de cada uno (Ponerse al día) y el bot lo manda a las 8:00 de Colombia.
+# La llave PATRIMONIO_RECORDATORIO_LLAVE solo abre /api/v2/recordatorio (lectura).
+PATRIMONIO_URL = (os.environ.get("PATRIMONIO_URL") or "https://patrimonio-production-4091.up.railway.app").rstrip("/")
+_ALIAS_PERSONA = {"daniel": "Daniel", "dani": "Daniel", "mado": "Mado", "maria": "Mado", "maría": "Mado"}
+
+
+async def _leer_recordatorio():
+    llave = (os.environ.get("PATRIMONIO_RECORDATORIO_LLAVE") or "").strip()
+    if not llave:
+        return None
+    import httpx
+    async with httpx.AsyncClient(timeout=30) as c:
+        r = await c.get(PATRIMONIO_URL + "/api/v2/recordatorio", headers={"X-Recordatorio-Llave": llave})
+        r.raise_for_status()
+        return r.json()
+
+
+async def _mandar_recordatorio(bot, datos, uid) -> str:
+    """'enviado', 'al_dia' (no le falta nada) o 'sin_persona' (su nombre en Telegram no es Daniel ni Mado)."""
+    chat = await bot.get_chat(uid)
+    persona = _ALIAS_PERSONA.get(((chat.first_name or "").strip().split(" ") or [""])[0].lower())
+    if not persona:
+        return "sin_persona"
+    x = (datos.get("personas") or {}).get(persona)
+    if not x:
+        return "al_dia"
+    boton = InlineKeyboardMarkup([[InlineKeyboardButton("Ponerse al día →", url=PATRIMONIO_URL + (datos.get("ruta") or "/"))]])
+    await bot.send_message(chat_id=uid, text=x["texto"], reply_markup=boton)
+    return "enviado"
+
+
+async def recordatorio_quincena(context: ContextTypes.DEFAULT_TYPE):
+    """Corre todos los días a las 8:00 de Colombia; solo manda el 1 y el 16."""
+    if (datetime.now(timezone.utc) - timedelta(hours=5)).day not in (1, 16):
+        return
+    try:
+        datos = await _leer_recordatorio()
+    except Exception as e:
+        print(f"⚠️ recordatorio: no pude leer la plataforma ({type(e).__name__})")
+        return
+    if not datos:
+        print("⚠️ recordatorio: falta PATRIMONIO_RECORDATORIO_LLAVE")
+        return
+    for uid in ALLOWED_USERS:
+        try:
+            print(f"📬 recordatorio a {uid}: {await _mandar_recordatorio(context.bot, datos, uid)}")
+        except Exception as e:
+            print(f"⚠️ recordatorio a {uid}: {type(e).__name__}")
+
+
+async def cmd_recordatorio(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """/recordatorio: lo que te toca poner al día ahora mismo (el mismo mensaje del 1 y el 16)."""
+    if not is_allowed(update.effective_user.id):
+        return
+    try:
+        datos = await _leer_recordatorio()
+    except Exception:
+        await update.message.reply_text("No pude leer la plataforma ahora; intenta en un rato.")
+        return
+    if not datos:
+        await update.message.reply_text("El recordatorio todavía no está conectado con la plataforma.")
+        return
+    r = await _mandar_recordatorio(ctx.bot, datos, update.effective_user.id)
+    if r == "al_dia":
+        await update.message.reply_text(f"Estás al día: no te falta nada en la quincena {datos.get('periodo', '')}.")
+    elif r == "sin_persona":
+        await update.message.reply_text("No sé si eres Daniel o Mado por tu nombre de Telegram.")
+
+# ════════════════════════════════════════
 # CREAR CATEGORÍA CUSTOM: /nuevacat
 # ════════════════════════════════════════
 
@@ -2819,6 +2890,7 @@ def main():
     app.add_handler(CommandHandler("help", cmd_start))
     app.add_handler(CommandHandler("nuevacat", cmd_nuevacat))
     app.add_handler(CommandHandler("dashboard", cmd_dashboard))
+    app.add_handler(CommandHandler("recordatorio", cmd_recordatorio))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
@@ -2833,6 +2905,8 @@ def main():
     # el mes en curso tenga sus fijos posteados (idempotente).
     recurring_time = dtime(hour=5, minute=10, second=0)
     job_queue.run_daily(recurring_poster, time=recurring_time, name="recurring_poster")
+    # Recordatorio de ponerse al día (patrimonio): 1 y 16 a las 08:00 COL (13:00 UTC)
+    job_queue.run_daily(recordatorio_quincena, time=dtime(hour=13, minute=0, second=0), name="recordatorio_quincena")
 
     print(
         f"🤖 Bot v8 iniciado | TRM: {TRM} | BOB: {BOB_RATE} | AED: {AED_RATE} | "
