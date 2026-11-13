@@ -127,6 +127,16 @@ class RecalcTasasBody(BaseModel):
     periodos: bool = False           # también la tasa de cada mes = promedio real (y los ingresos)
 
 
+class SmsBody(BaseModel):
+    """📩 Texto del SMS de compra del banco que reenvía el iPhone."""
+    texto: str
+
+
+class SmsAnotar(BaseModel):
+    categoria: str
+    nota: Optional[str] = None
+
+
 class SugerirBody(BaseModel):
     """📱 Comercio que llegó de Apple Pay, para proponer la categoría de la última vez."""
     comercio: str
@@ -5659,6 +5669,64 @@ def make_api_app() -> FastAPI:
         r = mark_reminder_paid(rid, body)
         print(f"[equipos] {eq['persona']} marcó pagado el recordatorio #{rid} ({body.period})")
         return r
+
+    # ──────────────── 📩 SMS de compra del banco (sin duplicar lo ya anotado) ────────────────
+    @api.post("/api/anotar/sms")
+    def anotar_sms(body: SmsBody, request: Request):
+        """El atajo del iPhone manda cada SMS de compra de Banco de Bogotá; aquí se une, se marca el fijo o queda por anotar."""
+        eq = _equipo_o_401(request)
+        import sms_banco
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            r = sms_banco.recibir(conn, bot, (body.texto or "")[:1000], eq["persona"])
+        finally:
+            conn.close()
+        print(f"[sms] {eq['persona']} · {r['estado']}")
+        return r
+
+    @api.get("/api/sms")
+    def sms_bandeja():
+        import sms_banco
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            return sms_banco.bandeja(conn, bot)
+        finally:
+            conn.close()
+
+    @api.post("/api/sms/{sid}/anotar")
+    def sms_anotar(sid: int, body: SmsAnotar, request: Request):
+        """Anota la compra del SMS como gasto (con la tarjeta, la fecha y el valor del banco) y la saca de la bandeja."""
+        import sms_banco
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            fila = conn.execute("SELECT monto, moneda, metodo_pago, comercio, fecha, persona, estado FROM sms_banco WHERE id = ?", (sid,)).fetchone()
+        finally:
+            conn.close()
+        if not fila:
+            raise HTTPException(404, "ese SMS no existe")
+        if fila[6] != "pendiente":
+            raise HTTPException(400, "ese SMS ya no está pendiente")
+        r = quick_expense(QuickExpense(monto=fila[0], moneda=fila[1] or "COP", categoria=body.categoria,
+                                       nota=((body.nota if body.nota is not None else fila[3]) or "").strip()[:200],
+                                       metodo_pago=fila[2] or "Sin especificar", user_name=fila[5] or None, fecha=fila[4]), request)
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            sms_banco.resolver(conn, sid, "anotado", r.get("id"))
+        finally:
+            conn.close()
+        return r
+
+    @api.post("/api/sms/{sid}/descartar")
+    def sms_descartar(sid: int):
+        """«No es gasto» (un pago de tarjeta, una devolución…): sale de la bandeja sin tocar el P&G."""
+        import sms_banco
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            if not sms_banco.resolver(conn, sid, "descartado"):
+                raise HTTPException(404, "ese SMS no está pendiente")
+        finally:
+            conn.close()
+        return {"ok": True}
 
     # ──────────────── 🧭 Recorrido guiado: quién ya lo vio ────────────────
     def _tour_user(request: Request) -> str:

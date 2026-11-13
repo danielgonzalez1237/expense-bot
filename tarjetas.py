@@ -630,11 +630,17 @@ def calendario(conn, bot, desde, hasta):
     hoy = _hoy()
     per = FIJOS_CONFIRMAR_DESDE
     while per <= _ym(hoy):
+        try:
+            import sms_banco
+            con_sms = sms_banco.fijos_con_sms(conn, per)
+        except ImportError:
+            con_sms = set()
         for fj in fijos(conn, bot, per):
-            if fj["active"] and fj["estado"] == "por_confirmar":
+            if fj["active"] and fj["estado"] in ("por_confirmar", "previsto") and (fj["estado"] == "por_confirmar" or fj["id"] in con_sms):
                 bandeja.append({"fijo_id": fj["id"], "periodo": per, "label": fj["label"], "metodo_pago": fj["metodo_pago"],
                                 "tarjeta_id": fj["tarjeta_id"], "fecha": _fecha_en(per, fj["dia_cobro"] or 1).isoformat(),
-                                "monto": fj["monto_usd"] if fj["currency"] == "USD" else fj["monto_cop"], "moneda": fj["currency"]})
+                                "monto": fj["monto_usd"] if fj["currency"] == "USD" else fj["monto_cop"], "moneda": fj["currency"],
+                                "sms": fj["id"] in con_sms})   # el banco ya avisó por SMS que se cobró
         per = _sumar_mes(per, 1)
     bandeja.sort(key=lambda b: b["fecha"])
     return {"desde": desde, "hasta": hasta, "items": items, "bandeja": bandeja, "confirmar_desde": FIJOS_CONFIRMAR_DESDE,

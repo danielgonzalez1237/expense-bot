@@ -1728,6 +1728,14 @@ def init_db():
 
     _run_migration("025_fijo_marca_pago", _migration_025_fijo_marca_pago)
 
+    def _migration_026_sms_banco(conn):
+        """SMS de compra del banco (13-nov): la tabla donde cae cada SMS que reenvía el iPhone (unido / fijo / pendiente)."""
+        import sms_banco
+        sms_banco.preparar(conn)
+        print("[migration 026] SMS del banco listos")
+
+    _run_migration("026_sms_banco", _migration_026_sms_banco)
+
     conn.close()
 
 
