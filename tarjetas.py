@@ -146,15 +146,19 @@ def _tarjeta_de_recordatorio(conn, rid):
     return None
 
 
+def _ciclo_actual(due_day, ref):
+    """El pago en curso con la misma regla de «Próximos pagos»: el de este mes hasta 5 días después de vencer; luego el siguiente."""
+    per = _ym(ref)
+    return per if (_fecha_en(per, due_day) - ref).days >= -5 else _sumar_mes(per, 1)
+
+
 def _periodo_a_pagar(due_day, pagados, ref):
-    """El pago que toca: el de este mes si sigue sin pagar (aunque ya venció), si no el siguiente sin pagar."""
+    """El próximo pago sin pagar desde el ciclo en curso (si el de este mes venció hace 5 días o menos, sale ese, en rojo)."""
+    per = _ciclo_actual(due_day, ref)
     for k in (0, 1, 2):
-        per = _sumar_mes(_ym(ref), k)
-        if per in pagados:
-            continue
-        f = _fecha_en(per, due_day)
-        if k == 0 or f >= ref:
-            return per, f
+        p2 = _sumar_mes(per, k)
+        if p2 not in pagados:
+            return p2, _fecha_en(p2, due_day)
     return None, None
 
 
@@ -247,6 +251,7 @@ def estado(conn, bot):
             per, f = _periodo_a_pagar(dia_pago, pagados.get(t["recordatorio_id"], set()), hoy)
             if per:   # si el de este mes ya venció y no se ha pagado, sale ese (vencido) antes que el siguiente
                 prox = {"fecha": f.isoformat(), "periodo": per, "dias": (f - hoy).days, "vencido": f < hoy,
+                        "ciclo_actual": per == _ciclo_actual(dia_pago, hoy),   # solo este lo deja hecho un abono
                         "monto": (rec or {}).get("amount"), "recordatorio_id": t["recordatorio_id"]}
         out.append({**t, "metodos": metodos, "lectura": lec, "sumado_desde_lectura": round(sumado, 2),
                     "abonos_desde_lectura": float(abonos or 0), "usado": None if usado is None else round(usado, 2),
@@ -295,8 +300,8 @@ def abonar(conn, tid, monto, fecha=None, nota=None):
         rec = conn.execute("SELECT due_day, amount FROM payment_reminders WHERE id = ?", (t[0],)).fetchone()
         if rec and rec[0]:
             pagados = {r[0] for r in conn.execute("SELECT period FROM payment_reminder_paid WHERE reminder_id = ?", (t[0],))}
-            per, _f = _periodo_a_pagar(int(rec[0]), pagados, date.fromisoformat(f))
-            if per and (rec[1] is None or float(monto) >= 0.98 * float(rec[1])):
+            per = _ciclo_actual(int(rec[0]), date.fromisoformat(f))
+            if per not in pagados and (rec[1] is None or float(monto) >= 0.98 * float(rec[1])):
                 conn.execute("INSERT OR REPLACE INTO payment_reminder_paid (reminder_id, period, paid_at) VALUES (?,?,?)",
                              (t[0], per, _ahora_utc()))
                 marcado = per
@@ -364,6 +369,20 @@ def cambiar_fijo(conn, rid, cambios, desde):
     return version_de(conn, rid, desde)
 
 
+def _gasto_parecido(conn, v, periodo, ref, es_usd):
+    """Un gasto anotado a mano en el mes, de la misma categoría y valor parecido (±15 %), que ningún otro fijo haya tomado.
+    Primero el del mismo método de pago y el de valor más cercano (Tigo ×2, Oura ×2 no se cruzan)."""
+    cands = []
+    for e_id, e_cop, e_usd, e_met in conn.execute(
+            "SELECT id, monto_cop, monto_usd, metodo_pago FROM expenses WHERE recurring_id IS NULL AND categoria = ? "
+            "AND substr(fecha, 1, 7) = ? AND id NOT IN (SELECT expense_id FROM fijo_confirmaciones WHERE expense_id IS NOT NULL)",
+            (v["categoria"], periodo)).fetchall():
+        dif = abs(float((e_usd if es_usd else e_cop) or 0) - ref)
+        if dif <= 0.15 * ref:
+            cands.append((0 if (e_met or "") == (v["metodo_pago"] or "") else 1, dif, e_id))
+    return sorted(cands)[0][2] if cands else None
+
+
 def confirmar(conn, bot, rid, periodo, estado_, monto=None, fuente="tú"):
     """«✓ Pasó» crea el gasto del fijo en ese mes, una sola vez; «No pasó» no anota nada. Si ya hay un gasto de ese fijo
     en el mes (anotado a mano o por el bot), se une a ese."""
@@ -395,23 +414,15 @@ def confirmar(conn, bot, rid, periodo, estado_, monto=None, fuente="tú"):
             m_cop = float(round(float(v["monto_usd"] or 0) * trm)) if es_usd else float(v["monto_cop"] or 0)
         ref = m_usd if es_usd else m_cop
         if not ya and ref > 0:
-            # Un gasto anotado a mano en el mes, de la misma categoría y valor parecido, que ningún otro fijo haya tomado.
-            # Primero el del mismo método de pago y el de valor más cercano (Tigo ×2, Oura ×2 no se cruzan).
-            cands = []
-            for e_id, e_cop, e_usd, e_met in conn.execute(
-                    "SELECT id, monto_cop, monto_usd, metodo_pago FROM expenses WHERE recurring_id IS NULL AND categoria = ? "
-                    "AND substr(fecha, 1, 7) = ? AND id NOT IN (SELECT expense_id FROM fijo_confirmaciones WHERE expense_id IS NOT NULL)",
-                    (v["categoria"], periodo)).fetchall():
-                dif = abs(float((e_usd if es_usd else e_cop) or 0) - ref)
-                if dif <= 0.15 * ref:
-                    cands.append((0 if (e_met or "") == (v["metodo_pago"] or "") else 1, dif, e_id))
-            if cands:
-                cands.sort()
-                ya = (cands[0][2],)
+            gid = _gasto_parecido(conn, v, periodo, ref, es_usd)
+            if gid:
+                ya = (gid,)
                 creado = 2   # unido a un gasto anotado a mano: se le pone el fijo para que nadie más lo tome
                 conn.execute("UPDATE expenses SET recurring_id = ? WHERE id = ? AND recurring_id IS NULL", (rid, ya[0]))
         if ya:
             exp_id = ya[0]
+            if monto is not None:   # «llegó con otro valor»: el gasto al que se une queda con ese valor
+                conn.execute("UPDATE expenses SET monto_cop = ?, monto_usd = ? WHERE id = ?", (m_cop, m_usd, exp_id))
             fila = conn.execute("SELECT fecha, nota, monto_cop, monto_usd FROM expenses WHERE id = ?", (exp_id,)).fetchone()
             if fila:
                 unido = {"id": exp_id, "fecha": fila[0], "nota": fila[1], "monto_cop": fila[2], "monto_usd": fila[3]}
@@ -433,17 +444,39 @@ def confirmar(conn, bot, rid, periodo, estado_, monto=None, fuente="tú"):
     if estado_ == "paso" and fuente != "próximos pagos":   # el mismo pago en «Próximos pagos» queda hecho (una sola acción)
         r = conn.execute("SELECT id FROM payment_reminders WHERE lower(label) = lower(?) AND active = 1", (v["label"] or "",)).fetchone()
         if r:
-            conn.execute("INSERT OR IGNORE INTO payment_reminder_paid (reminder_id, period, paid_at) VALUES (?,?,?)", (r[0], periodo, now))
+            cur_p = conn.execute("INSERT OR IGNORE INTO payment_reminder_paid (reminder_id, period, paid_at) VALUES (?,?,?)", (r[0], periodo, now))
+            if cur_p.rowcount:
+                conn.execute("UPDATE fijo_confirmaciones SET marco_pago = ? WHERE recurring_id = ? AND period = ?", (r[0], rid, periodo))
     conn.commit()
     return {"ya": False, "estado": estado_, "expense_id": exp_id, "creado": creado == 1, "unido": unido}
 
 
+def corregir(conn, bot, rid, periodo, monto):
+    """«Corregir valor»: cambia el monto del gasto de ese fijo en ese mes (el creado o el unido), en la moneda del fijo."""
+    if float(monto) <= 0:
+        raise ValueError("el valor debe ser mayor que cero")
+    fila = conn.execute("SELECT estado, expense_id FROM fijo_confirmaciones WHERE recurring_id = ? AND period = ?", (rid, periodo)).fetchone()
+    if not fila or fila[0] != "paso" or not fila[1]:
+        raise ValueError("ese fijo no está confirmado en ese mes")
+    v = version_de(conn, rid, periodo)
+    es_usd = v["currency"] == "USD"
+    trm = bot._trm_for_period(conn, periodo)
+    m_usd = round(float(monto), 2) if es_usd else round(float(monto) / trm, 2)
+    m_cop = float(round(float(monto) * trm)) if es_usd else float(round(float(monto)))
+    conn.execute("UPDATE expenses SET monto_cop = ?, monto_usd = ?, tasa_fija = ? WHERE id = ?", (m_cop, m_usd, 1 if es_usd else 0, fila[1]))
+    conn.execute("UPDATE fijo_confirmaciones SET monto = ? WHERE recurring_id = ? AND period = ?", (float(monto), rid, periodo))
+    conn.commit()
+    return {"ok": True, "expense_id": fila[1], "monto_cop": m_cop, "monto_usd": m_usd}
+
+
 def deshacer(conn, rid, periodo):
     """Quita la confirmación; si el gasto lo creó la confirmación, lo borra (si se unió a uno existente, ese se queda)."""
-    fila = conn.execute("SELECT expense_id, creado_aqui FROM fijo_confirmaciones WHERE recurring_id = ? AND period = ?",
+    fila = conn.execute("SELECT expense_id, creado_aqui, marco_pago FROM fijo_confirmaciones WHERE recurring_id = ? AND period = ?",
                         (rid, periodo)).fetchone()
     if not fila:
         return {"ok": False}
+    if fila[2]:   # la confirmación había dejado pagado ese mes en «Próximos pagos»: vuelve a quedar pendiente
+        conn.execute("DELETE FROM payment_reminder_paid WHERE reminder_id = ? AND period = ?", (fila[2], periodo))
     if fila[0] and fila[1] == 1:
         conn.execute("DELETE FROM expenses WHERE id = ?", (fila[0],))
     elif fila[0] and fila[1] == 2:   # se había unido a un gasto anotado a mano: el gasto se queda, sin el fijo
@@ -463,12 +496,15 @@ def al_marcar_pago(conn, bot, rid, periodo, pagado):
     hecho = {}
     nota = "pagado en Próximos pagos"
     tid = _tarjeta_de_recordatorio(conn, rid)
-    t = (tid,) if tid else None
+    t = conn.execute("SELECT id, moneda FROM tarjetas WHERE id = ?", (tid,)).fetchone() if tid else None
     if t:
         ya = conn.execute("SELECT id FROM tarjeta_abonos WHERE tarjeta_id = ? AND periodo_marcado = ?", (t[0], periodo)).fetchone()
-        if pagado and not ya and rec[1]:
+        rmon = conn.execute("SELECT COALESCE(currency, 'COP'), due_day FROM payment_reminders WHERE id = ?", (rid,)).fetchone()
+        if pagado and not ya and rec[1] and rmon[0] == t[1]:
+            # con la fecha del pago (si ya pasó): un dato del banco posterior ya trae ese pago y no lo resta dos veces
+            f_pago = min(_fecha_en(periodo, rmon[1]), _hoy()) if rmon[1] else _hoy()
             conn.execute("INSERT INTO tarjeta_abonos (tarjeta_id, fecha, monto, nota, created_at, periodo_marcado) VALUES (?,?,?,?,?,?)",
-                         (t[0], _hoy().isoformat(), float(rec[1]), nota, _ahora_utc(), periodo))
+                         (t[0], f_pago.isoformat(), float(rec[1]), nota, _ahora_utc(), periodo))
             hecho["abono"] = float(rec[1])
         elif not pagado:
             conn.execute("DELETE FROM tarjeta_abonos WHERE tarjeta_id = ? AND periodo_marcado = ? AND nota = ?", (t[0], periodo, nota))
@@ -515,6 +551,12 @@ def fijos(conn, bot, periodo=None):
             est = "por_confirmar" if (dia and dia <= hoy) or (not dia and periodo <= _ym(hoy)) else "previsto"
         versiones = _filas(conn, "SELECT desde, monto_cop, monto_usd, currency, metodo_pago, active FROM recurring_versiones "
                                  "WHERE recurring_id = ? ORDER BY desde", (rid,))
+        a_mano = None   # sin confirmar pero ya anotado a mano en el mes: «Queda» no lo debe apartar otra vez
+        if est in ("por_confirmar", "previsto") and v["active"]:
+            es_usd = v["currency"] == "USD"
+            ref = float((v["monto_usd"] if es_usd else v["monto_cop"]) or 0)
+            ya = conn.execute("SELECT id FROM expenses WHERE recurring_id = ? AND substr(fecha, 1, 7) = ?", (rid, periodo)).fetchone()
+            a_mano = ya[0] if ya else (_gasto_parecido(conn, v, periodo, ref, es_usd) if ref > 0 else None)
         monto_conf = None   # lo que de verdad entró al P&G (otro valor o el gasto al que se unió)
         if c and c["expense_id"]:
             e = conn.execute("SELECT monto_cop, monto_usd FROM expenses WHERE id = ?", (c["expense_id"],)).fetchone()
@@ -522,7 +564,7 @@ def fijos(conn, bot, periodo=None):
                 monto_conf = e[1] if v["currency"] == "USD" else e[0]
         out.append({**v, "periodo": periodo, "tarjeta_id": mapa.get(v["metodo_pago"]), "en_pesos": round(en_pesos),
                     "en_dolares": round(float(v["monto_usd"] or 0) if v["currency"] == "USD" else en_pesos / tasas["COP"], 2),
-                    "estado": est, "expense_id": c["expense_id"] if c else None, "monto_confirmado": monto_conf,
+                    "estado": est, "expense_id": c["expense_id"] if c else None, "monto_confirmado": monto_conf, "gasto_a_mano": a_mano,
                     "versiones": versiones})
     return out
 

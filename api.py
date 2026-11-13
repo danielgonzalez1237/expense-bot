@@ -2016,8 +2016,12 @@ def make_api_app() -> FastAPI:
             if n > 0:
                 raise HTTPException(400, f"la categoría tiene {n} {'fuente' if n == 1 else 'fuentes'}: "
                                          "primero las mueves a otra")
-            conn.execute("DELETE FROM income_categories WHERE key = ?", (key,))
+            # un solo paso: si en el medio alguien le movió una fuente, no se borra
+            r = conn.execute("DELETE FROM income_categories WHERE key = ? AND NOT EXISTS "
+                             "(SELECT 1 FROM income_sources WHERE categoria = ?)", (key, key))
             conn.commit()
+            if r.rowcount == 0:
+                raise HTTPException(400, "la categoría tiene fuentes: primero las mueves a otra")
         finally:
             conn.close()
         return {"ok": True, "deleted": key}
@@ -4591,6 +4595,7 @@ def make_api_app() -> FastAPI:
         try:
             r = conn.execute("DELETE FROM payment_reminders WHERE id = ?", (rid,))
             conn.execute("DELETE FROM payment_reminder_paid WHERE reminder_id = ?", (rid,))
+            conn.execute("UPDATE tarjetas SET recordatorio_id = NULL WHERE recordatorio_id = ?", (rid,))   # la tarjeta queda libre para otra fecha
             conn.commit()
             if r.rowcount == 0:
                 raise HTTPException(404, f"recordatorio {rid} no existe")
@@ -4646,7 +4651,9 @@ def make_api_app() -> FastAPI:
         if not campos:
             raise HTTPException(400, "nada que actualizar")
         def f(c):
-            if "recordatorio_id" in campos and not c.execute("SELECT 1 FROM payment_reminders WHERE id = ?", (campos["recordatorio_id"],)).fetchone():
+            if campos.get("recordatorio_id") == 0:   # 0 = la tarjeta ya no tiene fecha de pago ligada
+                campos["recordatorio_id"] = None
+            elif "recordatorio_id" in campos and not c.execute("SELECT 1 FROM payment_reminders WHERE id = ?", (campos["recordatorio_id"],)).fetchone():
                 raise HTTPException(400, f"recordatorio {campos['recordatorio_id']} no existe")
             sets = ", ".join(f"{k} = ?" for k in campos)
             r = c.execute(f"UPDATE tarjetas SET {sets}, updated_at = ? WHERE id = ?", (*campos.values(), datetime.now().isoformat(), tid))
@@ -4749,6 +4756,18 @@ def make_api_app() -> FastAPI:
                 return {"ok": True, **tarjetas.confirmar(c, bot, rid, body.periodo, body.estado, body.monto, body.fuente or "tú")}
             except KeyError:
                 raise HTTPException(404, f"fijo {rid} no existe")
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+        return _con_db(f)
+
+    @api.patch("/api/fijos/{rid}/confirmar")
+    def fijo_corregir(rid: int, body: FijoConfirmar):
+        """«Corregir valor»: cambia el monto del gasto ya confirmado de ese mes, sin crear otro."""
+        if not _VALID_PERIOD.match(body.periodo or "") or body.monto is None:
+            raise HTTPException(400, "periodo (YYYY-MM) y monto son obligatorios")
+        def f(c):
+            try:
+                return tarjetas.corregir(c, bot, rid, body.periodo, body.monto)
             except ValueError as e:
                 raise HTTPException(400, str(e))
         return _con_db(f)

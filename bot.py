@@ -39,9 +39,9 @@ _DEFAULT_PAYMENT_METHODS = {
     "ARQ":          ["ARQ"],
 }
 
-# Métodos por persona (Daniel 13-nov): lo que termina en " Mado" es de ella. Daniel no lo ve;
-# Mado ve todo lo demás y, al final, su grupo «De Mado». El valor guardado no cambia (el historial
-# sigue igual); estas etiquetas son solo lo que se lee en los botones y en «Anotar gasto».
+# Métodos por persona (Daniel 13-nov): lo que termina en " Mado" es de ella. Daniel paga todo, así que los dos
+# ven todas las tarjetas: primero se elige «De Daniel» o «De Mado» y luego el banco. El valor guardado no cambia
+# (el historial sigue igual); estas etiquetas son solo lo que se lee en los botones y en las listas.
 PAYMENT_LABELS = {
     "BDB Visa Latam Dani": "Banco de Bogotá · Visa LATAM ·0312",
     "BDB MC Dani": "Banco de Bogotá · Mastercard Black ·8298",
@@ -1716,6 +1716,17 @@ def init_db():
               f"a veces {resumen[1] or 0} · archivadas {resumen[2] or 0} · botones {resumen[3] or 0}")
 
     _run_migration("024_ingresos_tipo_categorias", _migration_024_ingresos_tipo_categorias)
+
+    def _migration_025_fijo_marca_pago(conn):
+        """Revisión final 13-nov: la confirmación de un fijo recuerda si dejó pagado su recordatorio (hipoteca),
+        para que «deshacer» lo vuelva a dejar pendiente en «Próximos pagos»."""
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(fijo_confirmaciones)")]
+        if "marco_pago" not in cols:
+            conn.execute("ALTER TABLE fijo_confirmaciones ADD COLUMN marco_pago INTEGER")
+        conn.commit()
+        print("[migration 025] confirmaciones con su pago listo")
+
+    _run_migration("025_fijo_marca_pago", _migration_025_fijo_marca_pago)
 
     conn.close()
 

@@ -1276,8 +1276,8 @@
     <div x-show="$store.tarjetas.tab === 'tarjeta' && $store.tarjetas.unaT()" class="space-y-4">
       <button type="button" class="text-xs underline text-slate-500" @click="$store.tarjetas.ir('pilas')">← Todas las tarjetas</button>
       <template x-if="$store.tarjetas.unaT()">
-      <div class="grid lg:grid-cols-5 gap-4">
-        <div class="lg:col-span-3 bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm">
+      <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 min-w-0">
+        <div class="lg:col-span-3 bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 shadow-sm min-w-0">
           <div class="flex items-baseline justify-between gap-2"><h3 class="font-semibold" x-text="$store.tarjetas.nombreT($store.tarjetas.tSel())"></h3>
             <span class="text-[11px] text-slate-500">fijos de este mes y del próximo</span></div>
           <div class="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
@@ -1292,7 +1292,7 @@
             <div x-show="!$store.tarjetas.fijosDeT($store.tarjetas.tid).length" class="py-3 text-xs text-slate-400">Esta tarjeta no tiene fijos.</div>
           </div>
         </div>
-        <div class="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm space-y-2 text-sm">
+        <div class="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 shadow-sm space-y-2 text-sm min-w-0">
           <div class="text-[11px] uppercase tracking-wide text-slate-500">Saldo recalculado</div>
           <template x-for="l in $store.tarjetas.saldoLineas($store.tarjetas.unaT())" :key="'tjsl' + l.k">
             <div class="flex justify-between gap-3 border-t border-slate-100 dark:border-slate-800 pt-2"><span class="min-w-0"><span x-text="l.k"></span><br><span class="text-[11px] text-slate-500" x-text="l.s"></span></span>
@@ -1997,7 +1997,7 @@
                       x-text="claseIcon(e.clase_contable)"></span>
                 <!-- Fijo mensual: posteado solo por un recurrente (🔁 Fijos) -->
                 <span x-show="e.recurring_id"
-                      title="Gasto fijo mensual — se postea solo cada 1ro (🔁 Fijos)"
+                      title="Gasto fijo mensual (se cambia en Tarjetas › Suscripciones)"
                       class="ml-1 text-[11px]">🔁</span>
                 <!-- Deferred badge: si es parte de un diferimiento, mostrar K/N -->
                 <span x-show="e.deferred_total > 1"
@@ -6174,7 +6174,7 @@ document.addEventListener('alpine:init', () => {
     async openModal(tab) {
       this.open = true; this.error = null; this.lastRun = null;
       this.tab = 'diferidos';   // los fijos viven en Tarjetas › Suscripciones
-      await Promise.all([this.load(), this.loadMeta(), Alpine.store('deferred').load()]);
+      await Promise.all([this.loadMeta(), Alpine.store('deferred').load()]);
     },
     close() { this.open = false; },
     async load() {
@@ -6953,7 +6953,7 @@ document.addEventListener('alpine:init', () => {
   Alpine.store('tarjetas', {
     tab: 'pilas', tid: null, cargando: false, busy: false, error: null,
     data: null, fijosLista: [], fijosProx: [], cal: null, mes: null, abiertas: {}, abonos: [],
-    metodos: [], etiquetas: {}, categorias: [], edits: {}, confirmarDesde: '2026-12',
+    metodos: [], etiquetas: {}, categorias: [], edits: {}, confirmarDesde: '2026-12', fijosMes: [],
     abono: { open: false, titular: '', pais: '', tid: '', modo: '', monto: '', fecha: '', nota: '', error: null },
     lectura: { open: false, tid: '', usado: '', fuente: 'app del banco', error: null },
     nuevo: { open: false, label: '', categoria: '', metodo_pago: 'BDB Visa Latam Dani', monto: '', currency: 'COP', dia: '', user_name: 'Daniel' },
@@ -6992,7 +6992,8 @@ document.addEventListener('alpine:init', () => {
       const desde = new Date(ini); desde.setDate(ini.getDate() - ((ini.getDay() + 6) % 7));
       const hasta = new Date(fin); hasta.setDate(fin.getDate() + (6 - (fin.getDay() + 6) % 7));
       const iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-      try { this.cal = await this._json('/api/tarjetas/calendario?desde=' + iso(desde) + '&hasta=' + iso(hasta)); this.cal._desde = iso(desde); this.cal._hasta = iso(hasta); }
+      try { this.cal = await this._json('/api/tarjetas/calendario?desde=' + iso(desde) + '&hasta=' + iso(hasta)); this.cal._desde = iso(desde); this.cal._hasta = iso(hasta);
+            this.fijosMes = this.mes >= this.confirmarDesde ? ((await this._json('/api/fijos?periodo=' + this.mes)).fijos || []) : []; }
       catch (e) { this.error = 'No se pudo cargar el calendario: ' + e.message; }
     },
     async cargarBandeja() {   // para el aviso del Resumen, sin abrir la sección
@@ -7026,7 +7027,7 @@ document.addEventListener('alpine:init', () => {
       ];
       if (ta) out.push({ k: 'Cupo en dirhams', v: this.fmt(ta.cupo, 'AED'), s: 'usado ' + this.fmt(ta.usado, 'AED') + ' · las de Mado comparten este cupo' });
       if (tu) out.push({ k: 'Cupo en dólares · de Mado', v: this.fmt(tu.cupo, 'USD'), s: 'usado ' + this.fmt(tu.usado, 'USD') + (tu.sin_dato ? ' · ' + tu.sin_dato + ' sin saldo del banco' : '') });
-      out.push(prox ? { k: (prox.proximo_pago.vencido ? 'Pago vencido · ' : 'Próximo pago · ') + this.fechaCorta(prox.proximo_pago.fecha), v: this.fmt(prox.proximo_pago.monto, prox.moneda), cls: 'text-amber-700 dark:text-amber-300', s: this.nombreT(prox) }
+      out.push(prox ? { k: (prox.proximo_pago.vencido ? 'Pago vencido · ' : 'Próximo pago · ') + this.fechaCorta(prox.proximo_pago.fecha), v: this.fmt(prox.proximo_pago.monto, prox.moneda), cls: prox.proximo_pago.vencido ? 'text-red-700 dark:text-red-300' : 'text-amber-700 dark:text-amber-300', s: this.nombreT(prox) }
                     : { k: 'Próximo pago', v: '—', s: 'sin pagos con valor' });
       out.push({ k: 'Fijos en tarjetas ≈', v: this.fmt(fijosMes, 'COP'), s: enTarjetas.length + ' fijos al mes en tus tarjetas' });
       return out;
@@ -7156,7 +7157,11 @@ document.addEventListener('alpine:init', () => {
     },
     _pagosAlDia() { try { const r = Alpine.store('reminders'); if (r && r.load) r.load(); } catch (e) { /* «Próximos pagos» se pone al día al abrirlo */ } },
     confirmadosMes() {
-      return ((this.cal && this.cal.items) || []).filter(i => i.tipo === 'fijo' && i.periodo === this.mes && (i.estado === 'confirmado' || i.estado === 'no_paso') && i.periodo >= this.confirmarDesde);
+      if (!this.mes || this.mes < this.confirmarDesde) return [];
+      return (this.fijosMes || []).filter(f => f.estado === 'confirmado' || f.estado === 'no_paso').map(f => ({
+        fijo_id: f.id, periodo: f.periodo, label: f.label, estado: f.estado, moneda: f.currency,
+        monto: f.currency === 'USD' ? f.monto_usd : f.monto_cop, monto_confirmado: f.monto_confirmado,
+        fecha: f.periodo + '-' + String(f.dia_cobro || 1).padStart(2, '0') }));
     },
     async corregir(it) {
       const v = prompt('¿Con qué valor llegó ' + it.label + ' en ' + this.mesTxt() + '? (en ' + it.moneda + ')', String(it.monto_confirmado ?? it.monto ?? ''));
@@ -7165,8 +7170,7 @@ document.addEventListener('alpine:init', () => {
       if (!n || n <= 0) { this.error = 'No entendí ese valor. Escríbelo así: 106,40 o 53.900.'; return; }
       this.busy = true;
       try {
-        await this._json('/api/fijos/' + it.fijo_id + '/confirmar?periodo=' + it.periodo, { method: 'DELETE' });
-        await this._json('/api/fijos/' + it.fijo_id + '/confirmar', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        await this._json('/api/fijos/' + it.fijo_id + '/confirmar', { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ periodo: it.periodo, estado: 'paso', monto: n }) });
         this.data = null; await this.cargar(); this._pagosAlDia();
         Alpine.store('quick').aviso('✓ ' + it.label + ' quedó en ' + this.fmt(n, it.moneda));
@@ -7277,7 +7281,7 @@ document.addEventListener('alpine:init', () => {
       const t = this.tAbono(), n = t ? this._num(this.abono.monto, t.moneda) : 0;
       if (!t || !n || t.usado === null) return '';
       const nuevo = Math.max(t.usado - n, 0);
-      return 'Al guardar: la ' + this.nombreCorto(t) + ' baja de ' + this.fmt(t.usado, t.moneda) + ' a ' + this.fmt(nuevo, t.moneda) + (t.cupo !== null ? ' (libre ' + this.fmt(t.cupo - nuevo, t.moneda) + ')' : '') + (t.proximo_pago && t.proximo_pago.monto && n >= 0.98 * t.proximo_pago.monto ? ' y el pago del ' + this.fechaCorta(t.proximo_pago.fecha) + ' queda hecho.' : '.');
+      return 'Al guardar: la ' + this.nombreCorto(t) + ' baja de ' + this.fmt(t.usado, t.moneda) + ' a ' + this.fmt(nuevo, t.moneda) + (t.cupo !== null ? ' (libre ' + this.fmt(t.cupo - nuevo, t.moneda) + ')' : '') + (t.proximo_pago && t.proximo_pago.ciclo_actual && t.proximo_pago.monto && n >= 0.98 * t.proximo_pago.monto ? ' y el pago del ' + this.fechaCorta(t.proximo_pago.fecha) + ' queda hecho.' : '.');
     },
     async guardarAbono() {
       const t = this.tAbono(); if (!t) return;
@@ -7445,7 +7449,7 @@ document.addEventListener('alpine:init', () => {
     T: {
       patrimonio: { t: 'Patrimonio', h: '<p>La otra mitad de Family Office GG: <b>todo lo que tiene la familia y lo que debe</b>, en vivo. Se abre aquí mismo con el mismo PIN; para volver, toca el logo de las dos G arriba a la izquierda y elige <b>P&amp;G mensual</b>.</p><p><b>Inicio</b>: el patrimonio neto moviéndose en vivo, el mapa por categoría y lo que tienen de cada activo. <b>Categorías</b>: valor, deuda y cambio en 30 días de cada una. <b>Créditos</b>: leasing, Damac y el crédito de Tuo con su tabla de cuotas. <b>Tuo</b>: la empresa frente al crédito de COP$200M y cómo quedan si liquidan hoy.</p><p>La guía completa está en el botón <b>?</b> → <b>Patrimonio</b>.</p>' },
       gastado: { t: 'Gastado', h: '<p>Todo lo gastado en el período que elegiste arriba.</p><p>La barra separa <b>fijos y cuotas</b> (oscuro: hipoteca, administración, suscripciones y cuotas de diferidos; desde diciembre los fijos entran cuando los confirmas en Tarjetas, y los que faltan se apartan de lo que queda) del <b>día a día</b> (dorado: lo que anotan ustedes).</p><p><b>Comparar con</b> tiene dos referencias: el <b>presupuesto ideal</b> (la suma del ideal de cada categoría, que editas en Ajustes → Categorías y presupuesto) y el <b>ingreso percibido</b> (lo que de verdad entró, de la sección Ingresos). Con 3, 6 o 12 meses el presupuesto se multiplica por los meses.</p><p>Con el presupuesto ideal, el <b>ritmo</b> del mes en curso mira solo el día a día: qué parte de lo disponible llevan contra qué parte del mes va.</p>' },
-      pagos: { t: 'Próximos pagos', h: '<p>Las fechas de pago de tarjetas y créditos. El color dice qué tan cerca está: <b>rojo</b> vencido o 3 días o menos, <b>naranja</b> hasta 7, <b>dorado</b> hasta 14 y <b>verde</b> más lejos.</p><p>Cuando paguen, toquen <b>Ya pagué</b>: sale de la lista y vuelve sola el mes siguiente con la nueva fecha. Si fue un error, en "pagados este mes" está <b>Deshacer</b>.</p><p>Tocar el nombre lo edita; <b>+ Agregar</b> y <b>Gestionar</b> crean, cambian o borran recordatorios. Solo avisa: no anota el gasto.</p>' },
+      pagos: { t: 'Próximos pagos', h: '<p>Las fechas de pago de tarjetas y créditos. El color dice qué tan cerca está: <b>rojo</b> vencido o 3 días o menos, <b>naranja</b> hasta 7, <b>dorado</b> hasta 14 y <b>verde</b> más lejos.</p><p>Cuando paguen, toquen <b>Ya pagué</b>: sale de la lista y vuelve sola el mes siguiente con la nueva fecha. Si fue un error, en "pagados este mes" está <b>Deshacer</b>.</p><p>Tocar el nombre lo edita; <b>+ Agregar</b> y <b>Gestionar</b> crean, cambian o borran recordatorios. Si es una tarjeta, <b>Ya pagué</b> también le baja el saldo en Tarjetas; si es un fijo como la hipoteca, desde diciembre también lo confirma en el P&amp;G. Lo demás solo avisa: no anota el gasto.</p>' },
       pyg: { t: 'P&G', h: '<p>Ingresos contra gastos del período. <b>Neto</b> = ingresos − gastos; si es positivo dice qué parte del ingreso ahorraron.</p><p>La gráfica muestra los últimos meses: barras verdes = ingresos, doradas = gastos, línea = neto (punto verde si sobró, rojo si faltó). Los meses fuera del período elegido se ven más claros.</p><p><b>De dónde vino</b> agrupa los ingresos (CLP, rentas, cripto…) y <b>En qué se fue</b> reparte el gasto en esencial, estilo de vida y gusto. <b>+ Anotar ingreso</b> lleva a la sección Ingresos; en <b>⋯</b> están las fuentes y los CSV.</p>' },
       'ing-recibido': { t: 'Recibido', h: '<p>Todo lo que entró en el período, en dólares (cada ingreso se convierte con la tasa de su mes).</p><p>La barra lo compara con el <b>plan</b>: la suma de lo que esperan de las fuentes <b>cada mes</b> (con 3, 6 o 12 meses se multiplica); las <b>a veces</b> no cuentan. "Fuentes sin recibir" son las de cada mes que aún no registran nada.</p><p>Abajo, el neto del período: ingresos menos gastos.</p>' },
       'ing-form': { t: 'Anotar ingreso', h: '<p>Elige la fuente, escribe el monto y la moneda, y guarda. Al elegir la fuente se pone su moneda.</p><p><b>Tus botones</b> son las fuentes que marcas con ⭐ en Fuentes y plan (si no marcas ninguna, salen las de mayor plan); <b>✎ Elegir botones</b> abre esa ventana. En la lista, las fuentes van por categoría; las <b>a veces</b> no cuentan en el plan y las archivadas quedan plegadas al final. <b>+ Nueva fuente</b> la crea ahí mismo.</p><p>El ingreso cuenta en el <b>mes de la fecha</b> y se convierte a dólares con la tasa de ese mes. También puedes anotarlo con el botón <b>+</b> → Ingreso.</p>' },
@@ -7470,7 +7474,7 @@ document.addEventListener('alpine:init', () => {
       'rev-mini': { t: 'Cada categoría, mes a mes', h: '<p>Las 8 categorías más grandes con su curva de cada mes. Toca una para abrir su detalle en el ranking.</p>' },
       'rev-ranking': { t: 'Ranking de categorías', h: '<p>Todas las categorías de mayor a menor, con su % del total, su curva y el cambio contra el período anterior. Cambia entre <b>Subcategoría</b> y <b>Categoría</b> arriba a la derecha.</p><p>Toca una para ver promedio por mes, cuántas veces, ticket típico y los gastos que más pesan. Ahí mismo le puedes cambiar el tipo.</p>' },
       'rev-mejorar': { t: 'Dónde pueden mejorar', h: '<p>Los gustos y gastos de estilo de vida que más pesan, con lo que ahorrarían bajándolos.</p><p>El <b>simulador</b> calcula el ahorro al mes y al año si bajan una categoría (o todos los gustos) el porcentaje que elijas.</p><p class="text-slate-400">Es una guía general, no asesoría financiera.</p>' },
-      movimientos: { t: 'Cada gasto', h: '<p>Todos los gastos del período elegido arriba, del más nuevo al más viejo. Filtra por persona, tipo contable o categoría; con un filtro activo aparece el total filtrado.</p><p>La <b>lupa</b> busca en todo el historial por palabra (sin importar tildes ni mayúsculas), categoría, método, persona o monto, y puedes combinarla con <b>fechas</b>, una <b>categoría</b> y un <b>rango de monto</b> en dólares o pesos.</p><p>Toca un gasto para editarlo o borrarlo. 🔁 = fijo que se anota solo · 📅 2/12 = cuota de un diferido (agrupadas al final). <b>CSV completo</b> baja el mes.</p>' },
+      movimientos: { t: 'Cada gasto', h: '<p>Todos los gastos del período elegido arriba, del más nuevo al más viejo. Filtra por persona, tipo contable o categoría; con un filtro activo aparece el total filtrado.</p><p>La <b>lupa</b> busca en todo el historial por palabra (sin importar tildes ni mayúsculas), categoría, método, persona o monto, y puedes combinarla con <b>fechas</b>, una <b>categoría</b> y un <b>rango de monto</b> en dólares o pesos.</p><p>Toca un gasto para editarlo o borrarlo. 🔁 = fijo (hasta noviembre se anotaba solo; desde diciembre entra cuando lo confirmas en Tarjetas) · 📅 2/12 = cuota de un diferido (agrupadas al final). <b>CSV completo</b> baja el mes.</p>' },
       ajustes: { t: 'Ajustes', h: '<p>Todo lo que se configura: fijos y diferidos, categorías y presupuesto, tipos de gasto, fuentes de ingreso, tasas de cambio, fechas de pago, conciliación de extractos, el tema y la guía.</p><p>También puedes repetir el recorrido guiado.</p>' },
     },
     item() { return this.T[this.key] || { t: '', h: '' }; },
@@ -7504,7 +7508,7 @@ document.addEventListener('alpine:init', () => {
       { title: (u) => '¡Hola' + (u ? ' ' + u : '') + '! 👋',
         text: 'Renovamos la página de gastos: más clara, con gráficas nuevas, un Resumen más fácil de revisar, modo de noche automático, un botón para anotar gastos y una <b><i>i</i></b> de ayuda en cada módulo. Te muestro lo nuevo en un minuto.' },
       { sel: ['[data-tour=nav]', '[data-tour=nav-movil]'], view: 'resumen', title: 'Las secciones',
-        text: '<b>Resumen</b> es el período con su P&amp;G. <b>Revisión</b> son las gráficas de dónde se va la plata. <b>Movimientos</b> es cada gasto, <b>Ingresos</b> es lo que entra y <b>Ajustes</b> es todo lo que se configura (en el celular, en el botón de arriba a la derecha).' },
+        text: '<b>Resumen</b> es el período con su P&amp;G. <b>Revisión</b> son las gráficas de dónde se va la plata. <b>Movimientos</b> es cada gasto, <b>Ingresos</b> es lo que entra, <b>Tarjetas</b> son tus tarjetas, pagos y fijos por confirmar, y <b>Ajustes</b> es todo lo que se configura (en el celular, en el botón de arriba a la derecha).' },
       { sel: ['[data-tour=add]', '[data-tour=add-movil]'], view: 'resumen', title: 'Anotar gasto o ingreso',
         text: 'Con el botón <b>+</b> anotas un <b>gasto</b> o un <b>ingreso</b> aquí mismo: monto, moneda y categoría o fuente. Los gastos quedan igual que si los mandaras al bot de Telegram, que sigue funcionando como siempre.' },
       { sel: ['[data-tour=periodo]'], view: 'resumen', title: 'Elige el período',
@@ -7637,7 +7641,7 @@ document.addEventListener('alpine:init', () => {
   });
 
   // ──────────────── 📅 Diferidos (compras en cuotas) ────────────────
-  // Vive en el mismo modal que 🔁 Fijos (pestaña). Cada diferido = grupo de
+  // Vive en el modal de Diferidos (los fijos pasaron a Tarjetas › Suscripciones). Cada diferido = grupo de
   // cuotas en /api/deferred; editar aquí cambia todas las cuotas a la vez.
   const DEF_MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
   const defToday = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
@@ -7966,8 +7970,10 @@ document.addEventListener('alpine:init', () => {
       if (this.busy) return;
       await this.togglePaid(c);
       if (this.error) return;
-      const n = this.cards.find(x => x.id === c.id);
-      Alpine.store('quick').aviso('✓ ' + c.label + ' pagado' + (n && n.st.state === 'paid' ? ' · vuelve el ' + this.vuelve(n) : ''));
+      const n = this.cards.find(x => x.id === c.id), j = this.junto || {};
+      Alpine.store('quick').aviso('✓ ' + c.label + ' pagado'
+        + (j.abono ? ' · en Tarjetas baja ' + Math.round(j.abono).toLocaleString('de-DE') : j.fijo_confirmado ? ' · también entró al P&G' : '')
+        + (n && n.st.state === 'paid' ? ' · vuelve el ' + this.vuelve(n) : ''));
     },
     fmtAmount(c) {
       if (c.amount === null || c.amount === undefined || c.amount === '') return '—';
@@ -8050,9 +8056,7 @@ document.addEventListener('alpine:init', () => {
       this.busy = true; this.error = null;
       try {
         const r = await this._send('/api/reminders/' + c.id + '/paid', 'POST', { period, paid: !undo });
-        const j = (r && r.tarjetas) || {};   // marcar la tarjeta deja su abono; la hipoteca confirma su fijo
-        if (j.abono) Alpine.store('quick').aviso('✓ Pagado · la tarjeta baja ' + Math.round(j.abono).toLocaleString('de-DE') + ' en Tarjetas');
-        else if (j.fijo_confirmado) Alpine.store('quick').aviso('✓ Pagado · ' + c.label + ' también quedó confirmado en el P&G');
+        this.junto = (r && r.tarjetas) || {};   // marcar la tarjeta deja su abono; la hipoteca confirma su fijo
       }
       catch (e) { this.error = e.message; }
       finally { await this.load(); this.busy = false; const tj = Alpine.store('tarjetas'); if (tj && tj.data) { tj.data = null; tj.cargar(); } }
@@ -8999,7 +9003,7 @@ function dashboard() {
       try {
         const r = await fetch('/api/fijos?periodo=' + encodeURIComponent(this.month));
         if (!r.ok) return;
-        const pend = ((await r.json()).fijos || []).filter(f => f.active && (f.estado === 'por_confirmar' || f.estado === 'previsto'));
+        const pend = ((await r.json()).fijos || []).filter(f => f.active && !f.gasto_a_mano && (f.estado === 'por_confirmar' || f.estado === 'previsto'));
         this.fijosPendUsd = pend.reduce((s, f) => s + (Number(f.en_dolares) || 0), 0); this.fijosPendN = pend.length;
       } catch (e) { /* sin esto, «queda» muestra lo de siempre */ }
     },
