@@ -35,6 +35,7 @@ from pydantic import BaseModel
 # re-reading the config table on every request. It also means bot.py is the
 # single source of truth for schema and config — api.py is a thin wrapper.
 import bot
+import tarjetas
 import tasas_dia
 
 STATIC_DIR = Path(os.environ.get("STATIC_DIR", "/app/static"))
@@ -925,6 +926,43 @@ class ReminderUpdate(BaseModel):
 class ReminderPaid(BaseModel):
     period: str          # YYYY-MM del vencimiento que se marca
     paid: bool = True
+
+
+# ── Tarjetas (13-nov): lecturas del banco, abonos, fijos con «desde» y confirmaciones ──
+class TarjetaLectura(BaseModel):
+    usado: float
+    fecha: Optional[str] = None      # YYYY-MM-DD o YYYY-MM-DDTHH:MM; por defecto, ahora
+    fuente: Optional[str] = "tú"
+    nota: Optional[str] = None
+
+
+class TarjetaAbono(BaseModel):
+    monto: float
+    fecha: Optional[str] = None      # YYYY-MM-DD; por defecto, hoy
+    nota: Optional[str] = None
+
+
+class TarjetaUpdate(BaseModel):
+    cupo: Optional[float] = None
+    corte_dia: Optional[int] = None
+    pago_dia: Optional[int] = None
+    nota: Optional[str] = None
+
+
+class FijoConfirmar(BaseModel):
+    periodo: str                     # YYYY-MM
+    estado: str                      # 'paso' | 'no_paso'
+    monto: Optional[float] = None    # en la moneda del fijo; si llegó con otro valor
+    fuente: Optional[str] = "tú"
+
+
+class FijoCambio(BaseModel):
+    desde: str                       # YYYY-MM desde el que rige
+    monto: Optional[float] = None    # en la moneda del fijo (o la nueva)
+    currency: Optional[str] = None   # 'COP' | 'USD'
+    metodo_pago: Optional[str] = None
+    active: Optional[int] = None
+    dia_cobro: Optional[int] = None
 
 
 def _query_all(sql: str, params: tuple = ()) -> list[dict]:
@@ -4370,6 +4408,137 @@ def make_api_app() -> FastAPI:
         finally:
             conn.close()
         return {"ok": True, "id": rid, "period": body.period, "paid": body.paid}
+
+    # ──────────────── 💳 Tarjetas, calendario y fijos por confirmar ────────────────
+    def _con_db(fn):
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            return fn(conn)
+        finally:
+            conn.close()
+
+    @api.get("/api/tarjetas")
+    def tarjetas_estado():
+        return _con_db(lambda c: tarjetas.estado(c, bot))
+
+    @api.patch("/api/tarjetas/{tid}")
+    def tarjeta_cambiar(tid: str, body: TarjetaUpdate):
+        campos = {k: v for k, v in body.dict().items() if v is not None}
+        for k in ("corte_dia", "pago_dia"):
+            if k in campos and not (1 <= int(campos[k]) <= 31):
+                raise HTTPException(400, f"{k} debe estar entre 1 y 31")
+        if not campos:
+            raise HTTPException(400, "nada que actualizar")
+        def f(c):
+            sets = ", ".join(f"{k} = ?" for k in campos)
+            r = c.execute(f"UPDATE tarjetas SET {sets}, updated_at = ? WHERE id = ?", (*campos.values(), datetime.now().isoformat(), tid))
+            c.commit()
+            if r.rowcount == 0:
+                raise HTTPException(404, f"tarjeta {tid} no existe")
+            return {"ok": True}
+        return _con_db(f)
+
+    @api.post("/api/tarjetas/{tid}/lectura")
+    def tarjeta_lectura(tid: str, body: TarjetaLectura):
+        if body.usado < 0:
+            raise HTTPException(400, "usado no puede ser negativo")
+        def f(c):
+            try:
+                tarjetas.poner_lectura(c, tid, body.usado, body.fecha, body.fuente or "tú", body.nota)
+            except KeyError:
+                raise HTTPException(404, f"tarjeta {tid} no existe")
+            return {"ok": True}
+        return _con_db(f)
+
+    @api.get("/api/tarjetas/{tid}/abonos")
+    def tarjeta_abonos(tid: str):
+        return {"abonos": _query_all("SELECT id, fecha, monto, nota, created_at FROM tarjeta_abonos WHERE tarjeta_id = ? "
+                                     "ORDER BY fecha DESC, id DESC LIMIT 30", (tid,))}
+
+    @api.post("/api/tarjetas/{tid}/abonos")
+    def tarjeta_abonar(tid: str, body: TarjetaAbono):
+        if body.monto <= 0:
+            raise HTTPException(400, "el abono debe ser mayor que cero")
+        if body.fecha and not re.match(r"^\d{4}-\d{2}-\d{2}$", body.fecha):
+            raise HTTPException(400, "fecha debe ser YYYY-MM-DD")
+        def f(c):
+            try:
+                return {"ok": True, **tarjetas.abonar(c, tid, body.monto, body.fecha, body.nota)}
+            except KeyError:
+                raise HTTPException(404, f"tarjeta {tid} no existe")
+        return _con_db(f)
+
+    @api.delete("/api/tarjetas/abonos/{aid}")
+    def tarjeta_abono_borrar(aid: int):
+        def f(c):
+            r = c.execute("DELETE FROM tarjeta_abonos WHERE id = ?", (aid,))
+            c.commit()
+            if r.rowcount == 0:
+                raise HTTPException(404, f"abono {aid} no existe")
+            return {"ok": True}
+        return _con_db(f)
+
+    @api.get("/api/tarjetas/calendario")
+    def tarjetas_calendario(desde: str = Query(...), hasta: str = Query(...)):
+        for v in (desde, hasta):
+            if not re.match(r"^\d{4}-\d{2}-\d{2}$", v or ""):
+                raise HTTPException(400, "desde y hasta deben ser YYYY-MM-DD")
+        if desde > hasta:
+            raise HTTPException(400, "desde debe ser ≤ hasta")
+        return _con_db(lambda c: tarjetas.calendario(c, bot, desde, hasta))
+
+    @api.get("/api/fijos")
+    def fijos_lista(periodo: Optional[str] = Query(None)):
+        if periodo and not _VALID_PERIOD.match(periodo):
+            raise HTTPException(400, "periodo debe ser YYYY-MM")
+        return _con_db(lambda c: {"periodo": periodo, "confirmar_desde": tarjetas.FIJOS_CONFIRMAR_DESDE,
+                                  "fijos": tarjetas.fijos(c, bot, periodo)})
+
+    @api.patch("/api/fijos/{rid}")
+    def fijo_cambiar(rid: int, body: FijoCambio):
+        if not _VALID_PERIOD.match(body.desde or ""):
+            raise HTTPException(400, "desde debe ser YYYY-MM")
+        if body.currency is not None and body.currency not in ("COP", "USD"):
+            raise HTTPException(400, "currency debe ser COP o USD")
+        if body.dia_cobro is not None and not (1 <= body.dia_cobro <= 31):
+            raise HTTPException(400, "dia_cobro debe estar entre 1 y 31")
+        def f(c):
+            actual = tarjetas.version_de(c, rid, "9999-12")
+            if actual is None:
+                raise HTTPException(404, f"fijo {rid} no existe")
+            cur = body.currency or actual["currency"]
+            cambios = {"currency": body.currency, "metodo_pago": body.metodo_pago, "active": body.active, "dia_cobro": body.dia_cobro}
+            if body.monto is not None:
+                if body.monto < 0:
+                    raise HTTPException(400, "monto no puede ser negativo")
+                trm = float(bot.TRM or 1)
+                if cur == "USD":
+                    cambios.update(monto_usd=round(body.monto, 2), monto_cop=float(round(body.monto * trm)))
+                else:
+                    cambios.update(monto_cop=float(body.monto), monto_usd=None)
+            return {"ok": True, "fijo": tarjetas.cambiar_fijo(c, rid, cambios, body.desde)}
+        return _con_db(f)
+
+    @api.post("/api/fijos/{rid}/confirmar")
+    def fijo_confirmar(rid: int, body: FijoConfirmar):
+        if not _VALID_PERIOD.match(body.periodo or ""):
+            raise HTTPException(400, "periodo debe ser YYYY-MM")
+        if body.periodo < tarjetas.FIJOS_CONFIRMAR_DESDE:
+            raise HTTPException(400, f"hasta {tarjetas.FIJOS_CONFIRMAR_DESDE} los fijos los anotó el bot; se confirma desde ese mes")
+        def f(c):
+            try:
+                return {"ok": True, **tarjetas.confirmar(c, bot, rid, body.periodo, body.estado, body.monto, body.fuente or "tú")}
+            except KeyError:
+                raise HTTPException(404, f"fijo {rid} no existe")
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+        return _con_db(f)
+
+    @api.delete("/api/fijos/{rid}/confirmar")
+    def fijo_deshacer(rid: int, periodo: str = Query(...)):
+        if not _VALID_PERIOD.match(periodo or ""):
+            raise HTTPException(400, "periodo debe ser YYYY-MM")
+        return _con_db(lambda c: tarjetas.deshacer(c, rid, periodo))
 
     # ──────────────── 📅 Diferidos ────────────────
     def _deferred_view(conn, gid: int) -> dict:

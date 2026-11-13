@@ -1608,6 +1608,15 @@ def init_db():
 
     _run_migration("022_tasas_dia", _migration_022_tasas_dia)
 
+    def _migration_023_tarjetas(conn):
+        """Tarjetas (13-nov): tablas de tarjetas, lecturas del banco, abonos, confirmación de fijos y versiones
+        de fijos con «desde»; día de cobro de cada fijo. Idempotente; no borra nada."""
+        import tarjetas
+        tarjetas.preparar(conn)
+        print("[migration 023] tarjetas, lecturas, abonos y confirmación de fijos listos")
+
+    _run_migration("023_tarjetas", _migration_023_tarjetas)
+
     conn.close()
 
 
@@ -1714,6 +1723,10 @@ def post_recurring_for_period(period=None):
     """
     if period is None:
         period = datetime.now().strftime("%Y-%m")
+    # Desde diciembre de 2026 los fijos ya no se anotan solos: entran al P&G cuando se confirman en Tarjetas.
+    import tarjetas
+    if period >= tarjetas.FIJOS_CONFIRMAR_DESDE:
+        return []
     conn = sqlite3.connect(DB_PATH)
     now = datetime.now().isoformat()
     fecha = period + "-01"
