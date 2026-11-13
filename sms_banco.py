@@ -128,10 +128,14 @@ def _gasto_igual(conn, s, metodos):
             igual = cop is not None and abs(float(cop) - s["monto"]) <= 1
         if not igual:
             continue
+        dias = abs((date.fromisoformat(f) - d).days)
+        banco = (metodos[0].split(" ")[0] + " ") if metodos else None   # «BDB »: otra tarjeta del mismo banco
         if met in metodos:
-            cands.append((0, abs((date.fromisoformat(f) - d).days), e_id))
+            cands.append((0, dias, e_id))
         elif not met or met == "Sin especificar":
-            cands.append((1, abs((date.fromisoformat(f) - d).days), e_id))
+            cands.append((1, dias, e_id))
+        elif banco and str(met).startswith(banco) and dias == 0:   # anotada con la otra tarjeta del mismo banco, el mismo día
+            cands.append((2, dias, e_id))
     return sorted(cands)[0][2] if cands else None
 
 

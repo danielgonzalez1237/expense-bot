@@ -844,22 +844,6 @@
       <div x-show="pnl && pnl.budget_was_dynamic" class="mt-2 text-[11px] text-slate-400">Este período incluye presupuestos ajustados mes a mes.</div>
     </section>
 
-    <!-- ── Fijos por confirmar (desde dic 2026): se ven, no suman hasta confirmarlos ── -->
-    <button type="button" x-show="$store.tarjetas.bandeja().length" x-cloak @click="view = 'tarjetas'; $store.tarjetas.ir('calendario')"
-      class="xl:col-span-12 w-full text-left rounded-2xl bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 px-4 py-3 text-sm flex flex-wrap items-center justify-between gap-2">
-      <span><b x-text="$store.tarjetas.bandeja().length + ($store.tarjetas.bandeja().length === 1 ? ' fijo por confirmar' : ' fijos por confirmar')"></b>
-        <span x-text="' · ' + $store.tarjetas.bandeja().slice(0, 3).map(b => b.label).join(', ') + ($store.tarjetas.bandeja().length > 3 ? '…' : '')"></span>
-        <span class="text-xs opacity-80"> · se ven aquí pero no suman al gasto hasta que los confirmes</span></span>
-      <span class="font-semibold whitespace-nowrap">Confirmar →</span>
-    </button>
-    <!-- ── 📩 Compras del banco por anotar (SMS que no estaban anotados) ── -->
-    <button type="button" x-show="$store.sms.items.length" x-cloak x-init="$store.sms.load()" @click="$store.sms.abrir()"
-      class="xl:col-span-12 w-full text-left rounded-2xl bg-sky-50 dark:bg-sky-950/40 text-sky-900 dark:text-sky-200 px-4 py-3 min-h-[44px] text-sm flex flex-wrap items-center justify-between gap-2">
-      <span><b x-text="$store.sms.items.length + ($store.sms.items.length === 1 ? ' compra del banco por anotar' : ' compras del banco por anotar')"></b>
-        <span x-text="' · ' + $store.sms.items.slice(0, 3).map(i => i.comercio).join(', ') + ($store.sms.items.length > 3 ? '…' : '')"></span>
-        <span class="text-xs opacity-80"> · llegaron por SMS y no estaban anotadas</span></span>
-      <span class="font-semibold whitespace-nowrap">Anotar →</span>
-    </button>
     <div x-show="$store.sms.open" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-900/40 dark:bg-slate-950/70"
       @click.self="$store.sms.open = false" @keydown.escape.window="$store.sms.open = false">
       <div class="bg-white dark:bg-slate-900 w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-xl max-h-[90vh] flex flex-col min-w-0">
@@ -891,19 +875,18 @@
         </div>
       </div>
     </div>
-    <!-- ── Próximos pagos: agenda ── -->
-    <section class="xl:col-span-5 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm fade min-w-0" x-init="$store.reminders.load()" data-tour="pagos">
+    <!-- ── Pendientes: pagos, fijos por confirmar y compras del banco por anotar (una sola lista, la del calendario) ── -->
+    <section class="xl:col-span-5 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm fade min-w-0" x-init="$store.reminders.load(); $store.sms.load()" data-tour="pagos">
       <div class="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
-        <h2 class="num text-xl sm:text-2xl font-semibold flex items-center gap-2 whitespace-nowrap">Próximos pagos <button type="button" class="info-i" @click.stop="$store.info.abrir('pagos', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
-        <div class="flex items-center gap-1 text-[11px] shrink-0 whitespace-nowrap">
-          <button @click="$store.reminders.openModal()" class="rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 px-2.5 py-1 font-medium">+ Agregar</button>
-          <button @click="$store.reminders.openModal()" class="text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 px-1.5 py-1">Gestionar</button>
-        </div>
+        <h2 class="num text-xl sm:text-2xl font-semibold flex items-center gap-2 whitespace-nowrap">Pendientes <button type="button" class="info-i" @click.stop="$store.info.abrir('pagos', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
+        <button type="button" @click="view = 'tarjetas'; $store.tarjetas.ir('calendario')" class="text-[11px] font-medium text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white px-1.5 inline-flex items-center min-h-[36px] sm:min-h-0 whitespace-nowrap">Ver calendario →</button>
       </div>
       <div class="text-[11px] mt-0.5 flex flex-wrap gap-x-2">
         <span x-show="$store.reminders.urgentCount" class="font-semibold text-alerta-fuerte dark:text-alerta"
               x-text="$store.reminders.urgentCount + ($store.reminders.urgentCount === 1 ? ' vence esta semana' : ' vencen esta semana')"></span>
-        <span class="text-slate-500" x-text="$store.reminders.summary || ($store.reminders.loaded && !$store.reminders.pendientes().length && $store.reminders.cards.length ? 'Todo pagado por ahora ✓' : '')"></span>
+        <span class="text-slate-500" x-text="$store.reminders.summary || ($store.reminders.loaded && !$store.reminders.pendientes().length && $store.reminders.cards.length ? 'Pagos al día ✓' : '')"></span>
+        <span x-show="$store.tarjetas.bandeja().length" class="text-amber-700 dark:text-amber-300" x-text="'· ' + $store.tarjetas.bandeja().length + ($store.tarjetas.bandeja().length === 1 ? ' fijo por confirmar' : ' fijos por confirmar')"></span>
+        <span x-show="$store.sms.items.length" class="text-sky-700 dark:text-sky-300" x-text="'· ' + $store.sms.items.length + ($store.sms.items.length === 1 ? ' compra del banco por anotar' : ' compras del banco por anotar')"></span>
       </div>
       <div x-show="$store.reminders.loaded && !$store.reminders.cards.length"
            class="mt-3 text-xs text-slate-500 border border-dashed border-slate-300 dark:border-slate-700 rounded-2xl p-4 text-center">
@@ -926,6 +909,35 @@
           </div>
         </template>
       </div>
+      <div x-show="$store.tarjetas.bandeja().length" class="mt-1 pt-3 border-t border-slate-100 dark:border-slate-800">
+        <div class="text-[11px] uppercase tracking-wide text-slate-500 mb-1">Fijos por confirmar</div>
+        <template x-for="b in $store.tarjetas.bandeja().slice(0, 6)" :key="'pdf' + b.fijo_id + b.periodo">
+          <div class="py-2 flex items-center gap-3">
+            <div class="min-w-0 flex-1">
+              <div class="text-sm font-medium truncate" x-text="b.label"></div>
+              <div class="text-[11px] text-slate-400"><span x-show="b.sms" class="text-sky-700 dark:text-sky-300 font-semibold">📩 llegó el SMS · </span><span x-text="$store.tarjetas.fechaCorta(b.fecha) + ' · ' + $store.tarjetas.fmt(b.monto, b.moneda)"></span></div>
+            </div>
+            <button type="button" :disabled="$store.tarjetas.busy" @click="$store.tarjetas.confirmar(b, 'paso')" class="shrink-0 rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-3 min-h-[36px] sm:min-h-[30px] text-[11px] font-semibold">✓ Pasó</button>
+            <button type="button" :disabled="$store.tarjetas.busy" @click="$store.tarjetas.confirmar(b, 'no_paso')" class="shrink-0 rounded-full border border-slate-200 dark:border-slate-700 px-3 min-h-[36px] sm:min-h-[30px] text-[11px] text-slate-500">No pasó</button>
+          </div>
+        </template>
+        <button type="button" x-show="$store.tarjetas.bandeja().length > 6" @click="view = 'tarjetas'; $store.tarjetas.ir('calendario')" class="text-[11px] underline text-slate-500 min-h-[32px]" x-text="'Ver los ' + $store.tarjetas.bandeja().length + ' en el calendario'"></button>
+      </div>
+      <div x-show="$store.sms.items.length" class="mt-1 pt-3 border-t border-slate-100 dark:border-slate-800">
+        <div class="text-[11px] uppercase tracking-wide text-slate-500 mb-1">Compras del banco por anotar</div>
+        <template x-for="it in $store.sms.items.slice(0, 5)" :key="'pds' + it.id">
+          <div class="py-2 flex items-center gap-3">
+            <div class="min-w-0 flex-1">
+              <div class="text-sm font-medium truncate" x-text="it.comercio"></div>
+              <div class="text-[11px] text-slate-400 truncate" x-text="$store.sms.cuando(it) + ' · ' + etiquetaPago(it.metodo_pago)"></div>
+            </div>
+            <span class="num text-sm font-semibold whitespace-nowrap" x-text="$store.sms.valor(it)"></span>
+            <button type="button" @click="$store.sms.abrir()" class="shrink-0 rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-3 min-h-[36px] sm:min-h-[30px] text-[11px] font-semibold">Anotar</button>
+          </div>
+        </template>
+        <p class="text-[11px] text-slate-400 leading-snug">Solo salen las que no encontré anotadas por Apple Pay, el bot o a mano<span x-show="$store.sms.unidos" x-text="'; ' + $store.sms.unidos + ' ya estaban y se unieron solas (30 días)'"></span>.</p>
+      </div>
+      <div x-show="$store.reminders.loaded && !$store.reminders.pendientes().length && !$store.tarjetas.bandeja().length && !$store.sms.items.length && $store.reminders.cards.length" class="mt-3 text-xs text-slate-500">Nada pendiente ✓</div>
       <div x-show="$store.reminders.pagados().length" class="mt-1 pt-3 border-t border-slate-100 dark:border-slate-800">
         <button @click="$store.reminders.verPagados = !$store.reminders.verPagados" class="w-full flex items-center justify-between text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">
           <span>✓ <span x-text="$store.reminders.pagados().length"></span> <span x-text="$store.reminders.pagados().length === 1 ? 'pagado' : 'pagados'"></span> este mes</span>
@@ -941,7 +953,7 @@
           </template>
         </div>
       </div>
-      <p class="mt-3 text-[11px] text-slate-400" x-show="$store.reminders.cards.length">"Ya pagué" lo saca de la lista; vuelve solo el mes siguiente con la nueva fecha.</p>
+      <p class="mt-3 text-[11px] text-slate-400" x-show="$store.reminders.cards.length">«Ya pagué» lo saca de la lista y vuelve el mes siguiente; si es una tarjeta, también le baja el saldo en Tarjetas.</p>
       <div x-show="$store.reminders.error" class="mt-2 text-[11px] text-red-600 dark:text-red-400" x-text="$store.reminders.error"></div>
     </section>
   </div>
@@ -1364,6 +1376,7 @@
           <span class="font-semibold capitalize" x-text="$store.tarjetas.mesTxt()"></span>
           <button type="button" class="rounded-full px-3 py-1 text-sm hover:bg-slate-100 dark:hover:bg-slate-800" @click="$store.tarjetas.moverMes(1)" aria-label="Mes siguiente">›</button>
         </div>
+        <div class="flex justify-end -mt-2 mb-2"><button type="button" @click="$store.reminders.openModal()" class="text-[11px] font-medium text-slate-600 dark:text-slate-300 underline inline-flex items-center min-h-[36px] sm:min-h-0">Agregar o cambiar fechas de pago</button></div>
         <div class="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500 mb-3">
           <span class="inline-flex items-center gap-1"><span class="w-4 h-2.5 rounded bg-slate-700"></span>lo pagas tú</span>
           <span class="inline-flex items-center gap-1"><span class="w-4 h-2.5 rounded border border-slate-400 bg-slate-100 dark:bg-slate-800"></span>corte: el día que el banco cierra el mes de la tarjeta. El próximo corte lleva lo usado hoy; de lo diferido, al extracto solo entra la cuota del mes</span>
@@ -7488,7 +7501,7 @@ document.addEventListener('alpine:init', () => {
     T: {
       patrimonio: { t: 'Patrimonio', h: '<p>La otra mitad de Family Office GG: <b>todo lo que tiene la familia y lo que debe</b>, en vivo. Se abre aquí mismo con el mismo PIN; para volver, toca el logo de las dos G arriba a la izquierda y elige <b>P&amp;G mensual</b>.</p><p><b>Inicio</b>: el patrimonio neto moviéndose en vivo, el mapa por categoría y lo que tienen de cada activo. <b>Categorías</b>: valor, deuda y cambio en 30 días de cada una. <b>Créditos</b>: leasing, Damac y el crédito de Tuo con su tabla de cuotas. <b>Tuo</b>: la empresa frente al crédito de COP$200M y cómo quedan si liquidan hoy.</p><p>La guía completa está en el botón <b>?</b> → <b>Patrimonio</b>.</p>' },
       gastado: { t: 'Gastado', h: '<p>Todo lo gastado en el período que elegiste arriba.</p><p>La barra separa <b>fijos y cuotas</b> (oscuro: hipoteca, administración, suscripciones y cuotas de diferidos; desde diciembre los fijos entran cuando los confirmas en Tarjetas, y los que faltan se apartan de lo que queda) del <b>día a día</b> (dorado: lo que anotan ustedes).</p><p><b>Comparar con</b> tiene dos referencias: el <b>presupuesto ideal</b> (la suma del ideal de cada categoría, que editas en Ajustes → Categorías y presupuesto) y el <b>ingreso percibido</b> (lo que de verdad entró, de la sección Ingresos). Con 3, 6 o 12 meses el presupuesto se multiplica por los meses.</p><p>Con el presupuesto ideal, el <b>ritmo</b> del mes en curso mira solo el día a día: qué parte de lo disponible llevan contra qué parte del mes va.</p>' },
-      pagos: { t: 'Próximos pagos', h: '<p>Las fechas de pago de tarjetas y créditos. El color dice qué tan cerca está: <b>rojo</b> vencido o 3 días o menos, <b>naranja</b> hasta 7, <b>dorado</b> hasta 14 y <b>verde</b> más lejos.</p><p>Cuando paguen, toquen <b>Ya pagué</b>: sale de la lista y vuelve sola el mes siguiente con la nueva fecha. Si fue un error, en "pagados este mes" está <b>Deshacer</b>.</p><p>Tocar el nombre lo edita; <b>+ Agregar</b> y <b>Gestionar</b> crean, cambian o borran recordatorios. Si es una tarjeta, <b>Ya pagué</b> también le baja el saldo en Tarjetas; si es un fijo como la hipoteca, desde diciembre también lo confirma en el P&amp;G. Lo demás solo avisa: no anota el gasto.</p>' },
+      pagos: { t: 'Pendientes', h: '<p>Lo que pide algo de ti, en una sola lista (la misma del calendario de Tarjetas): los pagos de tarjetas y créditos, los fijos por confirmar y las compras que llegaron por SMS del banco y no estaban anotadas.</p><p>Los pagos: las fechas de pago de tarjetas y créditos. El color dice qué tan cerca está: <b>rojo</b> vencido o 3 días o menos, <b>naranja</b> hasta 7, <b>dorado</b> hasta 14 y <b>verde</b> más lejos.</p><p>Cuando paguen, toquen <b>Ya pagué</b>: sale de la lista y vuelve sola el mes siguiente con la nueva fecha. Si fue un error, en "pagados este mes" está <b>Deshacer</b>.</p><p>Tocar el nombre lo edita; <b>+ Agregar</b> y <b>Gestionar</b> crean, cambian o borran recordatorios. Si es una tarjeta, <b>Ya pagué</b> también le baja el saldo en Tarjetas; si es un fijo como la hipoteca, desde diciembre también lo confirma en el P&amp;G. Lo demás solo avisa: no anota el gasto.</p>' },
       pyg: { t: 'P&G', h: '<p>Ingresos contra gastos del período. <b>Neto</b> = ingresos − gastos; si es positivo dice qué parte del ingreso ahorraron.</p><p>La gráfica muestra los últimos meses: barras verdes = ingresos, doradas = gastos, línea = neto (punto verde si sobró, rojo si faltó). Los meses fuera del período elegido se ven más claros.</p><p><b>De dónde vino</b> agrupa los ingresos (CLP, rentas, cripto…) y <b>En qué se fue</b> reparte el gasto en esencial, estilo de vida y gusto. <b>+ Anotar ingreso</b> lleva a la sección Ingresos; en <b>⋯</b> están las fuentes y los CSV.</p>' },
       'ing-recibido': { t: 'Recibido', h: '<p>Todo lo que entró en el período, en dólares (cada ingreso se convierte con la tasa de su mes).</p><p>La barra lo compara con el <b>plan</b>: la suma de lo que esperan de las fuentes <b>cada mes</b> (con 3, 6 o 12 meses se multiplica); las <b>a veces</b> no cuentan. "Fuentes sin recibir" son las de cada mes que aún no registran nada.</p><p>Abajo, el neto del período: ingresos menos gastos.</p>' },
       'ing-form': { t: 'Anotar ingreso', h: '<p>Elige la fuente, escribe el monto y la moneda, y guarda. Al elegir la fuente se pone su moneda.</p><p><b>Tus botones</b> son las fuentes que marcas con ⭐ en Fuentes y plan (si no marcas ninguna, salen las de mayor plan); <b>✎ Elegir botones</b> abre esa ventana. En la lista, las fuentes van por categoría; las <b>a veces</b> no cuentan en el plan y las archivadas quedan plegadas al final. <b>+ Nueva fuente</b> la crea ahí mismo.</p><p>El ingreso cuenta en el <b>mes de la fecha</b> y se convierte a dólares con la tasa de ese mes. También puedes anotarlo con el botón <b>+</b> → Ingreso.</p>' },
