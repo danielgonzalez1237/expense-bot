@@ -25,15 +25,58 @@ DB_PATH = os.environ.get("DB_PATH", "expenses.db")
 # DEFAULTS (solo para seeding inicial de la tabla `config`)
 # ════════════════════════════════════════
 _DEFAULT_PAYMENT_METHODS = {
-    "BDB":          ["Visa Latam Dani", "Visa Latam Mado", "MC Dani"],
-    "BBVA":         ["MC Dani", "MC Mado"],
-    "Bancolombia":  ["MC Dani"],
+    "BDB":          ["Visa Latam Dani", "MC Dani", "Visa Latam Mado"],
+    "BBVA":         ["MC Dani", "MC 5740 Dani", "Visa Infinite 7857 Dani", "MC Mado"],
     "Falabella":    ["Mastercard Dani"],
+    "RappiCard":    ["Dani"],
     "WIO":          ["MC Dani", "MC Mado"],
-    "ENBD":         ["Visa AED", "Visa USD"],
-    "Transferencia": ["BBVA", "BDB", "BANCOLOMBIA", "WIO", "ENBD", "CHASE"],
+    "ENBD":         ["Visa AED", "Visa AED Mado"],
+    "Chase":        ["Sapphire Mado", "Freedom Mado", "Debito Mado"],
+    "Pichincha":    ["Tarjeta Mado"],
+    "Transferencia": ["BBVA", "BDB", "BANCOLOMBIA", "WIO", "ENBD", "CHASE Mado", "PICHINCHA Mado", "BANCOLOMBIA Mado"],
     "Efectivo":     ["Efectivo"],
+    "USDT":         ["USDT"],
+    "ARQ":          ["ARQ"],
 }
+
+# Métodos por persona (Daniel 13-nov): lo que termina en " Mado" es de ella. Daniel no lo ve;
+# Mado ve todo lo demás y, al final, su grupo «De Mado». El valor guardado no cambia (el historial
+# sigue igual); estas etiquetas son solo lo que se lee en los botones y en «Anotar gasto».
+PAYMENT_LABELS = {
+    "BDB Visa Latam Dani": "Banco de Bogotá · Visa LATAM ·0312",
+    "BDB MC Dani": "Banco de Bogotá · Mastercard Black ·8298",
+    "BDB Visa Latam Mado": "Banco de Bogotá · Visa LATAM ·0757",
+    "BBVA MC Dani": "BBVA · Mastercard Black ·6977",
+    "BBVA MC 5740 Dani": "BBVA · Mastercard Black ·5740",
+    "BBVA Visa Infinite 7857 Dani": "BBVA · Visa Infinite ·7857",
+    "BBVA MC Mado": "BBVA · Mastercard ·1034 (amparada)",
+    "Falabella Mastercard Dani": "Falabella · Mastercard ·3047",
+    "RappiCard Dani": "RappiCard · Visa",
+    "WIO MC Dani": "Wio · tarjeta (AED)",
+    "WIO MC Mado": "Wio · tarjeta (AED)",
+    "ENBD Visa AED": "ENBD · Skywards (AED)",
+    "ENBD Visa AED Mado": "ENBD · Skywards (AED)",
+    "Chase Sapphire Mado": "Chase · Sapphire Preferred",
+    "Chase Freedom Mado": "Chase · Freedom Unlimited",
+    "Chase Debito Mado": "Chase · débito",
+    "Pichincha Tarjeta Mado": "Banco Pichincha · tarjeta",
+    "Transferencia BBVA": "Transferencia · BBVA",
+    "Transferencia BDB": "Transferencia · Banco de Bogotá",
+    "Transferencia BANCOLOMBIA": "Transferencia · Bancolombia",
+    "Transferencia WIO": "Transferencia · Wio",
+    "Transferencia ENBD": "Transferencia · ENBD",
+    "Transferencia CHASE Mado": "Transferencia · Chase",
+    "Transferencia PICHINCHA Mado": "Transferencia · Banco Pichincha",
+    "Transferencia BANCOLOMBIA Mado": "Transferencia · Bancolombia",
+}
+
+
+def es_de_mado(metodo):
+    return (metodo or "").strip().endswith(" Mado")
+
+
+def etiqueta_metodo(metodo):
+    return PAYMENT_LABELS.get(metodo, metodo)
 
 _DEFAULT_RATES = {
     "TRM": int(os.environ.get("TRM", "3700")),
@@ -1970,9 +2013,15 @@ def make_main_menu():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-def make_payment_keyboard(expense_id):
-    """Build inline keyboard for payment method selection, organized by bank."""
+def persona_de(nombre):
+    """'Daniel' o 'Mado' a partir del nombre de Telegram (o None si no se reconoce)."""
+    return _ALIAS_PERSONA.get(((nombre or "").strip().split(" ") or [""])[0].lower())
+
+
+def make_payment_keyboard(expense_id, persona=None):
+    """Botones de método de pago por banco. Daniel no ve lo de Mado; Mado ve lo mismo y, al final, «De Mado»."""
     rows = []
+    de_mado = []
     # Iconos para grupos "singleton" (un solo método con el mismo nombre del grupo).
     _SINGLETON_ICONS = {"Efectivo": "💵", "USDT": "₮", "ARQ": "💲"}
     for bank, methods in PAYMENT_METHODS.items():
@@ -1985,14 +2034,26 @@ def make_payment_keyboard(expense_id):
         else:
             btns = []
             for m in methods:
-                label = f"{m}"
-                cb = f"pago|{expense_id}|{bank} {m}"
-                btns.append(InlineKeyboardButton(label, callback_data=cb))
+                valor = f"{bank} {m}"
+                if es_de_mado(valor):
+                    if persona == "Mado":
+                        de_mado.append(valor)
+                    continue
+                label = etiqueta_metodo(valor).split(" · ", 1)[-1]
+                btns.append(InlineKeyboardButton(label, callback_data=f"pago|{expense_id}|{valor}"))
+            if not btns:
+                continue
             # Bank header row
-            rows.append([InlineKeyboardButton(f"── {bank} ──", callback_data="noop")])
+            titulo = {"BDB": "Banco de Bogotá", "WIO": "Wio", "Pichincha": "Banco Pichincha"}.get(bank, bank)
+            rows.append([InlineKeyboardButton(f"── {titulo} ──", callback_data="noop")])
             # Methods in pairs
             for i in range(0, len(btns), 2):
                 rows.append(btns[i:i+2])
+    if de_mado:
+        rows.append([InlineKeyboardButton("── De Mado ──", callback_data="noop")])
+        btns = [InlineKeyboardButton(etiqueta_metodo(v), callback_data=f"pago|{expense_id}|{v}") for v in de_mado]
+        for i in range(0, len(btns), 2):
+            rows.append(btns[i:i+2])
     rows.append([InlineKeyboardButton("⏭️ Sin especificar", callback_data=f"pago|{expense_id}|Sin especificar")])
     return InlineKeyboardMarkup(rows)
 
@@ -2121,7 +2182,7 @@ async def register_and_confirm(message, user, monto_cop, categoria, nota="", dis
 
     await message.reply_text(msg)
     # Show payment method selector
-    await message.reply_text("💳 Selecciona método de pago:", reply_markup=make_payment_keyboard(exp_id))
+    await message.reply_text("💳 Selecciona método de pago:", reply_markup=make_payment_keyboard(exp_id, persona_de(user_name)))
 
 async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -2170,7 +2231,7 @@ async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
                 )
                 if nota:
                     msg += f"  📝 {nota}\n"
-                msg += f"  💳 {metodo}"
+                msg += f"  💳 {etiqueta_metodo(metodo)}"
                 await query.edit_message_text(msg, parse_mode="Markdown")
             else:
                 await query.edit_message_text(f"✅ Pago #{exp_id}: {metodo}")
@@ -2517,7 +2578,7 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             f"  💰 {display} (${monto_usd:.0f} USD)\n"
             f"  📝 {nota}\n\n"
             f"💳 Ahora selecciona el *método de pago*:",
-            reply_markup=make_payment_keyboard(exp_id),
+            reply_markup=make_payment_keyboard(exp_id, persona_de(user_name)),
             parse_mode="Markdown",
         )
         return

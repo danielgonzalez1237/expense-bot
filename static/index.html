@@ -1879,7 +1879,12 @@
         <label class="block min-w-0" x-show="$store.quick.tipo === 'gasto'">
           <span class="text-[11px] text-slate-500 px-1">Método de pago</span>
           <select x-model="$store.quick.form.metodo_pago" class="mt-0.5 w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2.5 text-sm">
-            <template x-for="m in $store.quick.metodos" :key="'qm' + m"><option :value="m" x-text="m"></option></template>
+            <template x-for="m in $store.quick.metodosComunes()" :key="'qm' + m"><option :value="m" x-text="$store.quick.etiqueta(m)"></option></template>
+            <template x-if="$store.quick.form.user_name === 'Mado' && $store.quick.metodosDeMado().length">
+              <optgroup label="De Mado">
+                <template x-for="m in $store.quick.metodosDeMado()" :key="'qmm' + m"><option :value="m" x-text="$store.quick.etiqueta(m)"></option></template>
+              </optgroup>
+            </template>
           </select>
         </label>
         <label class="block min-w-0">
@@ -1892,7 +1897,7 @@
         <span class="text-[11px] text-slate-500 px-1">¿Quién?</span>
         <div class="mt-0.5 flex rounded-full bg-slate-100 dark:bg-slate-800 p-1 text-sm">
           <template x-for="u in ['Daniel', 'Mado', 'Tuo']" :key="'qu' + u">
-            <button type="button" @click="$store.quick.form.user_name = u" class="flex-1 rounded-full py-1.5 transition"
+            <button type="button" @click="$store.quick.form.user_name = u; if (u !== 'Mado' && $store.quick._deMado($store.quick.form.metodo_pago)) $store.quick.form.metodo_pago = 'Sin especificar'" class="flex-1 rounded-full py-1.5 transition"
               :class="$store.quick.form.user_name === u ? 'bg-white dark:bg-slate-900 shadow-sm font-semibold' : 'text-slate-500'" x-text="u"></button>
           </template>
         </div>
@@ -6201,11 +6206,16 @@ document.addEventListener('alpine:init', () => {
   Alpine.store('quick', {
     open: false, busy: false, error: null, toast: '', _t: null, tipo: 'gasto',
     monedas: ['COP', 'USD', 'BOB', 'AED', 'CLP', 'ARS'],
-    categorias: [], metodos: [], frecuentes: [], rates: {}, fuentes: [], fuentesTop: [], source_key: '',
+    categorias: [], metodos: [], etiquetas: {}, frecuentes: [], rates: {}, fuentes: [], fuentesTop: [], source_key: '',
     form: { monto: '', moneda: 'COP', categoria: '', nota: '', metodo_pago: 'Sin especificar', user_name: 'Daniel', fecha: '' },
     // Diferir (ya pagado): meses e inicio ('' = el mes de la fecha)
     dif: { on: false, meses: 6, inicio: '' },
     hoy() { return qHoy(); },
+    // Métodos por persona (13-nov): lo que termina en " Mado" es de ella; Daniel no lo ve y Mado lo ve al final, en «De Mado».
+    _deMado(m) { return / Mado$/.test(m || ''); },
+    metodosComunes() { return this.metodos.filter(m => !this._deMado(m)); },
+    metodosDeMado() { return this.metodos.filter(m => this._deMado(m)); },
+    etiqueta(m) { return this.etiquetas[m] || m; },
     _mesNom: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'],
     _ym(ym, k) { let [y, m] = ym.split('-').map(Number); const t = y * 12 + (m - 1) + k; return Math.floor(t / 12) + '-' + String(t % 12 + 1).padStart(2, '0'); },
     _mesTxt(ym) { const [y, m] = ym.split('-'); return this._mesNom[Number(m) - 1] + ' ' + y; },
@@ -6239,6 +6249,7 @@ document.addEventListener('alpine:init', () => {
       ctx = ctx || {};
       this.categorias = ctx.categorias || this.categorias;
       this.metodos = ctx.metodos && ctx.metodos.length ? ctx.metodos : (this.metodos.length ? this.metodos : ['Sin especificar']);
+      this.etiquetas = ctx.etiquetas || this.etiquetas;
       this.frecuentes = ctx.frecuentes || [];
       this.rates = ctx.rates || this.rates;
       this.fuentes = ctx.fuentes || this.fuentes; this.fuentesTop = ctx.fuentesTop || this.fuentesTop;
@@ -8139,7 +8150,7 @@ function dashboard() {
           .slice(0, 6 - orden.length).forEach(c => orden.push(c.key));
       }
       const frecuentes = orden.slice(0, 6).map(k => ({ key: k, label: label(k) }));
-      return { categorias: this.categoryOptions, metodos: this.paymentOptions, rates: this.rates, frecuentes,
+      return { categorias: this.categoryOptions, metodos: this.paymentOptions, etiquetas: this.paymentLabels, rates: this.rates, frecuentes,
                fuentes: (this.incomeSources || []).slice(), fuentesTop: this.fuentesTop() };
     },
     goMovimientos() {
@@ -8195,7 +8206,7 @@ function dashboard() {
     showCuotas: false,          // grupo colapsable de cuotas/diferidos en Movimientos
     expandedCuotaCats: {},      // { categoria: true } — categorías de cuotas desplegadas
     budget: {},
-    paymentMethods: {},
+    paymentMethods: {}, paymentLabels: {},
     rates: { TRM: 3700, BOB_RATE: 9.20, AED_RATE: 3.67, CLP_RATE: 923, ARS_RATE: 1553 },
     pnl: { income: { total_usd: 0, by_source: [] }, expenses: { total_usd: 0 }, net: { usd: 0, pct_of_income: null } },
     incomeEntries: [],          // entries individuales del mes (para el dropdown por fuente)
@@ -8422,7 +8433,7 @@ function dashboard() {
         ]);
         if (budgetResp.ok) { const bj = await budgetResp.json(); this.budget = bj.categories || {}; this.naturalezas = bj.naturalezas || {}; }
         if (ratesResp.ok) this.rates = await ratesResp.json();
-        if (payResp.ok) this.paymentMethods = (await payResp.json()).methods || {};
+        if (payResp.ok) { const pj = await payResp.json(); this.paymentMethods = pj.methods || {}; this.paymentLabels = pj.labels || {}; }
       } catch (e) { /* non-fatal */ }
 
       this.cargarFuentes();
@@ -8553,7 +8564,7 @@ function dashboard() {
       const out = ['Sin especificar', 'Efectivo'];
       for (const [bank, cards] of Object.entries(this.paymentMethods)) {
         if (bank === 'Efectivo' || bank === 'Transferencia') continue;
-        for (const card of cards) out.push(bank + ' ' + card);
+        for (const card of cards) out.push(card === bank ? bank : bank + ' ' + card);   // USDT y ARQ se guardan solos, como en el bot
       }
       if (this.paymentMethods['Transferencia']) {
         for (const bank of this.paymentMethods['Transferencia']) out.push('Transferencia ' + bank);

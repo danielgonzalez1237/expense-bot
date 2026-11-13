@@ -1276,7 +1276,8 @@ def make_api_app() -> FastAPI:
 
     @api.get("/api/payment-methods")
     def get_payment_methods():
-        return {"methods": bot.PAYMENT_METHODS}
+        # labels: lo que se lee en pantalla; lo que termina en " Mado" es de ella (ver bot.es_de_mado)
+        return {"methods": bot.PAYMENT_METHODS, "labels": bot.PAYMENT_LABELS}
 
     @api.get("/api/rates")
     def get_rates():
@@ -1627,7 +1628,7 @@ def make_api_app() -> FastAPI:
     # su USD no depende de la TRM, así que NO se recalculan al editar la TRM del
     # mes. El resto (BDB/BBVA/Bancolombia/Falabella/Efectivo/Transferencias
     # locales/Sin especificar) sí cobra en COP → monto_usd = monto_cop / TRM.
-    _NON_COP_METHOD_HINTS = ("WIO", "ENBD", "USDT", "ARQ", "CHASE")  # ARQ (Dollar App) paga en dólares, como USDT (11-nov)
+    _NON_COP_METHOD_HINTS = ("WIO", "ENBD", "USDT", "ARQ", "CHASE", "PICHINCHA")  # ARQ (Dollar App) paga en dólares, como USDT (11-nov); Pichincha, Ecuador en dólares (13-nov)
 
     def _active_currencies_for(raw) -> list:
         """Parsea el JSON de active_currencies; si viene vacío/None devuelve el

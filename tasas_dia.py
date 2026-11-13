@@ -25,7 +25,7 @@ import time
 import httpx
 
 AED_FIJA = 3.6725
-NO_COP = ("WIO", "ENBD", "USDT", "ARQ", "CHASE")   # igual que api._NON_COP_METHOD_HINTS
+NO_COP = ("WIO", "ENBD", "USDT", "ARQ", "CHASE", "PICHINCHA")   # igual que api._NON_COP_METHOD_HINTS
 DESDE = "2025-06-01"
 _UA = {"User-Agent": "gastos-gg"}
 
