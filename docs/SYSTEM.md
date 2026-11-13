@@ -125,8 +125,17 @@ Two independent concepts:
 ### 1. `income_sources.expected_usd` — THE PLAN
 
 Per source, the amount Daniel EXPECTS to receive monthly. Sum of all active
-sources = monthly income plan. This drives the **💰 Plan** gauge on the
+**«cada mes»** sources = monthly income plan. This drives the **💰 Plan** gauge on the
 dashboard.
+
+Since migration 024 each source has three states (edited in **Fuentes y plan**):
+`tipo = 'mes'` (Cada mes: counts in the plan, flagged when nothing arrives for
+more than 2 months), `tipo = 'veces'` (A veces: always selectable, never counts in
+the plan nor shows as pending, even if it keeps an old `expected_usd`), and
+`active = 0` (Archivada: hidden and collapsed at the end; old incomes still show).
+`boton = 1` puts the source in «Tus botones» of Anotar ingreso. `categoria` points
+to `income_categories` (Daniel creates them); «De dónde vino», «Por fuente» and the
+source pickers group by it.
 
 Edit from: 💼 Editar ingresos → tab "Fuentes" → row 2 has the
 `Esperado mensual $___` input.
@@ -356,6 +365,18 @@ CREATE TABLE income_sources (
     currency TEXT DEFAULT 'USD',
     expected_usd REAL DEFAULT 0,
     active INTEGER DEFAULT 1,
+    tipo TEXT DEFAULT 'mes',   -- migration 024: 'mes' | 'veces'
+    boton INTEGER DEFAULT 0,   -- migration 024: ⭐ button in Anotar ingreso
+    categoria TEXT,            -- migration 024: income_categories.key
+    created_at TEXT, updated_at TEXT
+);
+
+-- Income categories (migration 024; seeded with the 7 of «De dónde vino»)
+CREATE TABLE income_categories (
+    key TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    icon TEXT, color TEXT,     -- color = #rrggbb
+    orden INTEGER,
     created_at TEXT, updated_at TEXT
 );
 
@@ -395,6 +416,7 @@ once then is skipped.
 | 005 | `005_budget_history` | Create `budget_history` table for per-month overrides |
 | 006 | `006_clear_parent_amounts` | Force `usd = 0` and `annual_usd = 0` for any parent-with-children in config.budget and budget_history |
 | 007 | `007_add_falabella_and_bancolombia` | Add Falabella (Mastercard Dani) and Bancolombia (MC Dani) to config.payment_methods if missing |
+| 024 | `024_ingresos_tipo_categorias` | income_sources.tipo/boton/categoria + income_categories (7 seeded). expected_usd = 0 → 'veces', rest → 'mes'; plan total unchanged (checked in the migration) |
 
 ---
 

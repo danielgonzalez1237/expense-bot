@@ -846,12 +846,22 @@ class RatesUpdate(BaseModel):
 
 
 class IncomeSourceCreate(BaseModel):
-    key: str
+    key: Optional[str] = None      # sin clave: se arma con el nombre
     label: str
     icon: Optional[str] = "💰"
     currency: Optional[str] = "USD"
     expected_usd: Optional[float] = 0.0
     active: Optional[int] = 1
+    tipo: Optional[str] = None     # 'mes' | 'veces'; sin dato: 'mes' si tiene plan, si no 'veces'
+    boton: Optional[int] = 0
+    categoria: Optional[str] = None
+
+
+class IncomeCategoryCreate(BaseModel):
+    label: str
+    icon: Optional[str] = "💰"
+    color: Optional[str] = "#6da7ec"
+    fuentes: Optional[list[str]] = None   # claves de fuentes que pasan a esta categoría
 
 
 class IncomeEntryCreate(BaseModel):
@@ -1037,10 +1047,19 @@ def _expected_income_monthly(conn) -> float:
     Independent of how much actually came in (income_entries). This is the
     plan, not the reality. The 'tentativo del mes' gauge compares spending
     vs this number, not vs a hardcoded lifestyle cap.
+
+    Solo cuentan las fuentes «cada mes» (tipo 'mes', migración 024): las «a veces»
+    se eligen siempre pero no suman al plan, aunque guarden un expected_usd viejo.
     """
-    row = conn.execute(
-        "SELECT COALESCE(SUM(expected_usd), 0) FROM income_sources WHERE active = 1"
-    ).fetchone()
+    try:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(expected_usd), 0) FROM income_sources "
+            "WHERE active = 1 AND COALESCE(tipo, 'mes') = 'mes'"
+        ).fetchone()
+    except sqlite3.OperationalError:   # base sin la migración 024 todavía
+        row = conn.execute(
+            "SELECT COALESCE(SUM(expected_usd), 0) FROM income_sources WHERE active = 1"
+        ).fetchone()
     return float(row[0] or 0)
 
 
@@ -1724,47 +1743,123 @@ def make_api_app() -> FastAPI:
         raise HTTPException(400, f"unsupported currency: {currency!r}")
 
     # ──────────────── Income sources (master list) ────────────────
+    # Tres estados por fuente (migración 024): tipo 'mes' = cuenta en el plan y avisa si no
+    # llega; tipo 'veces' = se elige siempre pero no cuenta en el plan; active = 0 = archivada.
+    # boton = 1 → sale como botón ⭐ en «Anotar ingreso». categoria → income_categories.key.
+
+    _TIPOS_FUENTE = ("mes", "veces")
+    _VALID_COLOR = _re.compile(r"^#[0-9a-fA-F]{6}$")
+
+    def _clave_desde(conn, texto: str, tabla: str) -> str:
+        """Clave única (a-z, 0-9, _) armada con un nombre: «Alquiler Medellín» → alquiler_medellin."""
+        import unicodedata
+        s = unicodedata.normalize("NFKD", (texto or "").lower())
+        s = "".join(ch for ch in s if not unicodedata.combining(ch))
+        s = _re.sub(r"[^a-z0-9]+", "_", s).strip("_")[:32] or "fuente"
+        if not _re.match(r"^[a-z_]", s):
+            s = "f_" + s
+        base, n = s, 2
+        while conn.execute(f"SELECT 1 FROM {tabla} WHERE key = ?", (s,)).fetchone():
+            s = f"{base}_{n}"
+            n += 1
+        return s
+
+    def _validar_campos_fuente(conn, d: dict) -> dict:
+        """Normaliza y valida tipo/boton/categoria/active/expected_usd (POST y PUT/PATCH)."""
+        if "tipo" in d:
+            if d["tipo"] not in _TIPOS_FUENTE:
+                raise HTTPException(400, f"tipo inválido: {d['tipo']!r} (usa 'mes' o 'veces')")
+        if "boton" in d:
+            d["boton"] = 1 if d["boton"] in (1, True, "1", "true") else 0
+        if "active" in d:
+            # Archivar = active 0: no cuenta en el plan ni sale como opción por defecto
+            # (sus ingresos viejos se siguen viendo). Se guarda siempre como 0/1.
+            d["active"] = 1 if d["active"] in (1, True, "1", "true") else 0
+        if "categoria" in d:
+            c = (d["categoria"] or "").strip() or None
+            if c is not None and not conn.execute(
+                    "SELECT 1 FROM income_categories WHERE key = ?", (c,)).fetchone():
+                raise HTTPException(400, f"categoría {c!r} no existe")
+            d["categoria"] = c
+        if "expected_usd" in d:
+            try:
+                d["expected_usd"] = float(d["expected_usd"] or 0)
+            except (TypeError, ValueError):
+                raise HTTPException(400, "expected_usd debe ser numérico")
+            if d["expected_usd"] < 0:
+                raise HTTPException(400, "expected_usd no puede ser negativo")
+        if "label" in d:
+            d["label"] = (d["label"] or "").strip()
+            if not d["label"]:
+                raise HTTPException(400, "el nombre no puede quedar vacío")
+            if len(d["label"]) > 60:
+                raise HTTPException(400, "nombre muy largo (máx. 60)")
+        return d
 
     @api.get("/api/income/sources")
     def list_income_sources():
+        """Fuentes con su estado y, para «Fuentes y plan», lo que entró este año y el último ingreso."""
+        anio = str(datetime.now().year)
         conn = sqlite3.connect(bot.DB_PATH)
         conn.row_factory = sqlite3.Row
         try:
             rows = conn.execute(
-                "SELECT key, label, icon, currency, expected_usd, active, created_at, updated_at "
-                "FROM income_sources ORDER BY label"
+                "SELECT s.key, s.label, s.icon, s.currency, s.expected_usd, s.active, "
+                "COALESCE(s.tipo, 'mes') AS tipo, COALESCE(s.boton, 0) AS boton, s.categoria, "
+                "s.created_at, s.updated_at, "
+                "COALESCE(e.entro_anio, 0) AS entro_anio_usd, e.ultimo, COALESCE(e.n, 0) AS n_ingresos "
+                "FROM income_sources s LEFT JOIN ("
+                "  SELECT source_key, "
+                "    SUM(CASE WHEN substr(COALESCE(fecha, period), 1, 4) = ? THEN monto_usd ELSE 0 END) AS entro_anio, "
+                "    MAX(COALESCE(fecha, period || '-01')) AS ultimo, COUNT(*) AS n "
+                "  FROM income_entries GROUP BY source_key"
+                ") e ON e.source_key = s.key "
+                "ORDER BY s.label",
+                (anio,),
             ).fetchall()
-            return {"sources": [dict(r) for r in rows]}
+            out = []
+            for r in rows:
+                d = dict(r)
+                d["entro_anio_usd"] = round(float(d["entro_anio_usd"] or 0), 2)
+                out.append(d)
+            return {"sources": out, "anio": int(anio)}
         finally:
             conn.close()
 
     @api.post("/api/income/sources")
     def create_income_source(src: IncomeSourceCreate):
-        if not _VALID_KEY.match(src.key):
+        if src.key is not None and not _VALID_KEY.match(src.key):
             raise HTTPException(400, f"clave inválida: {src.key!r}")
         if src.currency not in _SUPPORTED_CURRENCIES:
             raise HTTPException(400, f"moneda inválida: {src.currency}")
         now = datetime.now().isoformat()
         conn = sqlite3.connect(bot.DB_PATH)
         try:
+            d = _validar_campos_fuente(conn, {
+                "label": src.label, "expected_usd": src.expected_usd or 0,
+                "tipo": src.tipo or ("mes" if float(src.expected_usd or 0) > 0 else "veces"),
+                "boton": src.boton or 0, "categoria": src.categoria,
+            })
+            key = src.key or _clave_desde(conn, d["label"], "income_sources")
             try:
                 conn.execute(
                     "INSERT INTO income_sources "
-                    "(key, label, icon, currency, expected_usd, active, created_at, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (src.key, src.label, src.icon or "💰", src.currency,
-                     float(src.expected_usd or 0), int(src.active or 1), now, now),
+                    "(key, label, icon, currency, expected_usd, active, tipo, boton, categoria, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (key, d["label"], src.icon or "💰", src.currency, d["expected_usd"],
+                     int(src.active or 1), d["tipo"], d["boton"], d["categoria"], now, now),
                 )
                 conn.commit()
             except sqlite3.IntegrityError:
-                raise HTTPException(409, f"source {src.key!r} ya existe")
+                raise HTTPException(409, f"source {key!r} ya existe")
         finally:
             conn.close()
-        return {"ok": True, "key": src.key}
+        return {"ok": True, "key": key}
 
     @api.put("/api/income/sources/{key}")
+    @api.patch("/api/income/sources/{key}")
     def update_income_source(key: str, updates: dict = Body(...)):
-        allowed = {"label", "icon", "currency", "expected_usd", "active"}
+        allowed = {"label", "icon", "currency", "expected_usd", "active", "tipo", "boton", "categoria"}
         bad = set(updates.keys()) - allowed
         if bad:
             raise HTTPException(400, f"campos no editables: {bad}")
@@ -1772,20 +1867,12 @@ def make_api_app() -> FastAPI:
             raise HTTPException(400, f"moneda inválida: {updates['currency']!r}")
         if not updates:
             raise HTTPException(400, "nada que actualizar")
-        if "active" in updates:
-            # Archivar = active 0: no cuenta en el plan ni sale como opción por defecto
-            # (sus ingresos viejos se siguen viendo). Se guarda siempre como 0/1.
-            updates["active"] = 1 if updates["active"] in (1, True, "1", "true") else 0
-        if "expected_usd" in updates:
-            try:
-                updates["expected_usd"] = float(updates["expected_usd"] or 0)
-            except (TypeError, ValueError):
-                raise HTTPException(400, "expected_usd debe ser numérico")
         now = datetime.now().isoformat()
-        sets = ", ".join(f"{k} = ?" for k in updates)
-        params = list(updates.values()) + [now, key]
         conn = sqlite3.connect(bot.DB_PATH)
         try:
+            updates = _validar_campos_fuente(conn, dict(updates))
+            sets = ", ".join(f"{k} = ?" for k in updates)
+            params = list(updates.values()) + [now, key]
             r = conn.execute(
                 f"UPDATE income_sources SET {sets}, updated_at = ? WHERE key = ?",
                 params,
@@ -1813,6 +1900,123 @@ def make_api_app() -> FastAPI:
             conn.commit()
             if r.rowcount == 0:
                 raise HTTPException(404, f"source {key!r} not found")
+        finally:
+            conn.close()
+        return {"ok": True, "deleted": key}
+
+    # ──────────────── Income categories (las crea Daniel) ────────────────
+    # «De dónde vino» y todas las agrupaciones de ingresos leen esta lista.
+
+    def _validar_categoria(d: dict) -> dict:
+        if "label" in d:
+            d["label"] = (d["label"] or "").strip()
+            if not d["label"]:
+                raise HTTPException(400, "la categoría necesita un nombre")
+            if len(d["label"]) > 40:
+                raise HTTPException(400, "nombre muy largo (máx. 40)")
+        if "icon" in d:
+            d["icon"] = (d["icon"] or "").strip() or "💰"
+            if len(d["icon"]) > 8:
+                raise HTTPException(400, "ícono inválido")
+        if "color" in d:
+            if not _VALID_COLOR.match(d["color"] or ""):
+                raise HTTPException(400, f"color inválido: {d['color']!r} (usa #rrggbb)")
+        if "orden" in d:
+            try:
+                d["orden"] = int(d["orden"])
+            except (TypeError, ValueError):
+                raise HTTPException(400, "orden debe ser un número entero")
+        return d
+
+    def _mover_fuentes(conn, cat_key: str, fuentes, now: str) -> int:
+        if not fuentes:
+            return 0
+        if not isinstance(fuentes, list) or not all(isinstance(k, str) for k in fuentes):
+            raise HTTPException(400, "fuentes debe ser una lista de claves")
+        faltan = [k for k in fuentes if not conn.execute(
+            "SELECT 1 FROM income_sources WHERE key = ?", (k,)).fetchone()]
+        if faltan:
+            raise HTTPException(400, f"fuentes que no existen: {faltan}")
+        conn.executemany("UPDATE income_sources SET categoria = ?, updated_at = ? WHERE key = ?",
+                         [(cat_key, now, k) for k in fuentes])
+        return len(fuentes)
+
+    @api.get("/api/income/categories")
+    def list_income_categories():
+        conn = sqlite3.connect(bot.DB_PATH)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                "SELECT c.key, c.label, c.icon, c.color, c.orden, "
+                "(SELECT COUNT(*) FROM income_sources s WHERE s.categoria = c.key) AS n_fuentes "
+                "FROM income_categories c ORDER BY c.orden, c.label"
+            ).fetchall()
+            return {"categories": [dict(r) for r in rows]}
+        finally:
+            conn.close()
+
+    @api.post("/api/income/categories")
+    def create_income_category(cat: IncomeCategoryCreate):
+        d = _validar_categoria({"label": cat.label, "icon": cat.icon or "💰", "color": cat.color or "#6da7ec"})
+        now = datetime.now().isoformat()
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            if conn.execute("SELECT 1 FROM income_categories WHERE lower(label) = lower(?)",
+                            (d["label"],)).fetchone():
+                raise HTTPException(409, f"ya hay una categoría «{d['label']}»")
+            key = _clave_desde(conn, d["label"], "income_categories")
+            orden = conn.execute("SELECT COALESCE(MAX(orden), -1) + 1 FROM income_categories").fetchone()[0]
+            conn.execute(
+                "INSERT INTO income_categories (key, label, icon, color, orden, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)", (key, d["label"], d["icon"], d["color"], orden, now, now))
+            n = _mover_fuentes(conn, key, cat.fuentes, now)
+            conn.commit()
+        finally:
+            conn.close()
+        return {"ok": True, "key": key, "fuentes_movidas": n}
+
+    @api.patch("/api/income/categories/{key}")
+    @api.put("/api/income/categories/{key}")
+    def update_income_category(key: str, updates: dict = Body(...)):
+        allowed = {"label", "icon", "color", "orden", "fuentes"}
+        bad = set(updates.keys()) - allowed
+        if bad:
+            raise HTTPException(400, f"campos no editables: {bad}")
+        if not updates:
+            raise HTTPException(400, "nada que actualizar")
+        fuentes = updates.pop("fuentes", None)
+        updates = _validar_categoria(dict(updates))
+        now = datetime.now().isoformat()
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            if not conn.execute("SELECT 1 FROM income_categories WHERE key = ?", (key,)).fetchone():
+                raise HTTPException(404, f"categoría {key!r} no existe")
+            if "label" in updates and conn.execute(
+                    "SELECT 1 FROM income_categories WHERE lower(label) = lower(?) AND key <> ?",
+                    (updates["label"], key)).fetchone():
+                raise HTTPException(409, f"ya hay una categoría «{updates['label']}»")
+            if updates:
+                sets = ", ".join(f"{k} = ?" for k in updates)
+                conn.execute(f"UPDATE income_categories SET {sets}, updated_at = ? WHERE key = ?",
+                             list(updates.values()) + [now, key])
+            n = _mover_fuentes(conn, key, fuentes, now)
+            conn.commit()
+        finally:
+            conn.close()
+        return {"ok": True, "key": key, "fuentes_movidas": n}
+
+    @api.delete("/api/income/categories/{key}")
+    def delete_income_category(key: str):
+        conn = sqlite3.connect(bot.DB_PATH)
+        try:
+            if not conn.execute("SELECT 1 FROM income_categories WHERE key = ?", (key,)).fetchone():
+                raise HTTPException(404, f"categoría {key!r} no existe")
+            n = conn.execute("SELECT COUNT(*) FROM income_sources WHERE categoria = ?", (key,)).fetchone()[0]
+            if n > 0:
+                raise HTTPException(400, f"la categoría tiene {n} {'fuente' if n == 1 else 'fuentes'}: "
+                                         "primero las mueves a otra")
+            conn.execute("DELETE FROM income_categories WHERE key = ?", (key,))
+            conn.commit()
         finally:
             conn.close()
         return {"ok": True, "deleted": key}
@@ -2198,12 +2402,13 @@ def make_api_app() -> FastAPI:
                 "SELECT e.source_key, "
                 "  COALESCE(s.label, e.source_key) AS label, "
                 "  COALESCE(s.icon, '💰') AS icon, "
+                "  s.categoria AS categoria, "
                 "  COALESCE(SUM(e.monto_usd), 0) AS total_usd, "
                 "  COUNT(*) AS n "
                 "FROM income_entries e "
                 "LEFT JOIN income_sources s ON e.source_key = s.key "
                 "WHERE e.period BETWEEN ? AND ? "
-                "GROUP BY e.source_key, s.label, s.icon "
+                "GROUP BY e.source_key, s.label, s.icon, s.categoria "
                 "ORDER BY total_usd DESC",
                 (pfrom, pto),
             ).fetchall()
@@ -2212,6 +2417,7 @@ def make_api_app() -> FastAPI:
                     "source_key": r["source_key"],
                     "label": r["label"],
                     "icon": r["icon"],
+                    "categoria": r["categoria"],
                     "total_usd": round(float(r["total_usd"] or 0), 2),
                     "count": r["n"],
                 }
@@ -3941,7 +4147,7 @@ def make_api_app() -> FastAPI:
             # Fuentes de ingreso (todas, marcamos cuáles están activas)
             income_sources = conn.execute(
                 "SELECT key, label, icon, currency, expected_usd, active, "
-                "created_at, updated_at "
+                "COALESCE(tipo, 'mes') AS tipo, created_at, updated_at "
                 "FROM income_sources ORDER BY active DESC, label"
             ).fetchall()
             income_sources = [dict(r) for r in income_sources]
@@ -4009,16 +4215,19 @@ def make_api_app() -> FastAPI:
 
         # Ingresos proyectados (por fuente)
         for s in income_sources:
+            # «A veces» no cuenta en el plan: se proyecta en 0 aunque guarde un esperado viejo.
+            veces = s["tipo"] == "veces"
+            esperado = 0 if veces else (s["expected_usd"] or 0)
             writer.writerow([
                 "ingreso_proyectado", s["key"], s["label"] or s["key"],
                 s["icon"] or "💰",
                 "", "",
-                s["expected_usd"] or 0,
-                round((s["expected_usd"] or 0) * 12, 2),
+                esperado,
+                round(esperado * 12, 2),
                 "", "",
                 s["currency"] or "USD",
                 "1" if s["active"] else "0",
-                "" if s["active"] else "fuente inactiva",
+                "fuente inactiva" if not s["active"] else ("a veces: no cuenta en el plan" if veces else ""),
             ])
 
         buf.seek(0)

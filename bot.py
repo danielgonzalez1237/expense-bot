@@ -1617,6 +1617,95 @@ def init_db():
 
     _run_migration("023_tarjetas", _migration_023_tarjetas)
 
+    def _migration_024_ingresos_tipo_categorias(conn):
+        """Fuentes de ingreso con tres estados, botones y categorías (Daniel 12-nov).
+
+        - income_sources.tipo: 'mes' (cuenta en el plan y avisa si no llega) o 'veces' (se elige
+          siempre, no cuenta en el plan). Semilla: expected_usd = 0 → 'veces'; el resto → 'mes'.
+          Archivar sigue siendo active = 0. No cambia ningún expected_usd: el plan queda igual.
+        - income_sources.boton: 1 = sale como botón ⭐ en «Anotar ingreso».
+        - income_categories + income_sources.categoria: las 7 categorías que hoy usa «De dónde vino»,
+          con la misma asignación (regex del nombre o clave), para que la gráfica se vea idéntica.
+        Idempotente; no borra nada."""
+        import unicodedata
+        now = datetime.now().isoformat()
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(income_sources)")}
+        if "tipo" not in cols:
+            conn.execute("ALTER TABLE income_sources ADD COLUMN tipo TEXT DEFAULT 'mes'")
+        if "boton" not in cols:
+            conn.execute("ALTER TABLE income_sources ADD COLUMN boton INTEGER DEFAULT 0")
+        if "categoria" not in cols:
+            conn.execute("ALTER TABLE income_sources ADD COLUMN categoria TEXT")
+        conn.execute("""CREATE TABLE IF NOT EXISTS income_categories (
+            key TEXT PRIMARY KEY,
+            label TEXT NOT NULL,
+            icon TEXT DEFAULT '💰',
+            color TEXT DEFAULT '#6da7ec',
+            orden INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )""")
+        # Mismas claves, nombres, íconos y colores que «De dónde vino» (index.html, COLORES_ING).
+        cats = [
+            ("clp", "CLP", "🌊", "#1baf7a"),
+            ("rentas", "Rentas", "🏠", "#c98500"),
+            ("defi", "Cripto DeFi", "💰", "#6250d6"),
+            ("cefi", "Cripto CeFi", "💵", "#2a78d6"),
+            ("mineria", "Minería", "⛏️", "#6f7680"),
+            ("trading", "Trading", "📈", "#c63a2d"),
+            ("otros", "Tradicional/Otros", "🏦", "#6da7ec"),
+        ]
+        for i, (k, label, icon, color) in enumerate(cats):
+            conn.execute(
+                "INSERT OR IGNORE INTO income_categories (key, label, icon, color, orden, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)", (k, label, icon, color, i, now, now))
+
+        plan_antes = float(conn.execute(
+            "SELECT COALESCE(SUM(expected_usd), 0) FROM income_sources WHERE active = 1").fetchone()[0] or 0)
+
+        # Asignación de hoy en el tablero (_incomeGroupDefs): primero el nombre, luego la clave.
+        por_clave = {"aave": "defi", "yield": "defi", "fluid": "defi", "deltayield": "defi", "caashback": "defi",
+                     "nexo": "cefi", "potosi": "mineria", "futuros": "trading",
+                     "ib_dividends": "otros", "intereses": "otros"}
+
+        def _cat(key, label):
+            lb = label or ""
+            if re.search(r"clp", lb, re.I):
+                return "clp"
+            if re.search(r"alquiler|renta", lb, re.I):
+                return "rentas"
+            return por_clave.get(key, "otros")
+
+        def _norm(s):
+            s = unicodedata.normalize("NFKD", (s or "").strip().lower())
+            return "".join(ch for ch in s if not unicodedata.combining(ch))
+
+        estrellas = {_norm(x) for x in ("Tuo income", "Alquiler Quito", "CLP Yield 1 WETH WBTC 40k",
+                                         "Alquiler Dubai", "Asesorías", "IBKR Profits Locked")}
+        for key, label, expected in conn.execute(
+                "SELECT key, label, expected_usd FROM income_sources").fetchall():
+            tipo = "veces" if float(expected or 0) == 0 else "mes"
+            conn.execute(
+                "UPDATE income_sources SET tipo = ?, categoria = COALESCE(categoria, ?), "
+                "boton = CASE WHEN ? THEN 1 ELSE COALESCE(boton, 0) END WHERE key = ?",
+                (tipo, _cat(key, label), 1 if _norm(label) in estrellas else 0, key))
+
+        plan_despues = float(conn.execute(
+            "SELECT COALESCE(SUM(expected_usd), 0) FROM income_sources "
+            "WHERE active = 1 AND COALESCE(tipo, 'mes') = 'mes'").fetchone()[0] or 0)
+        if abs(plan_antes - plan_despues) > 0.005:
+            # No debería pasar nunca (solo pasan a 'veces' las de 0); si pasa, el plan manda.
+            conn.execute("UPDATE income_sources SET tipo = 'mes'")
+            print(f"[migration 024] ⚠️ el plan cambiaba ({plan_antes} → {plan_despues}); todas quedan «cada mes»")
+        resumen = conn.execute(
+            "SELECT SUM(tipo = 'mes' AND active = 1), SUM(tipo = 'veces' AND active = 1), SUM(active = 0), "
+            "SUM(boton = 1) FROM income_sources").fetchone()
+        conn.commit()
+        print(f"[migration 024] plan al mes ${plan_antes:,.2f} antes y después · cada mes {resumen[0] or 0} · "
+              f"a veces {resumen[1] or 0} · archivadas {resumen[2] or 0} · botones {resumen[3] or 0}")
+
+    _run_migration("024_ingresos_tipo_categorias", _migration_024_ingresos_tipo_categorias)
+
     conn.close()
 
 
