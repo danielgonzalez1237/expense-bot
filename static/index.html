@@ -1181,7 +1181,7 @@
       <div class="flex rounded-full bg-slate-100 dark:bg-slate-800 p-1 text-xs" role="tablist" aria-label="Secciones de tarjetas">
         <template x-for="o in [['pilas', 'Tus tarjetas'], ['calendario', 'Calendario'], ['suscripciones', 'Suscripciones']]" :key="'tjt' + o[0]">
           <button type="button" role="tab" @click="$store.tarjetas.ir(o[0])" :aria-selected="$store.tarjetas.tab === o[0]"
-            class="rounded-full px-3.5 py-1.5 transition whitespace-nowrap"
+            class="rounded-full px-3.5 py-1.5 min-h-[36px] sm:min-h-0 transition whitespace-nowrap"
             :class="$store.tarjetas.tab === o[0] ? 'bg-white dark:bg-slate-900 shadow-sm font-semibold' : 'text-slate-500'">
             <span x-text="o[1]"></span><span x-show="o[0] === 'calendario' && $store.tarjetas.bandeja().length" class="ml-1 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200 px-1.5" x-text="$store.tarjetas.bandeja().length"></span>
           </button>
@@ -1259,10 +1259,10 @@
                     <span class="text-[11px] rounded-full px-2 py-0.5 font-semibold whitespace-nowrap" :class="$store.tarjetas.tonoPago(t)" x-text="$store.tarjetas.pagoTxt(t)"></span>
                   </div>
                   <div class="text-[11px] text-slate-500 leading-snug" x-text="$store.tarjetas.detalleTxt(t)"></div>
-                  <div class="flex gap-3 text-[11px]">
-                    <button type="button" class="underline text-slate-600 dark:text-slate-300" @click="$store.tarjetas.abrirTarjeta(t.id)">Ver su pila de fijos</button>
-                    <button type="button" class="underline text-slate-600 dark:text-slate-300" @click="$store.tarjetas.abrirAbono(t.id)">Abonar</button>
-                    <button type="button" class="underline text-slate-600 dark:text-slate-300" @click="$store.tarjetas.abrirLectura(t.id)">Poner saldo</button>
+                  <div class="flex flex-wrap gap-2">
+                    <button type="button" class="rounded-full border border-slate-200 dark:border-slate-700 px-3 min-h-[36px] sm:min-h-[28px] text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800" @click="$store.tarjetas.abrirTarjeta(t.id)">Ver su pila de fijos</button>
+                    <button type="button" class="rounded-full border border-slate-200 dark:border-slate-700 px-3 min-h-[36px] sm:min-h-[28px] text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800" @click="$store.tarjetas.abrirAbono(t.id)">Abonar</button>
+                    <button type="button" class="rounded-full border border-slate-200 dark:border-slate-700 px-3 min-h-[36px] sm:min-h-[28px] text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800" @click="$store.tarjetas.abrirLectura(t.id)">Poner saldo</button>
                   </div>
                 </div>
               </template>
@@ -1274,7 +1274,7 @@
 
     <!-- Una tarjeta: sus fijos previstos del ciclo y el saldo recalculado -->
     <div x-show="$store.tarjetas.tab === 'tarjeta' && $store.tarjetas.unaT()" class="space-y-4">
-      <button type="button" class="text-xs underline text-slate-500" @click="$store.tarjetas.ir('pilas')">← Todas las tarjetas</button>
+      <button type="button" class="text-xs underline text-slate-500 inline-flex items-center min-h-[36px] sm:min-h-0" @click="$store.tarjetas.ir('pilas')">← Todas las tarjetas</button>
       <template x-if="$store.tarjetas.unaT()">
       <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 min-w-0">
         <div class="lg:col-span-3 bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 shadow-sm min-w-0">
@@ -1309,7 +1309,7 @@
             <template x-for="a in $store.tarjetas.abonos" :key="'tja' + a.id">
               <div class="flex justify-between gap-2 text-xs py-1"><span x-text="a.fecha + (a.nota ? ' · ' + a.nota : '')"></span>
                 <span class="flex gap-2"><span class="num font-semibold" x-text="$store.tarjetas.fmt(a.monto, $store.tarjetas.tSel().moneda)"></span>
-                  <button type="button" class="underline text-slate-500" @click="$store.tarjetas.borrarAbono(a.id)">quitar</button></span></div>
+                  <button type="button" class="underline text-slate-500 inline-flex items-center min-h-[36px] sm:min-h-0 px-1" @click="$store.tarjetas.borrarAbono(a.id)">quitar</button></span></div>
             </template>
           </div>
         </div>
@@ -1369,9 +1369,9 @@
               <span class="num font-semibold whitespace-nowrap" x-text="$store.tarjetas.fmt(b.monto, b.moneda)"></span></div>
             <div class="text-[11px] text-slate-500" x-text="$store.tarjetas.etiquetaMetodo(b.metodo_pago) + (/promedio/i.test(b.label) ? ' · es un promedio: pon el valor real del extracto con «llegó con otro valor»' : '')"></div>
             <div class="flex flex-wrap items-center gap-1.5">
-              <button type="button" class="rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-3 py-1 text-xs font-semibold" :disabled="$store.tarjetas.busy" @click="$store.tarjetas.confirmar(b, 'paso')">✓ Pasó</button>
-              <button type="button" class="rounded-full border border-slate-300 dark:border-slate-700 px-3 py-1 text-xs" :disabled="$store.tarjetas.busy" @click="$store.tarjetas.confirmar(b, 'no_paso')">No pasó</button>
-              <button type="button" class="text-[11px] underline text-slate-500" @click="$store.tarjetas.otroValor(b)">llegó con otro valor</button>
+              <button type="button" class="rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-4 py-1 min-h-[36px] sm:min-h-0 text-xs font-semibold" :disabled="$store.tarjetas.busy" @click="$store.tarjetas.confirmar(b, 'paso')">✓ Pasó</button>
+              <button type="button" class="rounded-full border border-slate-300 dark:border-slate-700 px-4 py-1 min-h-[36px] sm:min-h-0 text-xs" :disabled="$store.tarjetas.busy" @click="$store.tarjetas.confirmar(b, 'no_paso')">No pasó</button>
+              <button type="button" class="text-[11px] underline text-slate-500 inline-flex items-center min-h-[36px] sm:min-h-0 px-1" @click="$store.tarjetas.otroValor(b)">llegó con otro valor</button>
             </div>
           </div>
         </template>
@@ -1383,8 +1383,8 @@
               <div class="flex justify-between gap-2 text-sm"><span class="min-w-0"><span class="text-slate-500" x-text="$store.tarjetas.fechaCorta(it.fecha)"></span> · <span x-text="it.label"></span></span>
                 <span class="num font-semibold whitespace-nowrap" x-text="it.estado === 'no_paso' ? 'no pasó' : $store.tarjetas.fmt(it.monto_confirmado ?? it.monto, it.moneda)"></span></div>
               <div class="flex gap-3 text-[11px]">
-                <button type="button" class="underline text-slate-500" x-show="it.estado !== 'no_paso'" :disabled="$store.tarjetas.busy" @click="$store.tarjetas.corregir(it)">corregir valor</button>
-                <button type="button" class="underline text-slate-500" :disabled="$store.tarjetas.busy" @click="$store.tarjetas.deshacer({ id: it.fijo_id, label: it.label, periodo: it.periodo })">deshacer</button>
+                <button type="button" class="underline text-slate-500 inline-flex items-center min-h-[36px] sm:min-h-0 pr-2" x-show="it.estado !== 'no_paso'" :disabled="$store.tarjetas.busy" @click="$store.tarjetas.corregir(it)">corregir valor</button>
+                <button type="button" class="underline text-slate-500 inline-flex items-center min-h-[36px] sm:min-h-0 px-1" :disabled="$store.tarjetas.busy" @click="$store.tarjetas.deshacer({ id: it.fijo_id, label: it.label, periodo: it.periodo })">deshacer</button>
               </div>
             </div>
           </template>
@@ -1440,7 +1440,7 @@
                   <button type="button" class="rounded-full border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs" @click="$store.tarjetas.descartar(f)">Cancelar</button></span>
               </div>
               <div x-show="f.estado === 'confirmado' || f.estado === 'no_paso'" class="ml-12 mt-1 text-[11px]">
-                <button type="button" class="underline text-slate-500" @click="$store.tarjetas.deshacer(f)">Deshacer la confirmación de este mes</button></div>
+                <button type="button" class="underline text-slate-500 inline-flex items-center min-h-[36px] sm:min-h-0" @click="$store.tarjetas.deshacer(f)">Deshacer la confirmación de este mes</button></div>
             </div>
           </template>
         </div>
@@ -1543,7 +1543,7 @@
       </template>
       <div class="mt-5 rounded-2xl px-4 py-3 text-xs" :class="pygNeto() >= 0 ? 'bg-ahorro-suave text-ahorro dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'">
         <b x-text="'Neto del período: ' + (pygNeto() >= 0 ? '+' : '−') + fmtUsd(Math.abs(pygNeto())) + '.'"></b> <span x-text="pygFrase()"></span>
-        <button @click="view = 'resumen'" class="underline ml-1">Ver P&amp;G</button>
+        <button @click="view = 'resumen'" class="underline ml-1 inline-flex items-center min-h-[32px] sm:min-h-0">Ver P&amp;G</button>
       </div>
     </section>
 
@@ -1551,7 +1551,7 @@
     <section class="xl:col-span-5 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm fade min-w-0" data-tour="ing-form">
       <div class="flex items-baseline justify-between gap-2">
         <h2 class="num text-xl sm:text-2xl font-semibold flex items-center gap-2">Anotar ingreso <button type="button" class="info-i" @click.stop="$store.info.abrir('ing-form', $el)" title="¿Qué es esto?" aria-label="Qué es esto">i</button></h2>
-        <button @click="openFuentes()" class="text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">Fuentes y plan</button>
+        <button @click="openFuentes()" class="text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 inline-flex items-center min-h-[36px] sm:min-h-0 px-1">Fuentes y plan</button>
       </div>
       <form @submit.prevent="ingGuardar()" class="mt-3 space-y-3">
         <div>
