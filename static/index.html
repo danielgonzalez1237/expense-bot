@@ -1419,6 +1419,7 @@
           <div class="border-t border-slate-100 dark:border-slate-800 pt-2 space-y-1.5">
             <div class="flex justify-between gap-2 text-sm"><span class="min-w-0"><span class="text-slate-500" x-text="$store.tarjetas.fechaCorta(b.fecha)"></span> · <b x-text="b.label"></b></span>
               <span class="num font-semibold whitespace-nowrap" x-text="$store.tarjetas.fmt(b.monto, b.moneda)"></span></div>
+            <div x-show="b.sms_n" class="text-[11px] text-sky-700 dark:text-sky-300 font-semibold" x-text="'📩 SMS del mes: ' + $store.tarjetas.fmt(b.sms_suma, 'COP') + ' en ' + b.sms_n + (b.sms_n === 1 ? ' cobro' : ' cobros') + ' (si ya está todo, confírmalo con «llegó con otro valor»)'"></div>
             <div class="text-[11px] text-slate-500"><span x-show="b.sms" class="text-sky-700 dark:text-sky-300 font-semibold">📩 llegó el SMS del banco · </span><span x-text="$store.tarjetas.etiquetaMetodo(b.metodo_pago) + (/promedio/i.test(b.label) ? ' · es un promedio: pon el valor real del extracto con «llegó con otro valor»' : '')"></span></div>
             <div class="flex flex-wrap items-center gap-1.5">
               <button type="button" class="rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-4 py-1 min-h-[36px] sm:min-h-0 text-xs font-semibold" :disabled="$store.tarjetas.busy" @click="$store.tarjetas.confirmar(b, 'paso')">✓ Pasó</button>
@@ -7201,7 +7202,7 @@ document.addEventListener('alpine:init', () => {
       this.busy = false;
     },
     otroValor(b) {
-      const v = prompt('¿Con qué valor llegó ' + b.label + '? (en ' + b.moneda + ')', String(b.monto || ''));
+      const v = prompt('¿Con qué valor llegó ' + b.label + '? (en ' + b.moneda + ')', String(b.sms_n ? Math.round(b.sms_suma) : (b.monto || '')));
       if (v === null) return;
       const n = this._num(v, b.moneda);
       if (!n || n <= 0) { this.error = 'No entendí ese valor. Escríbelo así: 106,40 o 53.900.'; return; }

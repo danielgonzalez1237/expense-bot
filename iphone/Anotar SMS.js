@@ -31,13 +31,24 @@ async function main() {
   if (!texto) {
     // Abierto a mano en Scriptable: pide el permiso de avisos (así aparece en Ajustes › Notificaciones) y revisa la llave
     if (config.runsInApp) {
-      const listo = Keychain.contains(CLAVE);
+      let listo = Keychain.contains(CLAVE), conexion = "";
+      if (listo) {   // prueba la llave contra el bot (no anota nada)
+        try {
+          const q = new Request(BASE + "/api/anotar/datos");
+          q.headers = { "X-Equipo": Keychain.get(CLAVE) };
+          q.timeoutInterval = 15;
+          await q.loadString();
+          const c = q.response ? q.response.statusCode : 0;
+          conexion = c === 200 ? "\n\nConexión con el bot: OK ✓" : "\n\nConexión con el bot: falló (" + c + ")";
+          if (c === 401) listo = false;
+        } catch (e) { conexion = "\n\nConexión con el bot: sin red"; }
+      }
       await avisar("Anotar SMS", listo ? "Avisos activados. Te aviso aquí cuando una compra del banco quede por anotar."
                                        : "Falta emparejar este iPhone: abre una vez «Anotar gasto» y pon el código de P&G GG › Ajustes › Teléfonos y Macs.", false);
       const a = new Alert();
       a.title = listo ? "Todo listo" : "Falta emparejar";
-      a.message = listo ? "Este iPhone ya puede mandar los SMS de compra al bot. Si te preguntó por notificaciones, toca Permitir."
-                        : "Abre «Anotar gasto» una vez para emparejar este iPhone.";
+      a.message = (listo ? "Este iPhone ya puede mandar los SMS de compra al bot. Si te preguntó por notificaciones, toca Permitir."
+                         : "Abre «Anotar gasto» una vez para emparejar este iPhone.") + conexion;
       a.addAction("OK");
       await a.present();
     }

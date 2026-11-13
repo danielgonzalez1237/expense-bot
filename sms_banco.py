@@ -165,6 +165,29 @@ def _fijo_igual(conn, bot, s, tid):
     return (mejor[1], periodo) if mejor else None
 
 
+def _fijo_por_consumo(conn, comercio):
+    """FLYPASS, GoPass…: fijos que se llevan como promedio del mes. Cada peaje que llega por SMS no es un gasto aparte:
+    se suma al fijo de ese mes (así se ve el valor real antes del extracto). Devuelve el id del fijo o None."""
+    com = _norm(comercio)
+    for rid, label in conn.execute("SELECT id, label FROM recurring_expenses WHERE active = 1"):
+        n = _norm(label)
+        if "promedio" not in n:
+            continue
+        palabras = [w for w in n.split() if len(w) >= 5 and w not in ("promedio", "recargas", "peajes")]
+        if any(w in com for w in palabras):
+            return rid
+    return None
+
+
+def suma_por_consumo(conn, periodo):
+    """{recurring_id: (suma, cuántos)} de los SMS de peajes y recargas del mes."""
+    try:
+        return {r[0]: (r[1] or 0, r[2]) for r in conn.execute(
+            "SELECT recurring_id, SUM(monto), COUNT(*) FROM sms_banco WHERE estado = 'consumo' AND periodo = ? GROUP BY recurring_id", (periodo,))}
+    except sqlite3.OperationalError:
+        return {}
+
+
 def recibir(conn, bot, texto, persona):
     """Guarda el SMS y decide: unido / fijo / pendiente. Devuelve lo que el iPhone le muestra a la persona."""
     preparar(conn)
@@ -189,6 +212,13 @@ def recibir(conn, bot, texto, persona):
                      base + (e_id, _ahora_utc(), _ahora_utc()))
         conn.commit()
         return {"estado": "unido", "titulo": "Ya estaba anotado", "mensaje": f"{s['comercio']} {valor}: ya lo tenías, no se suma otra vez."}
+    rc = _fijo_por_consumo(conn, s["comercio"])
+    if rc:
+        conn.execute("INSERT INTO sms_banco (huella, texto, persona, monto, moneda, ultimos, tarjeta_id, metodo_pago, comercio, fecha, hora, "
+                     "estado, recurring_id, periodo, recibido_at, resuelto_at) VALUES (?,?,?,?,?,?,?,?,?,?,?, 'consumo', ?, ?, ?, ?)",
+                     base + (rc, s["fecha"][:7], _ahora_utc(), _ahora_utc()))
+        conn.commit()
+        return {"estado": "consumo", "titulo": "Peaje sumado", "mensaje": f"{s['comercio']} {valor}: va al promedio del mes, no se anota aparte."}
     fj = _fijo_igual(conn, bot, s, tid)
     if fj:
         conn.execute("INSERT INTO sms_banco (huella, texto, persona, monto, moneda, ultimos, tarjeta_id, metodo_pago, comercio, fecha, hora, "
