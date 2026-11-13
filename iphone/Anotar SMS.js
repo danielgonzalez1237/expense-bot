@@ -28,7 +28,22 @@ async function main() {
     else if (args.plainTexts && args.plainTexts.length) texto = String(args.plainTexts[0]);
   }
   texto = texto.trim();
-  if (!texto) { Script.setShortcutOutput("sin texto"); return; }
+  if (!texto) {
+    // Abierto a mano en Scriptable: pide el permiso de avisos (así aparece en Ajustes › Notificaciones) y revisa la llave
+    if (config.runsInApp) {
+      const listo = Keychain.contains(CLAVE);
+      await avisar("Anotar SMS", listo ? "Avisos activados. Te aviso aquí cuando una compra del banco quede por anotar."
+                                       : "Falta emparejar este iPhone: abre una vez «Anotar gasto» y pon el código de P&G GG › Ajustes › Teléfonos y Macs.", false);
+      const a = new Alert();
+      a.title = listo ? "Todo listo" : "Falta emparejar";
+      a.message = listo ? "Este iPhone ya puede mandar los SMS de compra al bot. Si te preguntó por notificaciones, toca Permitir."
+                        : "Abre «Anotar gasto» una vez para emparejar este iPhone.";
+      a.addAction("OK");
+      await a.present();
+    }
+    Script.setShortcutOutput("sin texto");
+    return;
+  }
   if (!Keychain.contains(CLAVE)) {
     await avisar("Anotar SMS", "Falta emparejar este iPhone: abre una vez «Anotar gasto» y pon el código de P&G GG › Ajustes › Teléfonos y Macs.", false);
     Script.setShortcutOutput("sin llave");
