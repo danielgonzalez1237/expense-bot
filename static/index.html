@@ -217,7 +217,8 @@
     </nav>
     <div class="mt-8 px-3.5 text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Atajos</div>
     <div class="mt-2 space-y-0.5 text-[13px]" data-tour="atajos">
-      <button @click="$store.recurring.openModal('fijos')" class="w-full text-left px-3.5 py-2 rounded-full text-slate-500 hover:bg-white/70 dark:hover:bg-slate-900 hover:text-slate-800 dark:hover:text-slate-200 transition">🔁&nbsp; Fijos y diferidos</button>
+      <button @click="view = 'tarjetas'; $store.tarjetas.ir('suscripciones')" class="w-full text-left px-3.5 py-2 rounded-full text-slate-500 hover:bg-white/70 dark:hover:bg-slate-900 hover:text-slate-800 dark:hover:text-slate-200 transition">🔁&nbsp; Suscripciones y fijos</button>
+      <button @click="$store.recurring.openModal('diferidos')" class="w-full text-left px-3.5 py-2 rounded-full text-slate-500 hover:bg-white/70 dark:hover:bg-slate-900 hover:text-slate-800 dark:hover:text-slate-200 transition">📅&nbsp; Diferidos</button>
       <button @click="$store.fx.openFor(month)" class="w-full text-left px-3.5 py-2 rounded-full text-slate-500 hover:bg-white/70 dark:hover:bg-slate-900 hover:text-slate-800 dark:hover:text-slate-200 transition">💱&nbsp; Tasas de cambio</button>
       <button @click="openAnalytics()" class="w-full text-left px-3.5 py-2 rounded-full text-slate-500 hover:bg-white/70 dark:hover:bg-slate-900 hover:text-slate-800 dark:hover:text-slate-200 transition">📈&nbsp; Análisis diario</button>
       <button @click="openReconcile()" class="w-full text-left px-3.5 py-2 rounded-full text-slate-500 hover:bg-white/70 dark:hover:bg-slate-900 hover:text-slate-800 dark:hover:text-slate-200 transition">🔄&nbsp; Conciliación</button>
@@ -842,6 +843,14 @@
       <div x-show="pnl && pnl.budget_was_dynamic" class="mt-2 text-[11px] text-slate-400">Este período incluye presupuestos ajustados mes a mes.</div>
     </section>
 
+    <!-- ── Fijos por confirmar (desde dic 2026): se ven, no suman hasta confirmarlos ── -->
+    <button type="button" x-show="$store.tarjetas.bandeja().length" x-cloak @click="view = 'tarjetas'; $store.tarjetas.ir('calendario')"
+      class="xl:col-span-12 w-full text-left rounded-2xl bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 px-4 py-3 text-sm flex flex-wrap items-center justify-between gap-2">
+      <span><b x-text="$store.tarjetas.bandeja().length + ($store.tarjetas.bandeja().length === 1 ? ' fijo por confirmar' : ' fijos por confirmar')"></b>
+        <span x-text="' · ' + $store.tarjetas.bandeja().slice(0, 3).map(b => b.label).join(', ') + ($store.tarjetas.bandeja().length > 3 ? '…' : '')"></span>
+        <span class="text-xs opacity-80"> · se ven aquí pero no suman al gasto hasta que los confirmes</span></span>
+      <span class="font-semibold whitespace-nowrap">Confirmar →</span>
+    </button>
     <!-- ── Próximos pagos: agenda ── -->
     <section class="xl:col-span-5 bg-white dark:bg-slate-900 rounded-2xl p-5 sm:p-6 shadow-sm fade min-w-0" x-init="$store.reminders.load()" data-tour="pagos">
       <div class="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
@@ -1165,6 +1174,336 @@
        Recibido vs plan, anotar ingreso, por fuente, mes a mes y cada ingreso.
        Datos: /api/pnl (período), /api/income/entries (período), /api/income/sources,
        /api/pnl/mensual (gráfica). Las fuentes y su plan se editan en la ventana de siempre. -->
+  <!-- ──────────────── 💳 Tarjetas (13-nov): pilas por banco, calendario, por confirmar, abonos y suscripciones ──────────────── -->
+  <div x-show="view === 'tarjetas'" x-cloak>
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div class="flex rounded-full bg-slate-100 dark:bg-slate-800 p-1 text-xs" role="tablist" aria-label="Secciones de tarjetas">
+        <template x-for="o in [['pilas', 'Tus tarjetas'], ['calendario', 'Calendario'], ['suscripciones', 'Suscripciones']]" :key="'tjt' + o[0]">
+          <button type="button" role="tab" @click="$store.tarjetas.ir(o[0])" :aria-selected="$store.tarjetas.tab === o[0]"
+            class="rounded-full px-3.5 py-1.5 transition whitespace-nowrap"
+            :class="$store.tarjetas.tab === o[0] ? 'bg-white dark:bg-slate-900 shadow-sm font-semibold' : 'text-slate-500'">
+            <span x-text="o[1]"></span><span x-show="o[0] === 'calendario' && $store.tarjetas.bandeja().length" class="ml-1 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200 px-1.5" x-text="$store.tarjetas.bandeja().length"></span>
+          </button>
+        </template>
+      </div>
+      <div class="flex gap-2">
+        <button type="button" @click="$store.tarjetas.abrirLectura()" class="rounded-full border border-slate-300 dark:border-slate-700 px-3.5 py-1.5 text-xs font-medium hover:bg-white dark:hover:bg-slate-900">Poner saldo del banco</button>
+        <button type="button" @click="$store.tarjetas.abrirAbono()" class="rounded-full bg-ahorro text-white px-3.5 py-1.5 text-xs font-semibold hover:opacity-90">Avisar abono</button>
+      </div>
+    </div>
+    <div x-show="$store.tarjetas.error" class="mb-3 text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/50 rounded-xl px-3 py-2" x-text="$store.tarjetas.error"></div>
+    <div x-show="!$store.tarjetas.data && $store.tarjetas.cargando" class="text-sm text-slate-400 py-10 text-center">Cargando tus tarjetas…</div>
+
+    <!-- 1 · Tus tarjetas: resumen, todo en dólares y una pila por banco -->
+    <div x-show="$store.tarjetas.tab === 'pilas' && $store.tarjetas.data" class="space-y-4">
+      <div class="grid grid-cols-2 lg:grid-cols-6 gap-3">
+        <template x-for="c in $store.tarjetas.resumen()" :key="'tjr' + c.k">
+          <div class="bg-white dark:bg-slate-900 rounded-2xl p-4 shadow-sm min-w-0">
+            <div class="text-[11px] uppercase tracking-wide text-slate-500" x-text="c.k"></div>
+            <div class="num text-xl font-semibold break-words" :class="c.cls || ''" x-text="c.v"></div>
+            <div class="text-[11px] text-slate-500 leading-snug" x-text="c.s"></div>
+          </div>
+        </template>
+      </div>
+      <div class="bg-white dark:bg-slate-900 rounded-2xl p-4 shadow-sm">
+        <div class="flex flex-wrap items-baseline justify-between gap-2">
+          <span class="text-[11px] uppercase tracking-wide text-slate-500">Todo en dólares · tasa de hoy</span>
+          <span class="text-[11px] text-slate-500" x-text="$store.tarjetas.tasasTxt()"></span>
+        </div>
+        <div class="mt-2 grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <template x-for="c in $store.tarjetas.dolares()" :key="'tjd' + c.k">
+            <div class="rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3 min-w-0">
+              <div class="text-[11px] uppercase tracking-wide text-slate-500" x-text="c.k"></div>
+              <div class="num text-lg font-semibold" :class="c.cls || ''" x-text="c.v"></div>
+              <div class="text-[11px] text-slate-500 leading-snug" x-text="c.s"></div>
+            </div>
+          </template>
+        </div>
+      </div>
+      <div class="grid sm:grid-cols-2 xl:grid-cols-3 gap-6">
+        <template x-for="b in $store.tarjetas.bancos()" :key="'tjb' + b.banco">
+          <div class="min-w-0">
+            <div class="px-1 mb-2">
+              <div class="flex items-baseline justify-between gap-2"><span class="font-semibold" x-text="b.banco"></span>
+                <span class="text-[11px] text-slate-500" x-text="b.tarjetas.length + (b.tarjetas.length === 1 ? ' tarjeta' : ' tarjetas')"></span></div>
+              <div class="text-xs text-slate-600 dark:text-slate-300" x-text="b.linea"></div>
+              <div class="text-[11px] text-slate-500" x-show="b.nota" x-text="b.nota"></div>
+            </div>
+            <div class="relative cursor-pointer select-none" @click="$store.tarjetas.alternar(b.banco)"
+              :style="'height:' + $store.tarjetas.altoPila(b) + 'px'">
+              <template x-for="(t, i) in $store.tarjetas.ordenPila(b)" :key="'tjc' + t.id">
+                <div class="absolute rounded-2xl text-white shadow-lg px-5 py-4 flex flex-col justify-between transition-all duration-300"
+                  :style="'left:0;right:0;background:' + (t.color || '#334155') + ';top:' + $store.tarjetas.topCapa(b, i) + 'px;height:220px'">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0"><div class="text-sm font-semibold truncate" x-text="t.nombre + (t.ultimos ? ' ·' + t.ultimos : '')"></div>
+                      <div class="text-xs opacity-80 truncate" x-text="t.duenio + (t.respalda ? ' · cuelga de la ·' + t.respalda + ' (su cupo no se suma)' : '')"></div></div>
+                    <span class="text-[11px] font-semibold rounded-full bg-white/20 px-2 py-0.5" x-text="t.moneda"></span>
+                  </div>
+                  <div>
+                    <div class="text-[11px] opacity-80 tracking-wide" x-text="t.usado === null ? 'CUPO' : 'LIBRE'"></div>
+                    <div class="num text-2xl font-semibold" x-text="t.usado === null ? $store.tarjetas.fmt(t.cupo, t.moneda) : $store.tarjetas.fmt(t.libre, t.moneda)"></div>
+                    <div class="text-xs opacity-85" x-text="t.usado === null ? 'usado y libre: falta el saldo del banco' : 'usado ' + $store.tarjetas.fmt(t.usado, t.moneda) + ' de ' + $store.tarjetas.fmt(t.cupo, t.moneda) + ' · ' + $store.tarjetas.pct(t.usado, t.cupo)"></div>
+                  </div>
+                  <div class="h-2 rounded-full bg-white/20 overflow-hidden"><div class="h-full rounded-full bg-white" :style="'width:' + (t.usado && t.cupo ? Math.min(100, t.usado / t.cupo * 100) : 0) + '%'"></div></div>
+                  <div class="flex justify-between text-[11px] opacity-85"><span x-text="i === $store.tarjetas.ordenPila(b).length - 1 && b.tarjetas.length > 1 ? ($store.tarjetas.abiertas[b.banco] ? 'toca para cerrar la pila' : 'toca para abrir la pila') : ''"></span>
+                    <span x-text="t.corte_dia ? 'corte ' + t.corte_dia : ''"></span></div>
+                </div>
+              </template>
+            </div>
+            <div class="mt-2 divide-y divide-slate-100 dark:divide-slate-800">
+              <template x-for="t in b.tarjetas" :key="'tjf' + t.id">
+                <div class="py-2 px-1 space-y-1">
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-sm font-semibold whitespace-nowrap" x-text="(t.ultimos ? '·' + t.ultimos : t.nombre)"></span>
+                    <span class="text-[11px] rounded-full px-2 py-0.5 font-semibold whitespace-nowrap" :class="$store.tarjetas.tonoPago(t)" x-text="$store.tarjetas.pagoTxt(t)"></span>
+                  </div>
+                  <div class="text-[11px] text-slate-500 leading-snug" x-text="$store.tarjetas.detalleTxt(t)"></div>
+                  <div class="flex gap-3 text-[11px]">
+                    <button type="button" class="underline text-slate-600 dark:text-slate-300" @click="$store.tarjetas.abrirTarjeta(t.id)">Ver su pila de fijos</button>
+                    <button type="button" class="underline text-slate-600 dark:text-slate-300" @click="$store.tarjetas.abrirAbono(t.id)">Abonar</button>
+                    <button type="button" class="underline text-slate-600 dark:text-slate-300" @click="$store.tarjetas.abrirLectura(t.id)">Poner saldo</button>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Una tarjeta: sus fijos previstos del ciclo y el saldo recalculado -->
+    <div x-show="$store.tarjetas.tab === 'tarjeta' && $store.tarjetas.unaT()" class="space-y-4">
+      <button type="button" class="text-xs underline text-slate-500" @click="$store.tarjetas.ir('pilas')">← Todas las tarjetas</button>
+      <template x-if="$store.tarjetas.unaT()">
+      <div class="grid lg:grid-cols-5 gap-4">
+        <div class="lg:col-span-3 bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm">
+          <div class="flex items-baseline justify-between gap-2"><h3 class="font-semibold" x-text="$store.tarjetas.nombreT($store.tarjetas.unaT())"></h3>
+            <span class="text-[11px] text-slate-500">fijos de este mes y del próximo</span></div>
+          <div class="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
+            <template x-for="f in $store.tarjetas.fijosDeT($store.tarjetas.tid)" :key="'tjpf' + f.id + f.periodo">
+              <div class="py-2 flex items-center gap-3 text-sm">
+                <span class="w-14 text-xs font-semibold text-slate-500" x-text="$store.tarjetas.diaTxt(f)"></span>
+                <span class="flex-1 min-w-0 truncate" x-text="f.label"></span>
+                <span class="num font-semibold whitespace-nowrap" x-text="$store.tarjetas.fmt(f.currency === 'USD' ? f.monto_usd : f.monto_cop, f.currency)"></span>
+                <span class="text-[11px] rounded-full px-2 py-0.5 whitespace-nowrap" :class="$store.tarjetas.tonoEstado(f.estado)" x-text="$store.tarjetas.estadoTxt(f.estado)"></span>
+              </div>
+            </template>
+            <div x-show="!$store.tarjetas.fijosDeT($store.tarjetas.tid).length" class="py-3 text-xs text-slate-400">Esta tarjeta no tiene fijos.</div>
+          </div>
+        </div>
+        <div class="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm space-y-2 text-sm">
+          <div class="text-[11px] uppercase tracking-wide text-slate-500">Saldo recalculado</div>
+          <template x-for="l in $store.tarjetas.saldoLineas($store.tarjetas.unaT())" :key="'tjsl' + l.k">
+            <div class="flex justify-between gap-3 border-t border-slate-100 dark:border-slate-800 pt-2"><span class="min-w-0"><span x-text="l.k"></span><br><span class="text-[11px] text-slate-500" x-text="l.s"></span></span>
+              <span class="num font-semibold whitespace-nowrap" x-text="l.v"></span></div>
+          </template>
+          <div class="flex justify-between gap-3 border-t-2 border-slate-900 dark:border-slate-100 pt-2"><span class="font-semibold">Saldo hoy</span>
+            <span class="num text-xl font-semibold" x-text="$store.tarjetas.unaT().usado === null ? 'falta' : $store.tarjetas.fmt($store.tarjetas.unaT().usado, $store.tarjetas.unaT().moneda)"></span></div>
+          <div class="flex justify-between gap-3 text-xs" x-show="$store.tarjetas.unaT().libre !== null"><span class="text-slate-500">libre</span>
+            <span class="num font-semibold text-ahorro" x-text="$store.tarjetas.fmt($store.tarjetas.unaT().libre, $store.tarjetas.unaT().moneda)"></span></div>
+          <div class="pt-2 flex gap-2"><button type="button" class="rounded-full bg-ahorro text-white px-3 py-1.5 text-xs font-semibold" @click="$store.tarjetas.abrirAbono($store.tarjetas.tid)">Avisar abono</button>
+            <button type="button" class="rounded-full border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs" @click="$store.tarjetas.abrirLectura($store.tarjetas.tid)">Poner saldo del banco</button></div>
+          <div class="pt-2" x-show="$store.tarjetas.abonos.length">
+            <div class="text-[11px] uppercase tracking-wide text-slate-500">Abonos que avisaste</div>
+            <template x-for="a in $store.tarjetas.abonos" :key="'tja' + a.id">
+              <div class="flex justify-between gap-2 text-xs py-1"><span x-text="a.fecha + (a.nota ? ' · ' + a.nota : '')"></span>
+                <span class="flex gap-2"><span class="num font-semibold" x-text="$store.tarjetas.fmt(a.monto, $store.tarjetas.unaT().moneda)"></span>
+                  <button type="button" class="underline text-slate-500" @click="$store.tarjetas.borrarAbono(a.id)">quitar</button></span></div>
+            </template>
+          </div>
+        </div>
+      </div>
+      </template>
+    </div>
+
+    <!-- 2 · Calendario de pagos y la bandeja «Por confirmar» -->
+    <div x-show="$store.tarjetas.tab === 'calendario'" class="grid xl:grid-cols-4 gap-4">
+      <div class="xl:col-span-3 bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 shadow-sm min-w-0">
+        <div class="flex items-center justify-between gap-2 mb-3">
+          <button type="button" class="rounded-full px-3 py-1 text-sm hover:bg-slate-100 dark:hover:bg-slate-800" @click="$store.tarjetas.moverMes(-1)" aria-label="Mes anterior">‹</button>
+          <span class="font-semibold capitalize" x-text="$store.tarjetas.mesTxt()"></span>
+          <button type="button" class="rounded-full px-3 py-1 text-sm hover:bg-slate-100 dark:hover:bg-slate-800" @click="$store.tarjetas.moverMes(1)" aria-label="Mes siguiente">›</button>
+        </div>
+        <div class="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500 mb-3">
+          <span class="inline-flex items-center gap-1"><span class="w-4 h-2.5 rounded bg-slate-700"></span>lo pagas tú</span>
+          <span class="inline-flex items-center gap-1"><span class="w-4 h-2.5 rounded border border-slate-400 bg-slate-100 dark:bg-slate-800"></span>corte: el día que el banco cierra el mes de la tarjeta, con lo que llevas gastado (eso es lo que pagarás en el siguiente pago)</span>
+          <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-slate-500"></span>fijo en una tarjeta</span>
+          <span>✓ confirmado · ⏳ por confirmar</span>
+        </div>
+        <div x-show="!$store.tarjetas.cal" class="text-sm text-slate-400 py-8 text-center">Cargando el calendario…</div>
+        <div class="hidden sm:grid grid-cols-7 gap-1.5" x-show="$store.tarjetas.cal">
+          <template x-for="d in ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']" :key="'tjdw' + d"><div class="text-[11px] uppercase text-slate-500 px-1" x-text="d"></div></template>
+          <template x-for="c in $store.tarjetas.celdas()" :key="'tjcel' + c.iso">
+            <div class="min-h-[110px] rounded-xl p-1.5 space-y-1 min-w-0"
+              :class="[c.fuera ? 'opacity-40' : '', c.hoy ? 'ring-2 ring-slate-900 dark:ring-slate-100' : '', c.pasado ? 'bg-slate-50 dark:bg-slate-800/40' : 'bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800']">
+              <div class="text-xs font-semibold" x-text="c.dia"></div>
+              <template x-for="(it, k) in c.items" :key="'tjit' + c.iso + k">
+                <div :class="$store.tarjetas.claseItem(it)" :style="$store.tarjetas.estiloItem(it)">
+                  <div class="text-[11px] leading-tight font-semibold break-words" x-text="$store.tarjetas.itemTitulo(it)"></div>
+                  <div class="text-[11px] num font-semibold" x-show="it.monto !== null && it.monto !== undefined" x-text="$store.tarjetas.fmt(it.monto, it.moneda)"></div>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+        <div class="sm:hidden space-y-2" x-show="$store.tarjetas.cal">
+          <template x-for="g in $store.tarjetas.agenda()" :key="'tjag' + g.iso">
+            <div class="rounded-xl border border-slate-100 dark:border-slate-800 p-2" :class="g.hoy ? 'ring-2 ring-slate-900 dark:ring-slate-100' : ''">
+              <div class="text-xs font-semibold text-slate-500" x-text="g.txt"></div>
+              <template x-for="(it, k) in g.items" :key="'tjagi' + g.iso + k">
+                <div class="flex justify-between gap-2 text-sm py-0.5"><span class="min-w-0" x-text="$store.tarjetas.itemTitulo(it)"></span>
+                  <span class="num font-semibold whitespace-nowrap" x-show="it.monto !== null && it.monto !== undefined" x-text="$store.tarjetas.fmt(it.monto, it.moneda)"></span></div>
+              </template>
+            </div>
+          </template>
+        </div>
+      </div>
+      <div class="bg-white dark:bg-slate-900 rounded-2xl p-4 shadow-sm space-y-2 min-w-0">
+        <div class="flex items-baseline justify-between"><h3 class="font-semibold">Por confirmar</h3><span class="text-xs text-slate-500" x-text="$store.tarjetas.bandeja().length"></span></div>
+        <p class="text-[11px] text-slate-500 leading-snug" x-show="!$store.tarjetas.desdeConfirmar()">Desde el 1 de diciembre cada fijo entra al P&amp;G cuando lo confirmas aquí. Hasta noviembre los anotó el bot solo, como siempre.</p>
+        <p class="text-[11px] text-slate-500 leading-snug" x-show="$store.tarjetas.desdeConfirmar() && !$store.tarjetas.bandeja().length">Nada pendiente: todo lo que ya pasó está confirmado.</p>
+        <template x-for="b in $store.tarjetas.bandeja()" :key="'tjbj' + b.fijo_id + b.periodo">
+          <div class="border-t border-slate-100 dark:border-slate-800 pt-2 space-y-1.5">
+            <div class="flex justify-between gap-2 text-sm"><span class="min-w-0"><span class="text-slate-500" x-text="$store.tarjetas.fechaCorta(b.fecha)"></span> · <b x-text="b.label"></b></span>
+              <span class="num font-semibold whitespace-nowrap" x-text="$store.tarjetas.fmt(b.monto, b.moneda)"></span></div>
+            <div class="text-[11px] text-slate-500" x-text="$store.tarjetas.etiquetaMetodo(b.metodo_pago) + (/promedio/i.test(b.label) ? ' · es un promedio: pon el valor real del extracto con «llegó con otro valor»' : '')"></div>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <button type="button" class="rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-3 py-1 text-xs font-semibold" :disabled="$store.tarjetas.busy" @click="$store.tarjetas.confirmar(b, 'paso')">✓ Pasó</button>
+              <button type="button" class="rounded-full border border-slate-300 dark:border-slate-700 px-3 py-1 text-xs" :disabled="$store.tarjetas.busy" @click="$store.tarjetas.confirmar(b, 'no_paso')">No pasó</button>
+              <button type="button" class="text-[11px] underline text-slate-500" @click="$store.tarjetas.otroValor(b)">llegó con otro valor</button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- 3 · Suscripciones y fijos: valor, moneda, tarjeta y activo desde una fecha -->
+    <div x-show="$store.tarjetas.tab === 'suscripciones'" class="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div><h3 class="font-semibold">Suscripciones y fijos</h3>
+          <div class="text-xs text-slate-500" x-text="$store.tarjetas.fijosResumen()"></div></div>
+        <button type="button" class="rounded-full bg-ahorro text-white px-3.5 py-1.5 text-xs font-semibold" @click="$store.tarjetas.nuevo.open = !$store.tarjetas.nuevo.open">+ Nuevo fijo</button>
+      </div>
+      <p class="text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 rounded-xl px-3 py-2 leading-relaxed"><b>Todo cambio pregunta «¿desde cuándo?»</b>: el valor, la moneda, la tarjeta, el día o apagarlo. Lo de antes no se toca. Desde el 1 de diciembre cada fijo entra al P&amp;G cuando lo confirmas en el Calendario; hasta noviembre los anotó el bot.</p>
+      <div x-show="$store.tarjetas.nuevo.open" class="rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3 grid sm:grid-cols-3 gap-2 text-sm">
+        <input type="text" x-model="$store.tarjetas.nuevo.label" placeholder="Nombre (ej. Amazon Prime)" class="bg-white dark:bg-slate-900 rounded-xl px-3 py-2">
+        <select x-model="$store.tarjetas.nuevo.categoria" class="bg-white dark:bg-slate-900 rounded-xl px-3 py-2"><option value="">Categoría…</option>
+          <template x-for="c in $store.tarjetas.categorias" :key="'tjnc' + c.key"><option :value="c.key" x-text="(c.icon || '') + ' ' + (c.label || c.key)"></option></template></select>
+        <select x-model="$store.tarjetas.nuevo.metodo_pago" class="bg-white dark:bg-slate-900 rounded-xl px-3 py-2">
+          <template x-for="m in $store.tarjetas.metodos" :key="'tjnm' + m"><option :value="m" x-text="$store.tarjetas.etiquetaMetodo(m)"></option></template></select>
+        <div class="flex gap-2"><input type="text" inputmode="decimal" x-model="$store.tarjetas.nuevo.monto" placeholder="Valor" class="flex-1 min-w-0 bg-white dark:bg-slate-900 rounded-xl px-3 py-2">
+          <select x-model="$store.tarjetas.nuevo.currency" class="bg-white dark:bg-slate-900 rounded-xl px-2"><option>COP</option><option>USD</option></select></div>
+        <input type="number" min="1" max="31" x-model="$store.tarjetas.nuevo.dia" placeholder="Día de cobro" class="bg-white dark:bg-slate-900 rounded-xl px-3 py-2">
+        <div class="flex gap-2"><select x-model="$store.tarjetas.nuevo.user_name" class="flex-1 bg-white dark:bg-slate-900 rounded-xl px-2"><option>Daniel</option><option>Mado</option><option>Tuo</option></select>
+          <button type="button" class="rounded-full bg-ahorro text-white px-3 py-1.5 text-xs font-semibold" :disabled="$store.tarjetas.busy" @click="$store.tarjetas.crearFijo()">Crear</button></div>
+      </div>
+      <template x-for="g in $store.tarjetas.gruposFijos()" :key="'tjg' + g.k">
+        <div>
+          <div class="flex items-baseline justify-between gap-2 pb-1 border-b border-slate-100 dark:border-slate-800">
+            <span class="flex items-center gap-2 font-semibold text-sm"><span class="w-2.5 h-2.5 rounded-full" :style="'background:' + g.color"></span><span x-text="g.titulo"></span></span>
+            <span class="text-[11px] text-slate-500" x-text="g.linea"></span></div>
+          <template x-for="f in g.fijos" :key="'tjfx' + f.id">
+            <div class="border-b border-slate-50 dark:border-slate-800/60 py-2">
+              <div class="grid grid-cols-[auto,1fr] lg:grid-cols-[auto,minmax(0,1fr),70px,220px,120px,80px,110px] gap-2 items-center text-sm">
+                <button type="button" role="switch" :aria-checked="$store.tarjetas.ed(f).active ? 'true' : 'false'" @click="$store.tarjetas.ed(f).active = $store.tarjetas.ed(f).active ? 0 : 1"
+                  class="w-10 h-6 rounded-full p-0.5 transition flex" :class="$store.tarjetas.ed(f).active ? 'bg-ahorro justify-end' : 'bg-slate-300 dark:bg-slate-700 justify-start'"><span class="w-5 h-5 rounded-full bg-white shadow"></span></button>
+                <span class="min-w-0"><span class="font-medium" x-text="f.label"></span> <span class="text-[11px] text-slate-500" x-text="'· ' + (f.user_name || '')"></span>
+                  <span class="block text-[11px]" :class="$store.tarjetas.tonoEstadoTxt(f.estado)" x-text="$store.tarjetas.estadoMesTxt(f)"></span></span>
+                <input type="number" min="1" max="31" x-model.number="$store.tarjetas.ed(f).dia_cobro" placeholder="día" aria-label="Día de cobro" class="col-start-2 lg:col-start-auto bg-slate-100 dark:bg-slate-800 rounded-lg px-2 py-1.5 w-full">
+                <select x-model="$store.tarjetas.ed(f).metodo_pago" aria-label="Tarjeta o cuenta" class="col-start-2 lg:col-start-auto bg-slate-100 dark:bg-slate-800 rounded-lg px-2 py-1.5 w-full min-w-0">
+                  <template x-for="m in $store.tarjetas.metodosCon(f.metodo_pago)" :key="'tjfm' + f.id + m"><option :value="m" :selected="m === $store.tarjetas.ed(f).metodo_pago" x-text="$store.tarjetas.etiquetaMetodo(m)"></option></template></select>
+                <input type="text" inputmode="decimal" x-model="$store.tarjetas.ed(f).monto" aria-label="Valor" class="col-start-2 lg:col-start-auto bg-slate-100 dark:bg-slate-800 rounded-lg px-2 py-1.5 w-full text-right num font-semibold">
+                <select x-model="$store.tarjetas.ed(f).currency" aria-label="Moneda de origen" class="col-start-2 lg:col-start-auto bg-slate-100 dark:bg-slate-800 rounded-lg px-2 py-1.5"><option>COP</option><option>USD</option></select>
+                <span class="col-start-2 lg:col-start-auto text-right text-xs text-slate-500 num" x-text="$store.tarjetas.fmt(f.en_pesos, 'COP') + ' hoy'"></span>
+              </div>
+              <div x-show="$store.tarjetas.cambio(f)" class="mt-2 ml-12 rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3 flex flex-wrap items-end gap-3 text-sm">
+                <label class="flex flex-col gap-1"><span class="text-[11px] uppercase tracking-wide text-slate-500">¿Desde cuándo?</span>
+                  <select x-model="$store.tarjetas.ed(f).desde" class="bg-white dark:bg-slate-900 rounded-lg px-2 py-1.5">
+                    <template x-for="m in $store.tarjetas.mesesDesde()" :key="'tjds' + f.id + m.v"><option :value="m.v" x-text="m.t"></option></template></select></label>
+                <span class="text-xs text-slate-600 dark:text-slate-300 flex-1 min-w-[200px]" x-text="$store.tarjetas.desdeTxt(f)"></span>
+                <span class="flex gap-2"><button type="button" class="rounded-full bg-ahorro text-white px-3 py-1.5 text-xs font-semibold" :disabled="$store.tarjetas.busy" @click="$store.tarjetas.guardarFijo(f)">Guardar</button>
+                  <button type="button" class="rounded-full border border-slate-300 dark:border-slate-700 px-3 py-1.5 text-xs" @click="$store.tarjetas.descartar(f)">Cancelar</button></span>
+              </div>
+              <div x-show="f.estado === 'confirmado' || f.estado === 'no_paso'" class="ml-12 mt-1 text-[11px]">
+                <button type="button" class="underline text-slate-500" @click="$store.tarjetas.deshacer(f)">Deshacer la confirmación de este mes</button></div>
+            </div>
+          </template>
+        </div>
+      </template>
+    </div>
+
+    <!-- Avisar abono -->
+    <div x-show="$store.tarjetas.abono.open" x-cloak class="fixed inset-0 z-50 bg-black/40 grid place-items-center p-4" @click.self="$store.tarjetas.abono.open = false" @keydown.escape.window="$store.tarjetas.abono.open = false">
+      <div class="bg-white dark:bg-slate-900 rounded-2xl p-5 w-full max-w-lg space-y-3 shadow-xl max-h-[90vh] overflow-y-auto">
+        <div class="flex justify-between items-baseline"><h3 class="font-semibold text-lg">Avisar un abono</h3><button type="button" class="text-slate-400" @click="$store.tarjetas.abono.open = false" aria-label="Cerrar">✕</button></div>
+        <div class="text-[11px] uppercase tracking-wide text-slate-500">¿De quién es la tarjeta?</div>
+        <div class="flex rounded-full bg-slate-100 dark:bg-slate-800 p-1 text-xs">
+          <template x-for="d in ['Daniel', 'Mado']" :key="'tjad' + d">
+            <button type="button" @click="$store.tarjetas.abono.titular = d; $store.tarjetas.abono.pais = ''; $store.tarjetas.abono.tid = ''" class="flex-1 rounded-full py-1.5"
+              :class="$store.tarjetas.abono.titular === d ? 'bg-white dark:bg-slate-900 shadow-sm font-semibold' : 'text-slate-500'" x-text="'De ' + d"></button>
+          </template>
+        </div>
+        <div x-show="$store.tarjetas.abono.titular" class="text-[11px] uppercase tracking-wide text-slate-500">¿De qué país?</div>
+        <div x-show="$store.tarjetas.abono.titular" class="flex flex-wrap gap-2">
+          <template x-for="p in $store.tarjetas.paisesDe($store.tarjetas.abono.titular)" :key="'tjap' + p">
+            <button type="button" @click="$store.tarjetas.abono.pais = p; $store.tarjetas.abono.tid = ''" class="rounded-full border px-3 py-1 text-xs"
+              :class="$store.tarjetas.abono.pais === p ? 'border-2 border-slate-900 dark:border-slate-100 font-semibold' : 'border-slate-300 dark:border-slate-700'" x-text="p"></button>
+          </template>
+        </div>
+        <div x-show="$store.tarjetas.abono.pais" class="text-[11px] uppercase tracking-wide text-slate-500">¿Cuál tarjeta?</div>
+        <div x-show="$store.tarjetas.abono.pais" class="flex flex-wrap gap-2">
+          <template x-for="t in $store.tarjetas.tarjetasDe($store.tarjetas.abono.titular, $store.tarjetas.abono.pais)" :key="'tjat' + t.id">
+            <button type="button" @click="$store.tarjetas.abono.tid = t.id; $store.tarjetas.abono.modo = ''" class="rounded-xl border px-3 py-1.5 text-left text-xs"
+              :class="$store.tarjetas.abono.tid === t.id ? 'border-2 border-slate-900 dark:border-slate-100' : 'border-slate-300 dark:border-slate-700'">
+              <span class="flex items-center gap-1.5 font-semibold"><span class="w-2 h-2 rounded-full" :style="'background:' + t.color"></span><span x-text="$store.tarjetas.nombreCorto(t)"></span></span>
+              <span class="text-slate-500" x-text="'saldo ' + (t.usado === null ? 'falta' : $store.tarjetas.fmt(t.usado, t.moneda))"></span></button>
+          </template>
+        </div>
+        <template x-if="$store.tarjetas.tAbono()">
+          <div class="space-y-3">
+            <div class="text-[11px] uppercase tracking-wide text-slate-500">¿Cuánto?</div>
+            <div class="flex flex-wrap gap-2">
+              <template x-for="o in $store.tarjetas.opcionesAbono()" :key="'tjao' + o.k">
+                <button type="button" @click="$store.tarjetas.abono.modo = o.k; if (o.v !== null) $store.tarjetas.abono.monto = String(o.v)" class="rounded-xl border px-3 py-1.5 text-left text-xs"
+                  :class="$store.tarjetas.abono.modo === o.k ? 'border-2 border-slate-900 dark:border-slate-100' : 'border-slate-300 dark:border-slate-700'">
+                  <span class="block font-semibold num" x-text="o.t"></span><span class="block text-slate-500" x-text="o.s"></span></button>
+              </template>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <label class="flex flex-col gap-1"><span class="text-[11px] text-slate-500">Monto</span>
+                <input type="text" inputmode="decimal" x-model="$store.tarjetas.abono.monto" class="bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2 num"></label>
+              <label class="flex flex-col gap-1"><span class="text-[11px] text-slate-500">Fecha</span>
+                <input type="date" x-model="$store.tarjetas.abono.fecha" class="bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2"></label>
+            </div>
+            <input type="text" x-model="$store.tarjetas.abono.nota" maxlength="120" placeholder="Nota (opcional)" class="w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2 text-sm">
+            <div class="rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200 px-3 py-2 text-sm" x-show="$store.tarjetas.previaAbono()" x-text="$store.tarjetas.previaAbono()"></div>
+          </div>
+        </template>
+        <div x-show="$store.tarjetas.abono.error" class="text-xs text-red-700 dark:text-red-300" x-text="$store.tarjetas.abono.error"></div>
+        <div class="flex gap-2"><button type="button" class="rounded-full bg-ahorro text-white px-4 py-2 text-sm font-semibold disabled:opacity-50" :disabled="$store.tarjetas.busy || !$store.tarjetas.tAbono()" @click="$store.tarjetas.guardarAbono()">Guardar abono</button>
+          <button type="button" class="rounded-full border border-slate-300 dark:border-slate-700 px-4 py-2 text-sm" @click="$store.tarjetas.abono.open = false">Cancelar</button></div>
+        <p class="text-[11px] text-slate-500">Solo cambia la tarjeta: no toca tus cuentas de Patrimonio.</p>
+      </div>
+    </div>
+
+    <!-- Poner el saldo que dice el banco (extracto, app, video o captura) -->
+    <div x-show="$store.tarjetas.lectura.open" x-cloak class="fixed inset-0 z-50 bg-black/40 grid place-items-center p-4" @click.self="$store.tarjetas.lectura.open = false" @keydown.escape.window="$store.tarjetas.lectura.open = false">
+      <div class="bg-white dark:bg-slate-900 rounded-2xl p-5 w-full max-w-md space-y-3 shadow-xl">
+        <div class="flex justify-between items-baseline"><h3 class="font-semibold text-lg">Saldo que dice el banco</h3><button type="button" class="text-slate-400" @click="$store.tarjetas.lectura.open = false" aria-label="Cerrar">✕</button></div>
+        <p class="text-xs text-slate-500">Lo que dice la app o el extracto como deuda o «usado» hoy. Desde ese dato se vuelve a sumar lo que anotes y a restar lo que abones.</p>
+        <select x-model="$store.tarjetas.lectura.tid" class="w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2 text-sm">
+          <template x-for="t in $store.tarjetas.conSaldo()" :key="'tjlt' + t.id"><option :value="t.id" x-text="$store.tarjetas.nombreT(t) + ' · ' + t.moneda"></option></template></select>
+        <div class="grid grid-cols-2 gap-2">
+          <input type="text" inputmode="decimal" x-model="$store.tarjetas.lectura.usado" placeholder="Usado o deuda" class="bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2 num">
+          <select x-model="$store.tarjetas.lectura.fuente" class="bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2 text-sm"><option>app del banco</option><option>extracto</option><option>captura</option><option>video</option></select>
+        </div>
+        <div x-show="$store.tarjetas.lectura.error" class="text-xs text-red-700 dark:text-red-300" x-text="$store.tarjetas.lectura.error"></div>
+        <div class="flex gap-2"><button type="button" class="rounded-full bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 px-4 py-2 text-sm font-semibold" :disabled="$store.tarjetas.busy" @click="$store.tarjetas.guardarLectura()">Guardar</button>
+          <button type="button" class="rounded-full border border-slate-300 dark:border-slate-700 px-4 py-2 text-sm" @click="$store.tarjetas.lectura.open = false">Cancelar</button></div>
+      </div>
+    </div>
+  </div>
+
   <div x-show="view === 'ingresos'" x-cloak>
   <div class="grid grid-cols-1 xl:grid-cols-12 gap-4 mb-4">
 
@@ -1767,7 +2106,7 @@
   </main>
 
   <!-- ════════════════ Barra flotante (celular): 2 | + | 2 en cinco columnas iguales ════════════════ -->
-  <nav class="lg:hidden fixed inset-x-3 z-40 rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur shadow-lg border border-slate-200/70 dark:border-slate-800 px-1 py-1 grid grid-cols-5 items-center text-[10px] tracking-[-.01em] text-slate-500"
+  <nav class="lg:hidden fixed inset-x-3 z-40 rounded-full bg-white/95 dark:bg-slate-900/95 backdrop-blur shadow-lg border border-slate-200/70 dark:border-slate-800 px-1 py-1 grid grid-cols-6 items-center text-[10px] tracking-[-.01em] text-slate-500"
        style="bottom: max(env(safe-area-inset-bottom), 12px)" data-tour="nav-movil" aria-label="Secciones">
     <template x-for="t in views.filter(v => v.key !== 'ajustes').slice(0, 2)" :key="'nb' + t.key">
       <button @click="view = t.key" :aria-current="view === t.key ? 'page' : null"
@@ -2264,6 +2603,10 @@
     </div>
 
     <div x-show="$store.recurring.tab === 'fijos'" class="p-5 overflow-y-auto space-y-4">
+      <div class="rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 px-3 py-2 text-sm flex flex-wrap items-center justify-between gap-2">
+        <span>Los fijos ahora se cambian en <b>Tarjetas › Suscripciones</b>, con «desde cuándo». Desde el 1 de diciembre se confirman en el Calendario.</span>
+        <button type="button" class="rounded-full bg-amber-900 text-white dark:bg-amber-200 dark:text-amber-950 px-3 py-1 text-xs font-semibold" @click="$store.recurring.open = false; view = 'tarjetas'; $store.tarjetas.ir('suscripciones')">Ir a Suscripciones</button>
+      </div>
       <!-- Lista de recurrentes -->
       <div class="space-y-2">
         <template x-for="it in $store.recurring.items" :key="it.id">
@@ -6204,6 +6547,332 @@ document.addEventListener('alpine:init', () => {
   };
   const qGet = (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } };
   const qSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+  // ──────────────── 💳 Tarjetas (13-nov) ────────────────
+  // Pilas por banco, calendario de pagos con cortes, bandeja «Por confirmar» (desde dic 2026), abonos y
+  // suscripciones con «desde cuándo». Tarjetas y Patrimonio van separados: un abono solo cambia la tarjeta.
+  Alpine.store('tarjetas', {
+    tab: 'pilas', tid: null, cargando: false, busy: false, error: null,
+    data: null, fijosLista: [], fijosProx: [], cal: null, mes: null, abiertas: {}, abonos: [],
+    metodos: [], etiquetas: {}, categorias: [], edits: {}, confirmarDesde: '2026-12',
+    abono: { open: false, titular: '', pais: '', tid: '', modo: '', monto: '', fecha: '', nota: '', error: null },
+    lectura: { open: false, tid: '', usado: '', fuente: 'app del banco', error: null },
+    nuevo: { open: false, label: '', categoria: '', metodo_pago: 'BDB Visa Latam Dani', monto: '', currency: 'COP', dia: '', user_name: 'Daniel' },
+    _MES: ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'],
+    _hoy() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); },
+    _ym(iso) { return (iso || this._hoy()).slice(0, 7); },
+    _sumarMes(ym, k) { let [y, m] = ym.split('-').map(Number); const t = y * 12 + (m - 1) + k; return Math.floor(t / 12) + '-' + String(t % 12 + 1).padStart(2, '0'); },
+    async _json(url, opts) {
+      const r = await fetch(url, opts);
+      if (!r.ok) { let m = r.status + ''; try { m = (await r.json()).detail || m; } catch (e) {} throw new Error(m); }
+      return r.json();
+    },
+    async cargar() {
+      if (this.cargando) return;
+      this.cargando = true; this.error = null;
+      if (!this.mes) this.mes = this._ym();
+      try {
+        const per = this._ym(), prox = this._sumarMes(per, 1);
+        const [t, f, fp, pm, cats] = await Promise.all([
+          this._json('/api/tarjetas'), this._json('/api/fijos?periodo=' + per), this._json('/api/fijos?periodo=' + prox),
+          this._json('/api/payment-methods'), this._json('/api/categories').catch(() => ({}))]);
+        this.data = t; this.fijosLista = f.fijos || []; this.fijosProx = fp.fijos || []; this.confirmarDesde = f.confirmar_desde || '2026-12';
+        const m = pm.methods || {}; const lista = [];
+        for (const bank in m) for (const c of m[bank]) lista.push((bank === 'Efectivo' || c === bank) ? bank : bank + ' ' + c);
+        this.metodos = ['Sin especificar', ...lista]; this.etiquetas = pm.labels || {};
+        this.categorias = (cats.categories || cats.categorias || []).map(c => ({ key: c.key || c.categoria, label: c.label, icon: c.icon })).filter(c => c.key);
+        this.edits = {};
+        for (const f of this.fijosLista) this.ed(f);
+        await this.cargarCal();
+      } catch (e) { this.error = 'No se pudieron cargar las tarjetas: ' + e.message; }
+      this.cargando = false;
+    },
+    async cargarCal() {
+      const [y, m] = this.mes.split('-').map(Number);
+      const ini = new Date(y, m - 1, 1), fin = new Date(y, m, 0);
+      const desde = new Date(ini); desde.setDate(ini.getDate() - ((ini.getDay() + 6) % 7));
+      const hasta = new Date(fin); hasta.setDate(fin.getDate() + (6 - (fin.getDay() + 6) % 7));
+      const iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      try { this.cal = await this._json('/api/tarjetas/calendario?desde=' + iso(desde) + '&hasta=' + iso(hasta)); this.cal._desde = iso(desde); this.cal._hasta = iso(hasta); }
+      catch (e) { this.error = 'No se pudo cargar el calendario: ' + e.message; }
+    },
+    async cargarBandeja() {   // para el aviso del Resumen, sin abrir la sección
+      try { if (!this.mes) this.mes = this._ym(); if (!this.cal) await this.cargarCal(); } catch (e) {}
+    },
+    ir(tab) { this.tab = tab; if (!this.data) this.cargar(); },
+    // ── formato ──
+    fmt(v, mon) {
+      if (v === null || v === undefined || isNaN(v)) return '—';
+      const n = Number(v);
+      if (mon === 'USD') return 'US$' + n.toLocaleString('en-US', { maximumFractionDigits: Math.abs(n) < 1000 && n % 1 ? 2 : 0 });
+      if (mon === 'AED') return 'AED ' + n.toLocaleString('de-DE', { maximumFractionDigits: n % 1 ? 2 : 0 });
+      return '$' + Math.round(n).toLocaleString('de-DE');
+    },
+    pct(a, b) { return b ? Math.round(a / b * 100) + '%' : ''; },
+    fechaCorta(iso) { const [y, m, d] = iso.split('-').map(Number); return d + ' ' + this._MES[m - 1].slice(0, 3); },
+    etiquetaMetodo(m) { return this.etiquetas[m] || m || 'Sin especificar'; },
+    nombreT(t) { return t.banco + ' · ' + t.nombre + (t.ultimos ? ' ·' + t.ultimos : ''); },
+    nombreCorto(t) { return (t.ultimos ? '·' + t.ultimos : t.nombre) + (t.duenio === 'Mado' ? ' · Mado' : ''); },
+    tasasTxt() { const t = (this.data || {}).tasas || {}; return '1 US$ = ' + this.fmt(t.COP, 'COP') + ' pesos · 1 US$ = AED ' + (t.AED || 3.6725).toLocaleString('de-DE'); },
+    // ── pilas ──
+    tarjetas() { return (this.data || {}).tarjetas || []; },
+    resumen() {
+      const d = this.data; if (!d) return [];
+      const tc = d.totales.COP || { cupo: 0, usado: 0, libre: 0, consumos_mado: 0 }, ta = d.totales.AED, tu = d.totales.USD;
+      const prox = this.tarjetas().filter(t => t.proximo_pago && t.proximo_pago.monto).sort((a, b) => a.proximo_pago.dias - b.proximo_pago.dias)[0];
+      const enTarjetas = this.fijosLista.filter(f => f.active && f.tarjeta_id), fijosMes = enTarjetas.reduce((s, f) => s + (f.en_pesos || 0), 0);
+      const out = [
+        { k: 'Cupo en pesos · sin duplicar', v: this.fmt(tc.cupo, 'COP'), s: 'la ·0757 de Mado cuelga de la ·0312 y no se suma' },
+        { k: 'Libre hoy en pesos', v: this.fmt(tc.libre, 'COP'), cls: 'text-ahorro', s: 'usado ' + this.fmt(tc.usado, 'COP') + ' · consumos Daniel ' + this.fmt(tc.usado - tc.consumos_mado, 'COP') + ' · consumos Mado ' + this.fmt(tc.consumos_mado, 'COP') },
+      ];
+      if (ta) out.push({ k: 'Cupo en dirhams', v: this.fmt(ta.cupo, 'AED'), s: 'usado ' + this.fmt(ta.usado, 'AED') + ' · las de Mado comparten este cupo' });
+      if (tu) out.push({ k: 'Cupo en dólares · de Mado', v: this.fmt(tu.cupo, 'USD'), s: 'usado ' + this.fmt(tu.usado, 'USD') + (tu.sin_dato ? ' · ' + tu.sin_dato + ' sin saldo del banco' : '') });
+      out.push(prox ? { k: 'Próximo pago · ' + this.fechaCorta(prox.proximo_pago.fecha), v: this.fmt(prox.proximo_pago.monto, prox.moneda), cls: 'text-amber-700 dark:text-amber-300', s: this.nombreT(prox) }
+                    : { k: 'Próximo pago', v: '—', s: 'sin pagos con valor' });
+      out.push({ k: 'Fijos en tarjetas ≈', v: this.fmt(fijosMes, 'COP'), s: enTarjetas.length + ' fijos al mes en tus tarjetas' });
+      return out;
+    },
+    dolares() {
+      const d = this.data; if (!d) return [];
+      const u = d.en_dolares, porPagar = this.tarjetas().filter(t => t.proximo_pago && t.proximo_pago.monto && t.proximo_pago.dias <= 31)
+        .reduce((s, t) => s + (t.moneda === 'COP' ? t.proximo_pago.monto / d.tasas.COP : t.moneda === 'AED' ? t.proximo_pago.monto / d.tasas.AED : t.proximo_pago.monto), 0);
+      return [
+        { k: 'Cupo general', v: this.fmt(u.cupo, 'USD'), s: 'pesos, dirhams y dólares, sin duplicar' },
+        { k: 'Deuda hoy', v: this.fmt(u.usado, 'USD'), s: 'consumos Daniel ' + this.fmt(u.usado - u.consumos_mado, 'USD') + ' · consumos Mado ' + this.fmt(u.consumos_mado, 'USD') },
+        { k: 'Libre hoy', v: this.fmt(u.libre, 'USD'), cls: 'text-ahorro', s: 'lo que queda para gastar' },
+        { k: 'Por pagar · próximos pagos', v: this.fmt(porPagar, 'USD'), cls: 'text-amber-700 dark:text-amber-300', s: 'los que tienen valor en «Próximos pagos»' },
+      ];
+    },
+    bancos() {
+      const g = [];
+      for (const t of this.tarjetas()) { let b = g.find(x => x.banco === t.banco); if (!b) g.push(b = { banco: t.banco, tarjetas: [] }); b.tarjetas.push(t); }
+      for (const b of g) {
+        const mon = b.tarjetas[0].moneda, propias = b.tarjetas.filter(t => !t.respalda && t.cupo !== null);
+        const cupo = propias.reduce((s, t) => s + t.cupo, 0), sinDato = b.tarjetas.some(t => t.usado === null);
+        const usado = b.tarjetas.reduce((s, t) => s + (t.usado || 0), 0);
+        b.linea = sinDato ? 'cupo ' + this.fmt(cupo, mon) + ' · falta el saldo del banco' : 'cupo ' + this.fmt(cupo, mon) + ' · usado ' + this.fmt(usado, mon) + ' · libre ' + this.fmt(cupo - usado, mon);
+        const notas = [];
+        if (b.tarjetas.some(t => t.respalda)) notas.push('las que cuelgan de otra no suman su cupo');
+        if (b.tarjetas.some(t => t.metodos.some(m => / Mado$/.test(m)) && t.duenio !== 'Mado')) notas.push('Mado usa el mismo cupo');
+        b.nota = notas.join(' · ');
+      }
+      return g;
+    },
+    alternar(banco) { this.abiertas = { ...this.abiertas, [banco]: !this.abiertas[banco] }; },
+    ordenPila(b) { return b.tarjetas.length > 1 ? [...b.tarjetas.slice(1).reverse(), b.tarjetas[0]] : b.tarjetas; },
+    topCapa(b, i) { return i * (this.abiertas[b.banco] ? 232 : 56); },
+    altoPila(b) { return 220 + (b.tarjetas.length - 1) * (this.abiertas[b.banco] ? 232 : 56); },
+    pagoTxt(t) {
+      const p = t.proximo_pago;
+      if (!p) return t.usado === null ? 'falta el saldo' : t.dia_pago ? (t.usado ? 'paga el ' + t.dia_pago + ' de cada mes' : 'sin deuda · paga el ' + t.dia_pago) : (t.usado ? 'con saldo' : 'sin deuda');
+      return 'Pago ' + this.fechaCorta(p.fecha) + (p.monto ? ' · ' + this.fmt(p.monto, t.moneda) : '') + ' · en ' + p.dias + (p.dias === 1 ? ' día' : ' días');
+    },
+    tonoPago(t) {
+      const p = t.proximo_pago; if (!p) return 'bg-slate-100 text-slate-500 dark:bg-slate-800';
+      return p.dias <= 3 ? 'bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300' : p.dias <= 7 ? 'bg-orange-100 text-orange-700 dark:bg-orange-950/60 dark:text-orange-300'
+           : p.dias <= 14 ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300';
+    },
+    detalleTxt(t) {
+      const fj = this.fijosLista.filter(f => f.active && f.tarjeta_id === t.id);
+      const partes = [];
+      if (t.lectura) partes.push('banco: ' + this.fmt(t.lectura.usado, t.moneda) + ' (' + (t.lectura.fuente || '') + ', ' + this.fechaCorta(t.lectura.fecha.slice(0, 10)) + ')');
+      if (t.sumado_desde_lectura) partes.push('+ ' + this.fmt(t.sumado_desde_lectura, t.moneda) + ' anotado después');
+      if (t.abonos_desde_lectura) partes.push('− ' + this.fmt(t.abonos_desde_lectura, t.moneda) + ' abonado');
+      if (t.consumos_mado && t.duenio !== 'Mado') partes.push('consumos Mado ' + this.fmt(t.consumos_mado, t.moneda));
+      if (fj.length) partes.push(fj.length + (fj.length === 1 ? ' fijo' : ' fijos'));
+      return partes.join(' · ');
+    },
+    abrirTarjeta(tid) { this.tid = tid; this.tab = 'tarjeta'; this.abonos = []; this._json('/api/tarjetas/' + tid + '/abonos').then(r => { this.abonos = r.abonos || []; }).catch(() => {}); },
+    unaT() { return this.tarjetas().find(t => t.id === this.tid) || null; },
+    fijosDeT(tid) { return [...this.fijosLista, ...this.fijosProx].filter(f => f.active && f.tarjeta_id === tid).sort((a, b) => (a.periodo + String(a.dia_cobro || 0).padStart(2, '0')).localeCompare(b.periodo + String(b.dia_cobro || 0).padStart(2, '0'))); },
+    diaTxt(f) { return f.dia_cobro ? f.dia_cobro + ' ' + this._MES[Number(f.periodo.slice(5)) - 1].slice(0, 3) : 'sin día'; },
+    saldoLineas(t) {
+      if (!t) return [];
+      return [
+        { k: 'Último dato del banco', s: t.lectura ? (t.lectura.fuente || '') + ', ' + this.fechaCorta(t.lectura.fecha.slice(0, 10)) : 'falta', v: t.lectura ? this.fmt(t.lectura.usado, t.moneda) : 'falta' },
+        { k: '+ lo anotado con esta tarjeta desde entonces', s: 'compras y fijos confirmados', v: this.fmt(t.sumado_desde_lectura, t.moneda) },
+        { k: '− abonos que avisaste', s: 'desde ese dato', v: this.fmt(t.abonos_desde_lectura, t.moneda) },
+      ];
+    },
+    estadoTxt(e) { return { confirmado: '✓ confirmado', no_paso: 'no pasó', por_confirmar: '⏳ por confirmar', previsto: 'previsto', anotado_bot: 'anotado por el bot', sin_anotar: 'sin anotar' }[e] || e; },
+    tonoEstado(e) { return e === 'confirmado' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300' : e === 'por_confirmar' ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-800'; },
+    tonoEstadoTxt(e) { return e === 'confirmado' ? 'text-emerald-700 dark:text-emerald-300' : e === 'por_confirmar' ? 'text-amber-700 dark:text-amber-300' : 'text-slate-500'; },
+    estadoMesTxt(f) { const mes = this._MES[Number(f.periodo.slice(5)) - 1]; return mes + ': ' + this.estadoTxt(f.estado); },
+    // ── calendario ──
+    desdeConfirmar() { return this._ym() >= this.confirmarDesde; },
+    bandeja() { return (this.cal && this.cal.bandeja) || []; },
+    mesTxt() { if (!this.mes) return ''; const [y, m] = this.mes.split('-').map(Number); return this._MES[m - 1] + ' ' + y; },
+    async moverMes(k) { this.mes = this._sumarMes(this.mes || this._ym(), k); this.cal = null; await this.cargarCal(); },
+    celdas() {
+      if (!this.cal || !this.cal._desde) return [];
+      const out = [], hoy = this._hoy(); const items = {};
+      for (const it of this.cal.items) (items[it.fecha] = items[it.fecha] || []).push(it);
+      let d = new Date(this.cal._desde + 'T12:00:00'); const fin = new Date(this.cal._hasta + 'T12:00:00');
+      while (d <= fin) {
+        const iso = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+        out.push({ iso, dia: d.getDate() + (d.getDate() === 1 ? ' ' + this._MES[d.getMonth()].slice(0, 3) : ''), fuera: iso.slice(0, 7) !== this.mes,
+                   hoy: iso === hoy, pasado: iso < hoy, items: items[iso] || [] });
+        d.setDate(d.getDate() + 1);
+      }
+      return out;
+    },
+    agenda() {
+      return this.celdas().filter(c => !c.fuera && c.items.length).map(c => ({ iso: c.iso, hoy: c.hoy, items: c.items,
+        txt: (c.hoy ? 'Hoy · ' : '') + this.fechaCorta(c.iso) }));
+    },
+    _color(it) { const t = this.cal && this.cal.tarjetas && this.cal.tarjetas[it.tarjeta_id]; return (t && t.color) || '#475569'; },
+    claseItem(it) {
+      if (it.tipo === 'pago') return 'rounded-lg px-1.5 py-1 ' + (it.pagado ? 'bg-emerald-50 text-emerald-800 border border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-800' : 'text-white');
+      if (it.tipo === 'corte') return 'rounded-lg px-1.5 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700';
+      return 'rounded px-1 py-0.5 ' + (it.estado === 'por_confirmar' ? 'bg-amber-50 dark:bg-amber-950/40' : '');
+    },
+    estiloItem(it) { return it.tipo === 'pago' && !it.pagado ? 'background:' + this._color(it) : it.tipo === 'fijo' ? 'border-left:3px solid ' + this._color(it) : ''; },
+    itemTitulo(it) {
+      if (it.tipo === 'pago') return (it.pagado ? '✓ ' : 'Pagar ') + this.etiquetaMetodo(it.label);
+      if (it.tipo === 'corte') return it.label + (it.monto !== null ? ' · va' : '');
+      const marca = { confirmado: '✓ ', por_confirmar: '⏳ ', no_paso: '✗ ' }[it.estado] || '';
+      return marca + it.label;
+    },
+    async confirmar(b, estado, monto) {
+      this.busy = true; this.error = null;
+      try {
+        await this._json('/api/fijos/' + b.fijo_id + '/confirmar', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ periodo: b.periodo, estado, monto: monto ?? null }) });
+        this.data = null; await this.cargar();
+        Alpine.store('quick').aviso(estado === 'paso' ? '✓ ' + b.label + ' entró al P&G' : b.label + ': no pasó este mes');
+      } catch (e) { this.error = 'No se pudo confirmar: ' + e.message; }
+      this.busy = false;
+    },
+    otroValor(b) {
+      const v = prompt('¿Con qué valor llegó ' + b.label + '? (en ' + b.moneda + ')', String(b.monto || ''));
+      if (v === null) return;
+      const n = Number(String(v).replace(/[^0-9.,]/g, '').replace(/\./g, '').replace(',', '.'));
+      if (!n) return;
+      this.confirmar(b, 'paso', b.moneda === 'USD' ? Number(String(v).replace(/[^0-9.]/g, '')) : n);
+    },
+    async deshacer(f) {
+      if (!confirm('¿Deshacer la confirmación de ' + f.label + ' en ' + this.estadoMesTxt(f).split(':')[0] + '? Si el gasto lo creó la confirmación, se borra.')) return;
+      this.busy = true;
+      try { await this._json('/api/fijos/' + f.id + '/confirmar?periodo=' + f.periodo, { method: 'DELETE' }); this.data = null; await this.cargar(); }
+      catch (e) { this.error = 'No se pudo deshacer: ' + e.message; }
+      this.busy = false;
+    },
+    // ── suscripciones ──
+    gruposFijos() {
+      const t = {}; for (const x of this.tarjetas()) t[x.id] = x;
+      const g = {};
+      for (const f of this.fijosLista) {
+        const k = f.tarjeta_id || ('m:' + (f.metodo_pago || ''));
+        const x = t[f.tarjeta_id];
+        (g[k] = g[k] || { k, titulo: x ? this.nombreT(x) + (x.duenio === 'Mado' ? ' · Mado' : '') : this.etiquetaMetodo(f.metodo_pago), color: x ? x.color : '#94a3b8', fijos: [], orden: x ? x.orden : 999 }).fijos.push(f);
+      }
+      const lista = Object.values(g).sort((a, b) => a.orden - b.orden || a.titulo.localeCompare(b.titulo));
+      for (const x of lista) { const act = x.fijos.filter(f => f.active); x.linea = act.length + (act.length === 1 ? ' fijo' : ' fijos') + ' · ' + this.fmt(act.reduce((s, f) => s + f.en_pesos, 0), 'COP') + ' al mes'; }
+      return lista;
+    },
+    fijosResumen() { const a = this.fijosLista.filter(f => f.active); return a.length + ' activos · ' + this.fmt(a.reduce((s, f) => s + f.en_pesos, 0), 'COP') + ' al mes con la tasa de hoy'; },
+    metodosCon(m) { return m && !this.metodos.includes(m) ? [m, ...this.metodos] : this.metodos; },
+    _orig(f) { return { active: f.active ? 1 : 0, dia_cobro: f.dia_cobro || '', metodo_pago: f.metodo_pago || 'Sin especificar', monto: String(f.currency === 'USD' ? (f.monto_usd ?? '') : (f.monto_cop ?? '')), currency: f.currency || 'COP' }; },
+    ed(f) {
+      if (!this.edits[f.id]) {
+        const prox = (f.dia_cobro && Number(this._hoy().slice(8)) > f.dia_cobro) ? this._sumarMes(this._ym(), 1) : this._ym();
+        this.edits[f.id] = { ...this._orig(f), desde: prox };
+      }
+      return this.edits[f.id];
+    },
+    cambio(f) { const e = this.edits[f.id]; if (!e) return false; const o = this._orig(f); return ['active', 'dia_cobro', 'metodo_pago', 'monto', 'currency'].some(k => String(e[k]) !== String(o[k])); },
+    descartar(f) { delete this.edits[f.id]; this.edits = { ...this.edits }; },
+    mesesDesde() { const out = []; for (let k = 0; k < 7; k++) { const v = this._sumarMes(this._ym(), k); out.push({ v, t: this._MES[Number(v.slice(5)) - 1] + ' ' + v.slice(0, 4) + (k === 0 ? ' (este mes)' : '') }); } return out; },
+    desdeTxt(f) {
+      const e = this.edits[f.id]; if (!e) return '';
+      const mes = this._MES[Number(e.desde.slice(5)) - 1];
+      return 'Desde ' + mes + ' cuenta lo nuevo; los meses de antes se quedan como estaban.' + (e.active ? '' : ' Apagado: desde ' + mes + ' ya no se pide confirmar.');
+    },
+    async guardarFijo(f) {
+      const e = this.edits[f.id], o = this._orig(f); const body = { desde: e.desde };
+      if (String(e.active) !== String(o.active)) body.active = e.active ? 1 : 0;
+      if (String(e.dia_cobro) !== String(o.dia_cobro) && e.dia_cobro) body.dia_cobro = Number(e.dia_cobro);
+      if (e.metodo_pago !== o.metodo_pago) body.metodo_pago = e.metodo_pago;
+      if (e.currency !== o.currency) body.currency = e.currency;
+      if (String(e.monto) !== String(o.monto) || body.currency) {
+        const n = e.currency === 'USD' ? Number(String(e.monto).replace(',', '.')) : Number(String(e.monto).replace(/[^0-9]/g, ''));
+        if (isNaN(n) || n < 0) { this.error = 'Valor no válido para ' + f.label; return; }
+        body.monto = n;
+      }
+      this.busy = true; this.error = null;
+      try { await this._json('/api/fijos/' + f.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            this.data = null; await this.cargar(); Alpine.store('quick').aviso('✓ ' + f.label + ' cambiado desde ' + this._MES[Number(e.desde.slice(5)) - 1]); }
+      catch (err) { this.error = 'No se pudo guardar ' + f.label + ': ' + err.message; }
+      this.busy = false;
+    },
+    async crearFijo() {
+      const n = this.nuevo; const monto = n.currency === 'USD' ? Number(String(n.monto).replace(',', '.')) : Number(String(n.monto).replace(/[^0-9]/g, ''));
+      if (!n.label.trim() || !n.categoria || !monto) { this.error = 'Para crear un fijo pon nombre, categoría y valor.'; return; }
+      this.busy = true; this.error = null;
+      try {
+        const body = { label: n.label.trim(), categoria: n.categoria, metodo_pago: n.metodo_pago, user_name: n.user_name, currency: n.currency };
+        if (n.currency === 'USD') body.monto_usd = monto; else body.monto_cop = monto;
+        const r = await this._json('/api/recurring', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if (r.id && n.dia) await this._json('/api/fijos/' + r.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ desde: this._ym(), dia_cobro: Number(n.dia) }) });
+        this.nuevo = { open: false, label: '', categoria: '', metodo_pago: 'BDB Visa Latam Dani', monto: '', currency: 'COP', dia: '', user_name: 'Daniel' };
+        this.data = null; await this.cargar();
+      } catch (e) { this.error = 'No se pudo crear el fijo: ' + e.message; }
+      this.busy = false;
+    },
+    // ── abonos y saldo del banco ──
+    conSaldo() { return this.tarjetas(); },
+    tAbono() { return this.tarjetas().find(t => t.id === this.abono.tid) || null; },
+    paisDe(t) { return { 'Banco de Bogotá': 'Colombia', BBVA: 'Colombia', Falabella: 'Colombia', RappiCard: 'Colombia', Wio: 'Emiratos', 'Emirates NBD': 'Emiratos', Chase: 'Estados Unidos', 'Banco Pichincha': 'Ecuador' }[t.banco] || 'Otro'; },
+    paisesDe(quien) { return [...new Set(this.tarjetas().filter(t => t.duenio === quien).map(t => this.paisDe(t)))]; },
+    tarjetasDe(quien, pais) { return this.tarjetas().filter(t => t.duenio === quien && this.paisDe(t) === pais); },
+    abrirAbono(tid) {
+      if (!this.data) this.cargar();
+      const t = this.tarjetas().find(x => x.id === tid);
+      this.abono = { open: true, titular: t ? t.duenio : '', pais: t ? this.paisDe(t) : '', tid: tid || '', modo: '', monto: '', fecha: this._hoy(), nota: '', error: null };
+    },
+    opcionesAbono() {
+      const t = this.tAbono(); if (!t) return [];
+      const o = [];
+      if (t.proximo_pago && t.proximo_pago.monto) o.push({ k: 'pago', v: t.proximo_pago.monto, t: this.fmt(t.proximo_pago.monto, t.moneda), s: 'el pago del ' + this.fechaCorta(t.proximo_pago.fecha) });
+      if (t.usado) o.push({ k: 'todo', v: Math.round(t.usado * 100) / 100, t: this.fmt(t.usado, t.moneda), s: 'todo lo de hoy' });
+      o.push({ k: 'otro', v: null, t: 'otro monto', s: 'lo escribes' });
+      return o;
+    },
+    _num(v, mon) { return mon === 'COP' ? Number(String(v).replace(/[^0-9]/g, '')) : Number(String(v).replace(/[^0-9.,]/g, '').replace(',', '.')); },
+    previaAbono() {
+      const t = this.tAbono(), n = t ? this._num(this.abono.monto, t.moneda) : 0;
+      if (!t || !n || t.usado === null) return '';
+      const nuevo = Math.max(t.usado - n, 0);
+      return 'Al guardar: la ' + this.nombreCorto(t) + ' baja de ' + this.fmt(t.usado, t.moneda) + ' a ' + this.fmt(nuevo, t.moneda) + (t.cupo !== null ? ' (libre ' + this.fmt(t.cupo - nuevo, t.moneda) + ')' : '') + (t.proximo_pago && t.proximo_pago.monto && n >= 0.98 * t.proximo_pago.monto ? ' y el pago del ' + this.fechaCorta(t.proximo_pago.fecha) + ' queda hecho.' : '.');
+    },
+    async guardarAbono() {
+      const t = this.tAbono(); if (!t) return;
+      const n = this._num(this.abono.monto, t.moneda);
+      if (!n || n <= 0) { this.abono.error = 'Escribe cuánto abonaste.'; return; }
+      this.busy = true; this.abono.error = null;
+      try { await this._json('/api/tarjetas/' + t.id + '/abonos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ monto: n, fecha: this.abono.fecha || null, nota: this.abono.nota || null }) });
+            this.abono.open = false; this.data = null; await this.cargar(); if (this.tab === 'tarjeta') this.abrirTarjeta(t.id);
+            Alpine.store('quick').aviso('✓ Abono de ' + this.fmt(n, t.moneda) + ' a la ' + this.nombreCorto(t)); }
+      catch (e) { this.abono.error = 'No se pudo guardar: ' + e.message; }
+      this.busy = false;
+    },
+    async borrarAbono(aid) {
+      if (!confirm('¿Quitar este abono?')) return;
+      try { await this._json('/api/tarjetas/abonos/' + aid, { method: 'DELETE' }); this.data = null; await this.cargar(); this.abrirTarjeta(this.tid); }
+      catch (e) { this.error = 'No se pudo quitar: ' + e.message; }
+    },
+    abrirLectura(tid) { if (!this.data) this.cargar(); this.lectura = { open: true, tid: tid || (this.tarjetas()[0] || {}).id || '', usado: '', fuente: 'app del banco', error: null }; },
+    async guardarLectura() {
+      const t = this.tarjetas().find(x => x.id === this.lectura.tid); if (!t) return;
+      const n = this._num(this.lectura.usado, t.moneda);
+      if (isNaN(n) || this.lectura.usado === '') { this.lectura.error = 'Escribe el usado que dice el banco.'; return; }
+      this.busy = true; this.lectura.error = null;
+      try { await this._json('/api/tarjetas/' + t.id + '/lectura', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ usado: n, fuente: this.lectura.fuente }) });
+            this.lectura.open = false; this.data = null; await this.cargar(); Alpine.store('quick').aviso('✓ Saldo de la ' + this.nombreCorto(t) + ' puesto en ' + this.fmt(n, t.moneda)); }
+      catch (e) { this.lectura.error = 'No se pudo guardar: ' + e.message; }
+      this.busy = false;
+    },
+  });
+
   Alpine.store('quick', {
     open: false, busy: false, error: null, toast: '', _t: null, tipo: 'gasto',
     monedas: ['COP', 'USD', 'BOB', 'AED', 'CLP', 'ARS'],
@@ -7780,6 +8449,8 @@ function dashboard() {
         svg: '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>' },
       { key: 'ingresos',    icon: '💵', label: 'Ingresos',
         svg: '<path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"/><path d="M4 6v12c0 1.1.9 2 2 2h14v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4z"/>' },
+      { key: 'tarjetas',    icon: '💳', label: 'Tarjetas',
+        svg: '<rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="15" x2="10" y2="15"/>' },
       { key: 'ajustes',     icon: '⚙️', label: 'Ajustes',
         svg: '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>' },
     ],
@@ -7793,6 +8464,7 @@ function dashboard() {
       if (this.view === 'revision') { const r = Alpine.store('review'); return r.data ? r.periodoCorto() + ' · ' + r.personaLabel() : 'Dónde se va la plata'; }
       if (this.view === 'movimientos') return 'Movimientos · cada gasto';
       if (this.view === 'ingresos') return 'Ingresos · familia';
+      if (this.view === 'tarjetas') return 'Tarjetas · cupos, pagos y fijos';
       return 'Todo lo que se configura';
     },
     // Tema: auto (claro de día, oscuro de 18:00 a 6:00) · claro · oscuro
@@ -8168,7 +8840,8 @@ function dashboard() {
     },
     ajustes() {
       return [
-        { key: 'fijos', icon: '🔁', label: 'Fijos y diferidos', desc: 'Gastos que se anotan solos cada mes y compras en cuotas.', run: () => Alpine.store('recurring').openModal('fijos') },
+        { key: 'fijos', icon: '🔁', label: 'Suscripciones y fijos', desc: 'Valor, moneda, tarjeta y día de cada fijo, desde la fecha que elijas. Desde dic se confirman en Tarjetas.', run: () => { this.view = 'tarjetas'; Alpine.store('tarjetas').ir('suscripciones'); } },
+        { key: 'diferidos', icon: '📅', label: 'Diferidos', desc: 'Compras en cuotas: valor, cuotas, fechas o concepto de todas a la vez.', run: () => Alpine.store('recurring').openModal('diferidos') },
         { key: 'presupuesto', icon: '🗂️', label: 'Categorías y presupuesto', desc: 'Categorías, subcategorías y cuánto le asignas a cada una.', run: () => this.openSettings() },
         { key: 'tipos', icon: '🏷️', label: 'Tipos de gasto', desc: 'Qué es esencial, estilo de vida o gusto (para la Revisión).', run: () => Alpine.store('review').abrirTipos() },
         { key: 'ingresos', icon: '💵', label: 'Fuentes de ingreso', desc: 'Crear fuentes y su plan mensual. Los ingresos se anotan en la sección Ingresos.', run: () => this.openFuentes() },
@@ -8412,9 +9085,11 @@ function dashboard() {
       this.$watch('view', (v) => {
         if (location.hash.slice(1) !== v) location.hash = v;
         if (v === 'revision') Alpine.store('review').ensureLoaded();
+        if (v === 'tarjetas') Alpine.store('tarjetas').cargar();
         window.scrollTo({ top: 0 });
       });
       if (this.view === 'revision') Alpine.store('review').ensureLoaded();
+      if (this.view === 'tarjetas') Alpine.store('tarjetas').cargar(); else Alpine.store('tarjetas').cargarBandeja();
       // Also truncate months in place to preserve reactivity (don't reassign).
       this.months.length = 0;
 
