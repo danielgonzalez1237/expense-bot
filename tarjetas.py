@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 FIJOS_CONFIRMAR_DESDE = "2026-12"
 
@@ -29,7 +29,7 @@ _SEMILLA = [
     ("7857", "BBVA", "Visa Infinite", "7857", "Daniel", "COP", 40000000, None, ["BBVA Visa Infinite 7857 Dani"], 30, 15, None, "#1e293b", 22),
     ("3047", "Falabella", "Mastercard", "3047", "Daniel", "COP", 9200000, None, ["Falabella Mastercard Dani"], 29, 15, None, "#2f6b3a", 30),
     ("3810", "RappiCard", "Visa", "3810", "Daniel", "COP", 21499719, None, ["RappiCard Dani"], 3, None, None, "#c2410c", 40),
-    ("wio", "Wio", "Credit", "5807", "Daniel", "AED", 53000, None, ["WIO MC Dani", "WIO MC Mado"], None, 28, None, "#4c1d95", 50),
+    ("wio", "Wio", "Mastercard", "5807", "Daniel", "AED", 53000, None, ["WIO MC Dani", "WIO MC Mado"], None, 28, None, "#4c1d95", 50),
     ("enbd", "Emirates NBD", "Skywards Infinite", "9204", "Daniel", "AED", 31500, None, ["ENBD Visa AED", "ENBD Visa AED Mado"], None, None, None, "#1f2937", 60),
     ("sapphire", "Chase", "Sapphire Preferred", "1062", "Mado", "USD", 9800, None, ["Chase Sapphire Mado"], 22, 19, None, "#1c3f73", 70),
     ("freedom", "Chase", "Freedom Unlimited", "6289", "Mado", "USD", 5400, None, ["Chase Freedom Mado"], 4, 1, None, "#1f6fc0", 71),
@@ -75,7 +75,7 @@ def preparar(conn):
     cols = [r[1] for r in conn.execute("PRAGMA table_info(recurring_expenses)")]
     if "dia_cobro" not in cols:
         conn.execute("ALTER TABLE recurring_expenses ADD COLUMN dia_cobro INTEGER")
-    now = datetime.now().isoformat()
+    now = _ahora_utc()
     if not conn.execute("SELECT 1 FROM tarjetas LIMIT 1").fetchone():
         for (tid, banco, nombre, ult, duenio, mon, cupo, resp, mets, corte, pago, rec, color, orden) in _SEMILLA:
             rid = None
@@ -98,8 +98,43 @@ def preparar(conn):
 
 
 # ───────────── utilidades ─────────────
+_COL = timezone(timedelta(hours=-5))
+
+
+def _ahora():
+    """Hora de Colombia sin zona (así se guardan las fechas que ve Daniel)."""
+    return datetime.now(_COL).replace(tzinfo=None)
+
+
+def _ahora_utc():
+    """created_at de la base va en UTC sin zona (como lo guardan el bot y la API)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+
+
 def _hoy():
-    return date.today()
+    return _ahora().date()
+
+
+def _lectura_utc(fecha):
+    """La hora del dato del banco (Colombia) llevada a UTC para compararla con created_at."""
+    if not fecha or len(fecha) <= 10:
+        return fecha or ""
+    try:
+        return (datetime.fromisoformat(fecha[:16]) + timedelta(hours=5)).isoformat()
+    except ValueError:
+        return fecha
+
+
+def _periodo_a_pagar(due_day, pagados, ref):
+    """El pago que toca: el de este mes si sigue sin pagar (aunque ya venció), si no el siguiente sin pagar."""
+    for k in (0, 1, 2):
+        per = _sumar_mes(_ym(ref), k)
+        if per in pagados:
+            continue
+        f = _fecha_en(per, due_day)
+        if k == 0 or f >= ref:
+            return per, f
+    return None, None
 
 
 def _ym(d):
@@ -163,7 +198,7 @@ def estado(conn, bot):
         marcas = ",".join("?" * len(metodos)) or "''"
         # Compras sueltas después del dato del banco (hasta hoy). Las diferidas cuentan enteras si la compra (su primera
         # cuota) es posterior al dato: el banco ya trae completas las de antes, aunque tengan cuotas en meses futuros.
-        lec_ts = lec["fecha"] if lec else ""
+        lec_ts = _lectura_utc(lec["fecha"]) if lec else ""
         gastos = _filas(conn, f"SELECT metodo_pago, monto_cop, monto_usd FROM expenses WHERE deferred_group_id IS NULL "
                               f"AND (fecha > ? OR (fecha = ? AND created_at > ?)) AND fecha <= ? AND metodo_pago IN ({marcas})",
                         (desde, desde, lec_ts, hoy.isoformat(), *metodos)) if metodos else []
@@ -185,13 +220,10 @@ def estado(conn, bot):
         rec = recordatorios.get(t["recordatorio_id"]) if t["recordatorio_id"] else None
         dia_pago = (rec or {}).get("due_day") or t["pago_dia"]
         if dia_pago and rec:   # el pago con fecha y estado sale de «Próximos pagos»; sin recordatorio solo se dice el día
-            for k in (0, 1, 2):
-                per = _sumar_mes(_ym(hoy), k)
-                f = _fecha_en(per, dia_pago)
-                if f >= hoy and per not in pagados.get(t["recordatorio_id"], set()):
-                    prox = {"fecha": f.isoformat(), "periodo": per, "dias": (f - hoy).days,
-                            "monto": (rec or {}).get("amount"), "recordatorio_id": t["recordatorio_id"]}
-                    break
+            per, f = _periodo_a_pagar(dia_pago, pagados.get(t["recordatorio_id"], set()), hoy)
+            if per:   # si el de este mes ya venció y no se ha pagado, sale ese (vencido) antes que el siguiente
+                prox = {"fecha": f.isoformat(), "periodo": per, "dias": (f - hoy).days, "vencido": f < hoy,
+                        "monto": (rec or {}).get("amount"), "recordatorio_id": t["recordatorio_id"]}
         out.append({**t, "metodos": metodos, "lectura": lec, "sumado_desde_lectura": round(sumado, 2),
                     "abonos_desde_lectura": float(abonos or 0), "usado": None if usado is None else round(usado, 2),
                     "libre": None if libre is None else round(libre, 2),
@@ -199,20 +231,22 @@ def estado(conn, bot):
                     "dia_pago": dia_pago})
     totales = {}
     for t in out:
-        m = totales.setdefault(t["moneda"], {"cupo": 0.0, "usado": 0.0, "consumos_mado": 0.0, "sin_dato": 0})
+        m = totales.setdefault(t["moneda"], {"cupo": 0.0, "usado": 0.0, "consumos_mado": 0.0, "sin_dato": 0, "cupo_sin_dato": 0.0})
         if not t["respalda"] and t["cupo"] is not None:
             m["cupo"] += float(t["cupo"])
         if t["usado"] is None:
             m["sin_dato"] += 1
+            if not t["respalda"] and t["cupo"] is not None:
+                m["cupo_sin_dato"] += float(t["cupo"])
         else:
             m["usado"] += t["usado"]
             m["consumos_mado"] += t["consumos_mado"] or 0
-    usd = {"cupo": 0.0, "usado": 0.0, "consumos_mado": 0.0}
+    usd = {"cupo": 0.0, "usado": 0.0, "consumos_mado": 0.0, "cupo_sin_dato": 0.0}
     for mon, m in totales.items():
-        m["libre"] = m["cupo"] - m["usado"]
+        m["libre"] = m["cupo"] - m["cupo_sin_dato"] - m["usado"]   # sin dato del banco no se cuenta como libre
         for k in usd:
             usd[k] += _a_usd(m[k], mon, tasas)
-    usd["libre"] = usd["cupo"] - usd["usado"]
+    usd["libre"] = usd["cupo"] - usd["cupo_sin_dato"] - usd["usado"]
     return {"tarjetas": out, "totales": totales, "en_dolares": {k: round(v, 2) for k, v in usd.items()},
             "tasas": {"COP": tasas["COP"], "AED": tasas["AED"]}, "hoy": hoy.isoformat()}
 
@@ -221,7 +255,7 @@ def poner_lectura(conn, tid, usado, fecha=None, fuente="tú", nota=None):
     if not conn.execute("SELECT 1 FROM tarjetas WHERE id = ?", (tid,)).fetchone():
         raise KeyError(tid)
     conn.execute("INSERT INTO tarjeta_lecturas (tarjeta_id, fecha, usado, fuente, nota, created_at) VALUES (?,?,?,?,?,?)",
-                 (tid, fecha or datetime.now().strftime("%Y-%m-%dT%H:%M"), float(usado), fuente, nota, datetime.now().isoformat()))
+                 (tid, fecha or _ahora().strftime("%Y-%m-%dT%H:%M"), float(usado), fuente, nota, _ahora_utc()))
     conn.commit()
 
 
@@ -229,21 +263,39 @@ def abonar(conn, tid, monto, fecha=None, nota=None):
     t = conn.execute("SELECT recordatorio_id FROM tarjetas WHERE id = ?", (tid,)).fetchone()
     if not t:
         raise KeyError(tid)
+    if float(monto) <= 0:
+        raise ValueError("el abono debe ser mayor que cero")
     f = fecha or _hoy().isoformat()
-    cur = conn.execute("INSERT INTO tarjeta_abonos (tarjeta_id, fecha, monto, nota, created_at) VALUES (?,?,?,?,?)",
-                       (tid, f, float(monto), nota, datetime.now().isoformat()))
     marcado = None
     if t[0]:   # el pago del recordatorio queda hecho si el abono cubre lo que pide (o si no tiene monto)
         rec = conn.execute("SELECT due_day, amount FROM payment_reminders WHERE id = ?", (t[0],)).fetchone()
         if rec and rec[0]:
-            d = date.fromisoformat(f)
-            per = _ym(d) if d.day <= int(rec[0]) + 5 else _sumar_mes(_ym(d), 1)
-            if rec[1] is None or float(monto) >= 0.98 * float(rec[1]):
+            pagados = {r[0] for r in conn.execute("SELECT period FROM payment_reminder_paid WHERE reminder_id = ?", (t[0],))}
+            per, _f = _periodo_a_pagar(int(rec[0]), pagados, date.fromisoformat(f))
+            if per and (rec[1] is None or float(monto) >= 0.98 * float(rec[1])):
                 conn.execute("INSERT OR REPLACE INTO payment_reminder_paid (reminder_id, period, paid_at) VALUES (?,?,?)",
-                             (t[0], per, datetime.now().isoformat()))
+                             (t[0], per, _ahora_utc()))
                 marcado = per
+    cur = conn.execute("INSERT INTO tarjeta_abonos (tarjeta_id, fecha, monto, nota, created_at, periodo_marcado) VALUES (?,?,?,?,?,?)",
+                       (tid, f, float(monto), nota, _ahora_utc(), marcado))
     conn.commit()
     return {"id": cur.lastrowid, "recordatorio_pagado": marcado}
+
+
+def borrar_abono(conn, aid):
+    """Quita el abono; si ese abono dejó un pago como hecho, el pago vuelve a quedar pendiente."""
+    fila = conn.execute("SELECT a.periodo_marcado, t.recordatorio_id FROM tarjeta_abonos a JOIN tarjetas t ON t.id = a.tarjeta_id "
+                        "WHERE a.id = ?", (aid,)).fetchone()
+    if not fila:
+        raise KeyError(aid)
+    conn.execute("DELETE FROM tarjeta_abonos WHERE id = ?", (aid,))
+    if fila[0] and fila[1]:
+        otro = conn.execute("SELECT 1 FROM tarjeta_abonos a JOIN tarjetas t ON t.id = a.tarjeta_id WHERE t.recordatorio_id = ? "
+                            "AND a.periodo_marcado = ?", (fila[1], fila[0])).fetchone()
+        if not otro:
+            conn.execute("DELETE FROM payment_reminder_paid WHERE reminder_id = ? AND period = ?", (fila[1], fila[0]))
+    conn.commit()
+    return {"ok": True, "pago_reabierto": fila[0] if fila[0] and fila[1] else None}
 
 
 # ───────────── fijos: versiones y confirmaciones ─────────────
@@ -268,7 +320,7 @@ def cambiar_fijo(conn, rid, cambios, desde):
     actual = version_de(conn, rid, "9999-12")
     if actual is None:
         raise KeyError(rid)
-    now = datetime.now().isoformat()
+    now = _ahora_utc()
     if not conn.execute("SELECT 1 FROM recurring_versiones WHERE recurring_id = ?", (rid,)).fetchone():
         conn.execute("INSERT INTO recurring_versiones (recurring_id, desde, monto_cop, monto_usd, currency, metodo_pago, active, "
                      "dia_cobro, at) VALUES (?, '2000-01', ?, ?, ?, ?, ?, ?, ?)",
@@ -294,6 +346,10 @@ def confirmar(conn, bot, rid, periodo, estado_, monto=None, fuente="tú"):
     en el mes (anotado a mano o por el bot), se une a ese."""
     if estado_ not in ("paso", "no_paso"):
         raise ValueError("estado debe ser 'paso' o 'no_paso'")
+    if monto is not None and float(monto) <= 0:
+        raise ValueError("el valor debe ser mayor que cero")
+    if periodo > _ym(_hoy()):
+        raise ValueError("ese mes todavía no llega")
     previo = conn.execute("SELECT estado, expense_id FROM fijo_confirmaciones WHERE recurring_id = ? AND period = ?",
                           (rid, periodo)).fetchone()
     if previo:
@@ -301,8 +357,8 @@ def confirmar(conn, bot, rid, periodo, estado_, monto=None, fuente="tú"):
     v = version_de(conn, rid, periodo)
     if v is None:
         raise KeyError(rid)
-    now = datetime.now().isoformat()
-    exp_id, creado = None, 0
+    now = _ahora_utc()
+    exp_id, creado, unido = None, 0, None
     if estado_ == "paso":
         ya = conn.execute("SELECT id FROM expenses WHERE recurring_id = ? AND substr(fecha, 1, 7) = ? ORDER BY id LIMIT 1",
                           (rid, periodo)).fetchone()
@@ -316,14 +372,26 @@ def confirmar(conn, bot, rid, periodo, estado_, monto=None, fuente="tú"):
             m_cop = float(round(float(v["monto_usd"] or 0) * trm)) if es_usd else float(v["monto_cop"] or 0)
         ref = m_usd if es_usd else m_cop
         if not ya and ref > 0:
-            for e_id, e_cop, e_usd in conn.execute(
-                    "SELECT id, monto_cop, monto_usd FROM expenses WHERE recurring_id IS NULL AND categoria = ? AND substr(fecha, 1, 7) = ?",
+            # Un gasto anotado a mano en el mes, de la misma categoría y valor parecido, que ningún otro fijo haya tomado.
+            # Primero el del mismo método de pago y el de valor más cercano (Tigo ×2, Oura ×2 no se cruzan).
+            cands = []
+            for e_id, e_cop, e_usd, e_met in conn.execute(
+                    "SELECT id, monto_cop, monto_usd, metodo_pago FROM expenses WHERE recurring_id IS NULL AND categoria = ? "
+                    "AND substr(fecha, 1, 7) = ? AND id NOT IN (SELECT expense_id FROM fijo_confirmaciones WHERE expense_id IS NOT NULL)",
                     (v["categoria"], periodo)).fetchall():
-                if abs(float((e_usd if es_usd else e_cop) or 0) - ref) <= 0.15 * ref:
-                    ya = (e_id,)
-                    break
+                dif = abs(float((e_usd if es_usd else e_cop) or 0) - ref)
+                if dif <= 0.15 * ref:
+                    cands.append((0 if (e_met or "") == (v["metodo_pago"] or "") else 1, dif, e_id))
+            if cands:
+                cands.sort()
+                ya = (cands[0][2],)
+                creado = 2   # unido a un gasto anotado a mano: se le pone el fijo para que nadie más lo tome
+                conn.execute("UPDATE expenses SET recurring_id = ? WHERE id = ? AND recurring_id IS NULL", (rid, ya[0]))
         if ya:
             exp_id = ya[0]
+            fila = conn.execute("SELECT fecha, nota, monto_cop, monto_usd FROM expenses WHERE id = ?", (exp_id,)).fetchone()
+            if fila:
+                unido = {"id": exp_id, "fecha": fila[0], "nota": fila[1], "monto_cop": fila[2], "monto_usd": fila[3]}
         else:
             fecha = _fecha_en(periodo, v["dia_cobro"] or 1).isoformat()
             cur = conn.execute(
@@ -340,7 +408,7 @@ def confirmar(conn, bot, rid, periodo, estado_, monto=None, fuente="tú"):
     conn.execute("INSERT INTO fijo_confirmaciones (recurring_id, period, estado, expense_id, creado_aqui, monto, fuente, at) "
                  "VALUES (?,?,?,?,?,?,?,?)", (rid, periodo, estado_, exp_id, creado, monto, fuente, now))
     conn.commit()
-    return {"ya": False, "estado": estado_, "expense_id": exp_id, "creado": bool(creado)}
+    return {"ya": False, "estado": estado_, "expense_id": exp_id, "creado": creado == 1, "unido": unido}
 
 
 def deshacer(conn, rid, periodo):
@@ -349,8 +417,10 @@ def deshacer(conn, rid, periodo):
                         (rid, periodo)).fetchone()
     if not fila:
         return {"ok": False}
-    if fila[0] and fila[1]:
+    if fila[0] and fila[1] == 1:
         conn.execute("DELETE FROM expenses WHERE id = ?", (fila[0],))
+    elif fila[0] and fila[1] == 2:   # se había unido a un gasto anotado a mano: el gasto se queda, sin el fijo
+        conn.execute("UPDATE expenses SET recurring_id = NULL WHERE id = ? AND recurring_id = ?", (fila[0], rid))
     conn.execute("DELETE FROM fijo_confirmaciones WHERE recurring_id = ? AND period = ?", (rid, periodo))
     conn.execute("DELETE FROM recurring_postings WHERE recurring_id = ? AND period = ?", (rid, periodo))
     conn.commit()
@@ -387,8 +457,15 @@ def fijos(conn, bot, periodo=None):
             est = "por_confirmar" if (dia and dia <= hoy) or (not dia and periodo <= _ym(hoy)) else "previsto"
         versiones = _filas(conn, "SELECT desde, monto_cop, monto_usd, currency, metodo_pago, active FROM recurring_versiones "
                                  "WHERE recurring_id = ? ORDER BY desde", (rid,))
+        monto_conf = None   # lo que de verdad entró al P&G (otro valor o el gasto al que se unió)
+        if c and c["expense_id"]:
+            e = conn.execute("SELECT monto_cop, monto_usd FROM expenses WHERE id = ?", (c["expense_id"],)).fetchone()
+            if e:
+                monto_conf = e[1] if v["currency"] == "USD" else e[0]
         out.append({**v, "periodo": periodo, "tarjeta_id": mapa.get(v["metodo_pago"]), "en_pesos": round(en_pesos),
-                    "estado": est, "expense_id": c["expense_id"] if c else None, "versiones": versiones})
+                    "en_dolares": round(float(v["monto_usd"] or 0) if v["currency"] == "USD" else en_pesos / tasas["COP"], 2),
+                    "estado": est, "expense_id": c["expense_id"] if c else None, "monto_confirmado": monto_conf,
+                    "versiones": versiones})
     return out
 
 
@@ -407,6 +484,15 @@ def calendario(conn, bot, desde, hasta):
     pagados = {(r["reminder_id"], r["period"]) for r in _filas(conn, "SELECT reminder_id, period FROM payment_reminder_paid")}
     rec_tarjeta = {t["recordatorio_id"]: t["id"] for t in est["tarjetas"] if t["recordatorio_id"]}
     fijos_por_mes = {per: fijos(conn, bot, per) for per in meses}
+    hoy_ = _hoy()
+    proximo_corte = {}
+    for t in est["tarjetas"]:
+        if t["corte_dia"]:
+            for k in (0, 1):
+                fc = _fecha_en(_sumar_mes(_ym(hoy_), k), t["corte_dia"])
+                if fc >= hoy_:
+                    proximo_corte[t["id"]] = fc
+                    break
     etiquetas_fijo = {}
     for per in meses:
         for f in fijos_por_mes[per]:
@@ -426,7 +512,7 @@ def calendario(conn, bot, desde, hasta):
                 if d0 <= f <= d1:
                     items.append({"tipo": "corte", "fecha": f.isoformat(), "periodo": per, "tarjeta_id": t["id"],
                                   "label": f"Corte {t['banco']} ·{t['ultimos'] or t['nombre']}",
-                                  "monto": t["usado"] if f >= _hoy() else None,   # estimado solo para los que vienen
+                                  "monto": t["usado"] if f == proximo_corte.get(t["id"]) else None,   # solo el próximo corte
                                   "moneda": t["moneda"]})
         con_pago = {i["fijo_id"] for i in items if i["tipo"] == "pago" and i.get("fijo_id")}
         for fj in fijos_por_mes[per]:
@@ -436,7 +522,8 @@ def calendario(conn, bot, desde, hasta):
             if d0 <= f <= d1:
                 items.append({"tipo": "fijo", "fecha": f.isoformat(), "periodo": per, "fijo_id": fj["id"], "label": fj["label"],
                               "monto": fj["monto_usd"] if fj["currency"] == "USD" else fj["monto_cop"], "moneda": fj["currency"],
-                              "tarjeta_id": fj["tarjeta_id"], "metodo_pago": fj["metodo_pago"], "estado": fj["estado"]})
+                              "tarjeta_id": fj["tarjeta_id"], "metodo_pago": fj["metodo_pago"], "estado": fj["estado"],
+                              "monto_confirmado": fj["monto_confirmado"]})
     items.sort(key=lambda i: (i["fecha"], {"pago": 0, "corte": 1, "fijo": 2}[i["tipo"]]))
     # Bandeja: fijos de meses con confirmar (desde dic) que ya pasaron y nadie confirmó
     bandeja = []

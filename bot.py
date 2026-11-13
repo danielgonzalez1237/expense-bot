@@ -1617,6 +1617,17 @@ def init_db():
 
     _run_migration("023_tarjetas", _migration_023_tarjetas)
 
+    def _migration_024_tarjetas_ajustes(conn):
+        """Revisión 13-nov: el abono guarda qué pago dejó hecho (para reabrirlo si se borra) y la Wio se llama Mastercard."""
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(tarjeta_abonos)")]
+        if "periodo_marcado" not in cols:
+            conn.execute("ALTER TABLE tarjeta_abonos ADD COLUMN periodo_marcado TEXT")
+        conn.execute("UPDATE tarjetas SET nombre = 'Mastercard' WHERE id = 'wio' AND nombre = 'Credit'")
+        conn.commit()
+        print("[migration 024] abonos con su pago y nombre de la Wio listos")
+
+    _run_migration("024_tarjetas_ajustes", _migration_024_tarjetas_ajustes)
+
     conn.close()
 
 
@@ -1681,10 +1692,11 @@ def add_expense(user_id, user_name, monto_cop, categoria, nota="", fija=False):
     En pesos colombianos, el disparador de tasas_dia lo valora con la TRM del día."""
     conn = sqlite3.connect(DB_PATH)
     now = datetime.now()
+    hoy_col = datetime.now(COL_TZ).strftime("%Y-%m-%d")   # la fecha del gasto es la de Colombia (el servidor va en UTC)
     monto_usd = round(monto_cop / TRM, 2)
     conn.execute(
         "INSERT INTO expenses (user_id, user_name, fecha, monto_cop, monto_usd, categoria, nota, created_at, tasa_fija) VALUES (?,?,?,?,?,?,?,?,?)",
-        (user_id, user_name, now.strftime("%Y-%m-%d"), monto_cop, monto_usd, categoria, nota, now.isoformat(), 1 if fija else 0)
+        (user_id, user_name, hoy_col, monto_cop, monto_usd, categoria, nota, now.isoformat(), 1 if fija else 0)
     )
     conn.commit()
     last_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -1796,7 +1808,7 @@ def post_recurring_for_period(period=None):
 
 def get_month_expenses(year=None, month=None):
     conn = sqlite3.connect(DB_PATH)
-    now = datetime.now()
+    now = datetime.now(COL_TZ)
     y = year or now.year
     m = month or now.month
     prefix = f"{y}-{m:02d}"
@@ -1809,7 +1821,7 @@ def get_month_expenses(year=None, month=None):
 
 def get_week_expenses():
     conn = sqlite3.connect(DB_PATH)
-    today = datetime.now().date()
+    today = datetime.now(COL_TZ).date()
     start = today - timedelta(days=today.weekday())
     rows = conn.execute(
         "SELECT id, user_name, fecha, monto_cop, monto_usd, categoria, nota FROM expenses WHERE fecha >= ? ORDER BY fecha DESC, id DESC",
@@ -1881,7 +1893,7 @@ def traffic(pct):
 
 def month_summary_text():
     rows = get_month_expenses()
-    now = datetime.now()
+    now = datetime.now(COL_TZ)
     total_usd = sum(r[4] for r in rows)
     total_cop = total_usd * TRM
     pct = total_usd / BUDGET_LIMIT_USD if BUDGET_LIMIT_USD > 0 else 0
@@ -2472,7 +2484,7 @@ async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
         if action == "exportar":
             conn = sqlite3.connect(DB_PATH)
-            now_exp = datetime.now()
+            now_exp = datetime.now(COL_TZ)
             prefix = f"{now_exp.year}-{now_exp.month:02d}"
             csv_rows = conn.execute(
                 "SELECT id, user_name, fecha, monto_cop, monto_usd, categoria, nota, COALESCE(metodo_pago, 'Sin especificar') FROM expenses WHERE fecha LIKE ? ORDER BY fecha DESC, id DESC",

@@ -4466,16 +4466,17 @@ def make_api_app() -> FastAPI:
                 return {"ok": True, **tarjetas.abonar(c, tid, body.monto, body.fecha, body.nota)}
             except KeyError:
                 raise HTTPException(404, f"tarjeta {tid} no existe")
+            except ValueError as e:
+                raise HTTPException(400, str(e))
         return _con_db(f)
 
     @api.delete("/api/tarjetas/abonos/{aid}")
     def tarjeta_abono_borrar(aid: int):
         def f(c):
-            r = c.execute("DELETE FROM tarjeta_abonos WHERE id = ?", (aid,))
-            c.commit()
-            if r.rowcount == 0:
+            try:   # si el abono dejó un pago como hecho, ese pago vuelve a quedar pendiente en «Próximos pagos»
+                return tarjetas.borrar_abono(c, aid)
+            except KeyError:
                 raise HTTPException(404, f"abono {aid} no existe")
-            return {"ok": True}
         return _con_db(f)
 
     @api.get("/api/tarjetas/calendario")
