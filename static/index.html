@@ -172,6 +172,7 @@
   @expenses-changed.window="reload()"
   @tipos-changed.window="refreshNaturalezas()"
   @fuentes-changed.window="cargarFuentes(); reload()"
+  @abrir-fuentes.window="openFuentes($event.detail || {})"
   class="lg:flex min-h-screen"
 >
 
@@ -1553,23 +1554,87 @@
         <button @click="openFuentes()" class="text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">Fuentes y plan</button>
       </div>
       <form @submit.prevent="ingGuardar()" class="mt-3 space-y-3">
-        <div class="flex flex-wrap gap-1.5">
-          <template x-for="f in fuentesTop()" :key="'ift' + f.key">
-            <button type="button" @click="ingElegirFuente(f.key)" class="text-xs rounded-full px-3 py-1.5 transition"
-              :class="ingForm.source_key === f.key ? 'bg-ahorro text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'"
-              x-text="f.icon + ' ' + f.label"></button>
-          </template>
+        <div>
+          <div class="text-[11px] text-slate-500 px-1 mb-1">Tus botones</div>
+          <div class="flex flex-wrap gap-1.5">
+            <template x-for="f in fuentesTop()" :key="'ift' + f.key">
+              <button type="button" @click="ingElegirFuente(f.key)" class="max-w-full truncate text-xs rounded-full px-3 py-1.5 transition"
+                :class="ingForm.source_key === f.key ? 'bg-ahorro text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'"
+                x-text="(f.icon || '💰') + ' ' + f.label"></button>
+            </template>
+            <button type="button" @click="openFuentes()" class="text-xs rounded-full px-3 py-1.5 whitespace-nowrap border border-dashed border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition">✎ Elegir botones</button>
+          </div>
         </div>
-        <label class="block">
-          <span class="text-[11px] text-slate-500 px-1">Fuente</span>
-          <select :value="ingForm.source_key" @change="ingElegirFuente($event.target.value)" class="mt-0.5 w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2.5 text-sm">
-            <option value="">Elige una…</option>
-            <template x-for="f in incomeSources.filter(x => Number(x.active) !== 0)" :key="'ifs' + f.key"><option :value="f.key" :selected="ingForm.source_key === f.key" x-text="f.icon + ' ' + f.label"></option></template>
-            <optgroup label="Archivadas" x-show="incomeSources.some(x => Number(x.active) === 0)">
-              <template x-for="f in incomeSources.filter(x => Number(x.active) === 0)" :key="'ifa' + f.key"><option :value="f.key" :selected="ingForm.source_key === f.key" x-text="f.icon + ' ' + f.label + ' (archivada)'"></option></template>
-            </optgroup>
-          </select>
-        </label>
+        <div class="min-w-0" x-data="fuentePicker(() => incomeSources, () => ingForm.source_key, k => ingElegirFuente(k))" @click.outside="abierto = false" @keydown.escape.stop="abierto = false">
+          <div class="text-[11px] text-slate-500 px-1">Fuente</div>
+          <button type="button" @click="abierto = !abierto; nueva = false" :aria-expanded="abierto"
+            class="mt-0.5 w-full flex items-center gap-2 min-w-0 bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2.5 text-sm text-left text-slate-800 dark:text-slate-100">
+            <template x-if="sel()">
+              <span class="flex items-center gap-2 min-w-0 flex-1">
+                <span class="w-2.5 h-2.5 rounded-full shrink-0" :style="'background:' + colorDe(sel())"></span>
+                <span class="shrink-0" x-text="sel().icon || '💰'"></span>
+                <span class="truncate min-w-0" x-text="sel().label"></span>
+                <span x-show="sel().tipo === 'veces' && Number(sel().active) !== 0" class="shrink-0 text-[10px] rounded-full px-1.5 py-0.5 bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300">a veces</span>
+                <span x-show="Number(sel().active) === 0" class="shrink-0 text-[10px] rounded-full px-1.5 py-0.5 bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300">archivada</span>
+              </span>
+            </template>
+            <span x-show="!sel()" class="flex-1 text-slate-500 dark:text-slate-400">Elige una…</span>
+            <svg class="shrink-0 text-slate-400 transition" :class="abierto ? 'rotate-180' : ''" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div x-show="abierto" x-transition.opacity class="mt-1 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm max-h-80 overflow-y-auto overscroll-contain p-1.5">
+            <template x-for="g in grupos()" :key="'fpg' + g.key">
+              <div class="pb-1">
+                <div class="flex items-center gap-2 px-2 pt-2 pb-1 text-[11px] font-semibold text-slate-500 dark:text-slate-400 min-w-0">
+                  <span class="w-2 h-2 rounded-full shrink-0" :style="'background:' + g.color"></span><span class="truncate" x-text="g.label"></span>
+                </div>
+                <template x-for="f in g.items" :key="'fpf' + f.key">
+                  <button type="button" @click="elegir(f.key)" class="w-full flex items-center gap-2 min-w-0 px-2 py-1.5 rounded-lg text-sm text-left transition"
+                    :class="getSelKey() === f.key ? 'bg-ahorro-suave text-ahorro dark:bg-emerald-950/50 dark:text-emerald-300 font-medium' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'">
+                    <span class="w-5 text-center shrink-0" x-text="f.icon || '💰'"></span>
+                    <span class="truncate min-w-0 flex-1" x-text="f.label"></span>
+                    <span x-show="f.tipo === 'veces'" class="shrink-0 text-[10px] rounded-full px-1.5 py-0.5 bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">a veces</span>
+                    <span x-show="Number(f.boton) === 1" class="shrink-0 text-[11px]" title="Sale como botón">⭐</span>
+                  </button>
+                </template>
+              </div>
+            </template>
+            <div x-show="archivadas().length" class="border-t border-slate-100 dark:border-slate-800 mt-1 pt-1">
+              <button type="button" @click="verArch = !verArch" class="w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                <span x-text="'📦 Archivadas · ' + archivadas().length"></span><span x-text="verArch ? 'Ocultar' : 'Ver'"></span>
+              </button>
+              <template x-for="f in (verArch ? archivadas() : [])" :key="'fpa' + f.key">
+                <button type="button" @click="elegir(f.key)" class="w-full flex items-center gap-2 min-w-0 px-2 py-1.5 rounded-lg text-sm text-left transition"
+                  :class="getSelKey() === f.key ? 'bg-ahorro-suave text-ahorro dark:bg-emerald-950/50 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
+                  <span class="w-5 text-center shrink-0 opacity-60" x-text="f.icon || '💰'"></span>
+                  <span class="truncate min-w-0 flex-1" x-text="f.label"></span>
+                  <span class="w-2 h-2 rounded-full shrink-0" :style="'background:' + colorDe(f)"></span>
+                </button>
+              </template>
+            </div>
+            <div class="border-t border-slate-100 dark:border-slate-800 mt-1 pt-1">
+              <button type="button" x-show="!nueva" @click="abrirNueva()" class="w-full text-left px-2 py-1.5 rounded-lg text-sm font-medium text-ahorro dark:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-800">+ Nueva fuente</button>
+              <div x-show="nueva" class="p-2 space-y-2">
+                <input type="text" x-ref="nfLabel" x-model="nf.label" maxlength="60" placeholder="Nombre, ej. Airbnb Medellín" @keydown.enter.prevent="crear()"
+                  class="w-full bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-3 py-2 text-sm placeholder:text-slate-400" aria-label="Nombre de la fuente">
+                <div class="grid grid-cols-2 gap-2">
+                  <select x-model="nf.categoria" class="min-w-0 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2 py-2 text-xs" aria-label="Categoría">
+                    <template x-for="c in $store.ingcat.lista" :key="'fpnc' + c.key"><option :value="c.key" :selected="nf.categoria === c.key" x-text="c.icon + ' ' + c.label"></option></template>
+                  </select>
+                  <span class="flex rounded-full bg-slate-100 dark:bg-slate-800 p-0.5 text-[11px] min-w-0">
+                    <button type="button" @click="nf.tipo = 'mes'" class="flex-1 rounded-full px-1 whitespace-nowrap" :class="nf.tipo === 'mes' ? 'bg-ahorro text-white' : 'text-slate-500 dark:text-slate-400'">Cada mes</button>
+                    <button type="button" @click="nf.tipo = 'veces'" class="flex-1 rounded-full px-1 whitespace-nowrap" :class="nf.tipo === 'veces' ? 'bg-white text-slate-800 shadow-sm dark:bg-slate-600 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400'">A veces</button>
+                  </span>
+                </div>
+                <p x-show="nf.tipo === 'mes'" class="text-[11px] text-slate-500">El plan al mes se pone en Fuentes y plan.</p>
+                <div x-show="nfErr" class="text-xs text-red-700 dark:text-red-300" x-text="nfErr"></div>
+                <div class="flex gap-2">
+                  <button type="button" @click="crear()" :disabled="nfBusy || !nf.label.trim()" class="rounded-full bg-ahorro text-white px-3.5 py-1.5 text-xs font-semibold disabled:opacity-50" x-text="nfBusy ? 'Creando…' : 'Crear y elegir'"></button>
+                  <button type="button" @click="nueva = false" class="rounded-full bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200 px-3.5 py-1.5 text-xs">Cancelar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="flex items-stretch gap-2">
           <input type="text" inputmode="decimal" autocomplete="off" placeholder="0" x-model="ingForm.monto" @input="ingError = null"
             class="num flex-1 min-w-0 text-3xl font-semibold bg-slate-100 dark:bg-slate-800 rounded-2xl px-4 py-2.5 placeholder:text-slate-300 dark:placeholder:text-slate-600" aria-label="Monto">
@@ -1598,7 +1663,7 @@
         <span class="text-[11px] text-slate-500">toca una para ver sus ingresos</span>
       </div>
       <div x-show="!ingPorFuente().length" class="mt-4 text-xs text-slate-400">Sin fuentes con plan ni ingresos en este período.</div>
-      <button x-show="incomeSources.some(x => Number(x.active) === 0)" @click="openFuentes(); Alpine.store('income').verArchivadas = true"
+      <button x-show="incomeSources.some(x => Number(x.active) === 0)" @click="openFuentes({ archivadas: true })"
         class="mt-1 text-[11px] text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 underline order-last"
         x-text="'📦 ' + incomeSources.filter(x => Number(x.active) === 0).length + ' archivadas (solo salen en los meses en que tuvieron ingresos) · gestionar'"></button>
       <div class="mt-3 space-y-5">
@@ -1624,7 +1689,7 @@
                   </span>
                   <span class="text-right shrink-0">
                     <span class="block text-sm font-semibold" x-text="fmtUsd(f.recibido)"></span>
-                    <span class="block text-[10px] text-slate-400" x-text="f.plan > 0 ? 'de ' + fmtUsd(f.plan) : (f.archivada ? 'archivada' : 'sin plan')"></span>
+                    <span class="block text-[10px] text-slate-400" x-text="f.plan > 0 ? 'de ' + fmtUsd(f.plan) : (f.archivada ? 'archivada' : (f.veces ? 'a veces' : 'sin plan'))"></span>
                   </span>
                 </button>
               </template>
@@ -1678,11 +1743,15 @@
           <!-- Editar en línea -->
           <div x-show="ingEditId === e.id" x-transition class="mb-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 p-3 sm:p-4 space-y-2.5">
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <label class="block"><span class="text-[11px] text-slate-500 px-1">Fuente</span>
-                <select x-model="ingEdit.source_key" class="mt-0.5 w-full bg-white dark:bg-slate-900 rounded-xl px-3 py-2 text-sm">
-                  <template x-for="f in incomeSources.filter(x => Number(x.active) !== 0)" :key="'iefs' + f.key"><option :value="f.key" :selected="ingEdit.source_key === f.key" x-text="f.icon + ' ' + f.label"></option></template>
-                  <optgroup label="Archivadas" x-show="incomeSources.some(x => Number(x.active) === 0)">
-                    <template x-for="f in incomeSources.filter(x => Number(x.active) === 0)" :key="'iefa' + f.key"><option :value="f.key" :selected="ingEdit.source_key === f.key" x-text="f.icon + ' ' + f.label + ' (archivada)'"></option></template>
+              <label class="block min-w-0"><span class="text-[11px] text-slate-500 px-1">Fuente</span>
+                <select x-model="ingEdit.source_key" class="mt-0.5 w-full min-w-0 bg-white dark:bg-slate-900 rounded-xl px-3 py-2 text-sm">
+                  <template x-for="g in $store.ingcat.grupos(incomeSources, 'alfa').filter(g => g.items.length)" :key="'iefg' + g.key">
+                    <optgroup :label="g.label">
+                      <template x-for="f in g.items" :key="'iefs' + f.key"><option :value="f.key" :selected="ingEdit.source_key === f.key" x-text="(f.icon || '💰') + ' ' + f.label + (f.tipo === 'veces' ? ' · a veces' : '')"></option></template>
+                    </optgroup>
+                  </template>
+                  <optgroup :label="'📦 Archivadas · ' + incomeSources.filter(x => Number(x.active) === 0).length" x-show="incomeSources.some(x => Number(x.active) === 0)">
+                    <template x-for="f in $store.ingcat.archivadas(incomeSources)" :key="'iefa' + f.key"><option :value="f.key" :selected="ingEdit.source_key === f.key" x-text="(f.icon || '💰') + ' ' + f.label + ' (archivada)'"></option></template>
                   </optgroup>
                 </select></label>
               <label class="block"><span class="text-[11px] text-slate-500 px-1">Fecha</span>
@@ -2188,23 +2257,87 @@
       <!-- Ingreso: de qué fuente -->
       <template x-if="$store.quick.tipo === 'ingreso'">
         <div class="space-y-2">
-          <div class="flex flex-wrap gap-1.5">
-            <template x-for="f in $store.quick.fuentesTop" :key="'qft' + f.key">
-              <button type="button" @click="$store.quick.elegirFuente(f.key)" class="text-xs rounded-full px-3 py-1.5 transition"
-                :class="$store.quick.source_key === f.key ? 'bg-ahorro text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'"
-                x-text="f.icon + ' ' + f.label"></button>
-            </template>
+          <div>
+            <div class="text-[11px] text-slate-500 px-1 mb-1">Tus botones</div>
+            <div class="flex flex-wrap gap-1.5">
+              <template x-for="f in $store.quick.fuentesTop" :key="'qft' + f.key">
+                <button type="button" @click="$store.quick.elegirFuente(f.key)" class="max-w-full truncate text-xs rounded-full px-3 py-1.5 transition"
+                  :class="$store.quick.source_key === f.key ? 'bg-ahorro text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'"
+                  x-text="(f.icon || '💰') + ' ' + f.label"></button>
+              </template>
+              <button type="button" @click="$store.quick.close(); window.dispatchEvent(new CustomEvent('abrir-fuentes'))" class="text-xs rounded-full px-3 py-1.5 whitespace-nowrap border border-dashed border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition">✎ Elegir botones</button>
+            </div>
           </div>
-          <label class="block">
-            <span class="text-[11px] text-slate-500 px-1">Fuente</span>
-            <select :value="$store.quick.source_key" @change="$store.quick.elegirFuente($event.target.value)" class="mt-0.5 w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2.5 text-sm">
-              <option value="">Elige una…</option>
-              <template x-for="f in $store.quick.fuentes.filter(x => Number(x.active) !== 0)" :key="'qfs' + f.key"><option :value="f.key" x-text="f.icon + ' ' + f.label" :selected="$store.quick.source_key === f.key"></option></template>
-              <optgroup label="Archivadas" x-show="$store.quick.fuentes.some(x => Number(x.active) === 0)">
-                <template x-for="f in $store.quick.fuentes.filter(x => Number(x.active) === 0)" :key="'qfa' + f.key"><option :value="f.key" x-text="f.icon + ' ' + f.label + ' (archivada)'" :selected="$store.quick.source_key === f.key"></option></template>
-              </optgroup>
-            </select>
-          </label>
+          <div class="min-w-0" x-data="fuentePicker(() => $store.quick.fuentes, () => $store.quick.source_key, k => $store.quick.elegirFuente(k))" @click.outside="abierto = false" @keydown.escape.stop="abierto = false">
+          <div class="text-[11px] text-slate-500 px-1">Fuente</div>
+          <button type="button" @click="abierto = !abierto; nueva = false" :aria-expanded="abierto"
+            class="mt-0.5 w-full flex items-center gap-2 min-w-0 bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2.5 text-sm text-left text-slate-800 dark:text-slate-100">
+            <template x-if="sel()">
+              <span class="flex items-center gap-2 min-w-0 flex-1">
+                <span class="w-2.5 h-2.5 rounded-full shrink-0" :style="'background:' + colorDe(sel())"></span>
+                <span class="shrink-0" x-text="sel().icon || '💰'"></span>
+                <span class="truncate min-w-0" x-text="sel().label"></span>
+                <span x-show="sel().tipo === 'veces' && Number(sel().active) !== 0" class="shrink-0 text-[10px] rounded-full px-1.5 py-0.5 bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300">a veces</span>
+                <span x-show="Number(sel().active) === 0" class="shrink-0 text-[10px] rounded-full px-1.5 py-0.5 bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300">archivada</span>
+              </span>
+            </template>
+            <span x-show="!sel()" class="flex-1 text-slate-500 dark:text-slate-400">Elige una…</span>
+            <svg class="shrink-0 text-slate-400 transition" :class="abierto ? 'rotate-180' : ''" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div x-show="abierto" x-transition.opacity class="mt-1 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm max-h-80 overflow-y-auto overscroll-contain p-1.5">
+            <template x-for="g in grupos()" :key="'fpg' + g.key">
+              <div class="pb-1">
+                <div class="flex items-center gap-2 px-2 pt-2 pb-1 text-[11px] font-semibold text-slate-500 dark:text-slate-400 min-w-0">
+                  <span class="w-2 h-2 rounded-full shrink-0" :style="'background:' + g.color"></span><span class="truncate" x-text="g.label"></span>
+                </div>
+                <template x-for="f in g.items" :key="'fpf' + f.key">
+                  <button type="button" @click="elegir(f.key)" class="w-full flex items-center gap-2 min-w-0 px-2 py-1.5 rounded-lg text-sm text-left transition"
+                    :class="getSelKey() === f.key ? 'bg-ahorro-suave text-ahorro dark:bg-emerald-950/50 dark:text-emerald-300 font-medium' : 'text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'">
+                    <span class="w-5 text-center shrink-0" x-text="f.icon || '💰'"></span>
+                    <span class="truncate min-w-0 flex-1" x-text="f.label"></span>
+                    <span x-show="f.tipo === 'veces'" class="shrink-0 text-[10px] rounded-full px-1.5 py-0.5 bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">a veces</span>
+                    <span x-show="Number(f.boton) === 1" class="shrink-0 text-[11px]" title="Sale como botón">⭐</span>
+                  </button>
+                </template>
+              </div>
+            </template>
+            <div x-show="archivadas().length" class="border-t border-slate-100 dark:border-slate-800 mt-1 pt-1">
+              <button type="button" @click="verArch = !verArch" class="w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800">
+                <span x-text="'📦 Archivadas · ' + archivadas().length"></span><span x-text="verArch ? 'Ocultar' : 'Ver'"></span>
+              </button>
+              <template x-for="f in (verArch ? archivadas() : [])" :key="'fpa' + f.key">
+                <button type="button" @click="elegir(f.key)" class="w-full flex items-center gap-2 min-w-0 px-2 py-1.5 rounded-lg text-sm text-left transition"
+                  :class="getSelKey() === f.key ? 'bg-ahorro-suave text-ahorro dark:bg-emerald-950/50 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'">
+                  <span class="w-5 text-center shrink-0 opacity-60" x-text="f.icon || '💰'"></span>
+                  <span class="truncate min-w-0 flex-1" x-text="f.label"></span>
+                  <span class="w-2 h-2 rounded-full shrink-0" :style="'background:' + colorDe(f)"></span>
+                </button>
+              </template>
+            </div>
+            <div class="border-t border-slate-100 dark:border-slate-800 mt-1 pt-1">
+              <button type="button" x-show="!nueva" @click="abrirNueva()" class="w-full text-left px-2 py-1.5 rounded-lg text-sm font-medium text-ahorro dark:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-800">+ Nueva fuente</button>
+              <div x-show="nueva" class="p-2 space-y-2">
+                <input type="text" x-ref="nfLabel" x-model="nf.label" maxlength="60" placeholder="Nombre, ej. Airbnb Medellín" @keydown.enter.prevent="crear()"
+                  class="w-full bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-3 py-2 text-sm placeholder:text-slate-400" aria-label="Nombre de la fuente">
+                <div class="grid grid-cols-2 gap-2">
+                  <select x-model="nf.categoria" class="min-w-0 bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2 py-2 text-xs" aria-label="Categoría">
+                    <template x-for="c in $store.ingcat.lista" :key="'fpnc' + c.key"><option :value="c.key" :selected="nf.categoria === c.key" x-text="c.icon + ' ' + c.label"></option></template>
+                  </select>
+                  <span class="flex rounded-full bg-slate-100 dark:bg-slate-800 p-0.5 text-[11px] min-w-0">
+                    <button type="button" @click="nf.tipo = 'mes'" class="flex-1 rounded-full px-1 whitespace-nowrap" :class="nf.tipo === 'mes' ? 'bg-ahorro text-white' : 'text-slate-500 dark:text-slate-400'">Cada mes</button>
+                    <button type="button" @click="nf.tipo = 'veces'" class="flex-1 rounded-full px-1 whitespace-nowrap" :class="nf.tipo === 'veces' ? 'bg-white text-slate-800 shadow-sm dark:bg-slate-600 dark:text-slate-100' : 'text-slate-500 dark:text-slate-400'">A veces</button>
+                  </span>
+                </div>
+                <p x-show="nf.tipo === 'mes'" class="text-[11px] text-slate-500">El plan al mes se pone en Fuentes y plan.</p>
+                <div x-show="nfErr" class="text-xs text-red-700 dark:text-red-300" x-text="nfErr"></div>
+                <div class="flex gap-2">
+                  <button type="button" @click="crear()" :disabled="nfBusy || !nf.label.trim()" class="rounded-full bg-ahorro text-white px-3.5 py-1.5 text-xs font-semibold disabled:opacity-50" x-text="nfBusy ? 'Creando…' : 'Crear y elegir'"></button>
+                  <button type="button" @click="nueva = false" class="rounded-full bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200 px-3.5 py-1.5 text-xs">Cancelar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          </div>
         </div>
       </template>
 
@@ -3213,7 +3346,8 @@
   @keydown.escape.window="$store.income.close()"
 >
   <div
-    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full sm:max-w-2xl sm:rounded-2xl sm:my-8 shadow-xl fade flex flex-col max-h-screen sm:max-h-[92vh]"
+    class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full sm:rounded-2xl sm:my-8 shadow-xl fade flex flex-col max-h-screen sm:max-h-[92vh]"
+    :class="$store.income.tab === 'sources' ? 'sm:max-w-2xl lg:max-w-5xl xl:max-w-6xl' : 'sm:max-w-2xl'"
     x-show="$store.income.open"
     x-transition
   >
@@ -3222,8 +3356,8 @@
       <div class="flex items-start justify-between">
         <div>
           <div class="text-xs text-slate-500 uppercase tracking-wide">P&G · Ingresos</div>
-          <div class="text-lg font-bold">Editar ingresos del mes</div>
-          <div class="text-[11px] text-slate-500" x-text="$store.income.month"></div>
+          <div class="text-lg font-bold" x-text="$store.income.tab === 'sources' ? 'Fuentes y plan' : 'Editar ingresos del mes'"></div>
+          <div class="text-[11px] text-slate-500" x-show="$store.income.tab !== 'sources'" x-text="$store.income.month"></div>
         </div>
         <button
           @click="$store.income.close()"
@@ -3234,8 +3368,8 @@
         </button>
       </div>
 
-      <!-- Live totals row -->
-      <div class="grid grid-cols-3 gap-2 mt-3">
+      <!-- Live totals row (no aplica en «Fuentes y plan») -->
+      <div class="grid grid-cols-3 gap-2 mt-3" x-show="$store.income.tab !== 'sources'">
         <div class="bg-emerald-50 dark:bg-emerald-950/30 rounded-lg p-2 border border-emerald-200 dark:border-emerald-900">
           <div class="text-[9px] uppercase text-emerald-700 dark:text-emerald-400 font-semibold">Ingresos</div>
           <div class="text-sm font-bold" x-text="'$' + Math.round($store.income.liveIncome).toLocaleString('en-US')"></div>
@@ -3263,21 +3397,21 @@
             ? 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-300 border-emerald-500'
             : 'text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-700'"
           class="px-3 py-1.5 rounded-t-md border-b-2 whitespace-nowrap transition"
-        >📥 Entradas del mes</button>
+        >📥 Entradas<span class="hidden sm:inline"> del mes</span></button>
         <button
           @click="$store.income.tab = 'sources'"
           :class="$store.income.tab === 'sources'
             ? 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-300 border-emerald-500'
             : 'text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-700'"
           class="px-3 py-1.5 rounded-t-md border-b-2 whitespace-nowrap transition"
-        >💰 Fuentes</button>
+        >💰 Fuentes y plan</button>
         <button
           @click="$store.income.tab = 'rates'"
           :class="$store.income.tab === 'rates'
             ? 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/30 dark:text-emerald-300 border-emerald-500'
             : 'text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-700'"
           class="px-3 py-1.5 rounded-t-md border-b-2 whitespace-nowrap transition"
-        >💱 Tasas del mes</button>
+        >💱 Tasas<span class="hidden sm:inline"> del mes</span></button>
       </div>
     </div>
 
@@ -3297,14 +3431,18 @@
           <div class="grid grid-cols-[1fr_auto] gap-2 mb-2">
             <select
               x-model="$store.income.form.source_key"
-              class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5 text-sm"
+              class="min-w-0 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1.5 text-sm"
             >
               <option value="">— Fuente —</option>
-              <template x-for="s in $store.income.activas" :key="s.key">
-                <option :value="s.key" x-text="(s.icon || '💰') + ' ' + s.label"></option>
+              <template x-for="g in $store.ingcat.grupos($store.income.sources, 'alfa').filter(g => g.items.length)" :key="'oag' + g.key">
+                <optgroup :label="g.label">
+                  <template x-for="s in g.items" :key="s.key">
+                    <option :value="s.key" x-text="(s.icon || '💰') + ' ' + s.label + (s.tipo === 'veces' ? ' · a veces' : '')"></option>
+                  </template>
+                </optgroup>
               </template>
-              <optgroup label="Archivadas" x-show="$store.income.archivadas.length">
-                <template x-for="s in $store.income.archivadas" :key="'oa' + s.key">
+              <optgroup :label="'📦 Archivadas · ' + $store.income.archivadas.length" x-show="$store.income.archivadas.length">
+                <template x-for="s in $store.ingcat.archivadas($store.income.sources)" :key="'oa' + s.key">
                   <option :value="s.key" x-text="(s.icon || '💰') + ' ' + s.label + ' (archivada)'"></option>
                 </template>
               </optgroup>
@@ -3392,106 +3530,228 @@
         </div>
       </div>
 
-      <!-- ── TAB: sources ── -->
+      <!-- ── TAB: sources — «Fuentes y plan» (Daniel 12-nov): Cada mes / A veces / Archivar, ⭐ botones y categorías ── -->
       <div x-show="$store.income.tab === 'sources'" class="space-y-3">
-        <div class="text-xs text-slate-500">
-          Las fuentes son tus categorías de ingreso (alquiler, dividendos, yields, etc.).
-          <strong class="text-slate-700 dark:text-slate-300">El monto esperado mensual</strong>
-          se suma al 'Plan ingresos' del dashboard y es contra lo que corre el tentativo del mes.
+        <!-- Plan al mes + crear -->
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="min-w-0 text-sm text-slate-700 dark:text-slate-200">
+            <span class="font-semibold">Plan al mes: <span class="text-ahorro dark:text-emerald-400 whitespace-nowrap" x-text="$store.income.fmt($store.income.totalExpectedMonthly)"></span></span>
+            <span class="text-slate-500 dark:text-slate-400" x-text="' · ' + $store.income.nMes + ' cada mes · ' + $store.income.nVeces + ' a veces · ' + $store.income.archivadas.length + (($store.income.archivadas.length === 1) ? ' archivada' : ' archivadas')"></span>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" @click="$store.income.abrirNuevaCat()" class="rounded-full border border-slate-300 dark:border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 whitespace-nowrap">+ Nueva categoría</button>
+            <button type="button" @click="$store.income.abrirNuevaFuente()" class="rounded-full bg-ahorro text-white px-3 py-1.5 text-xs font-semibold hover:opacity-90 whitespace-nowrap">+ Nueva fuente</button>
+          </div>
+        </div>
+        <p class="text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+          <b class="text-slate-700 dark:text-slate-200">Cada mes:</b> cuenta en el plan y avisa si no llega ·
+          <b class="text-slate-700 dark:text-slate-200">A veces:</b> se elige siempre, no cuenta en el plan ·
+          <b class="text-slate-700 dark:text-slate-200">Archivar:</b> ya no existe, se esconde; sus ingresos viejos se siguen viendo ·
+          <b class="text-slate-700 dark:text-slate-200">⭐:</b> sale como botón en Anotar ingreso
+        </p>
+
+        <!-- Aviso: «cada mes» sin ingresos hace más de 2 meses (nunca se cambian solas) -->
+        <div x-show="$store.income.estancadas.length" class="rounded-xl border border-amber-200 dark:border-amber-900/60 bg-gusto-suave dark:bg-amber-950/40 px-3 py-2 text-xs text-gusto-fuerte dark:text-amber-200" x-text="$store.income.avisoEstancadas()"></div>
+
+        <div x-show="$store.income.error" class="rounded-xl bg-red-50 dark:bg-red-950/50 px-3 py-2 text-xs text-red-700 dark:text-red-300 flex items-start gap-2">
+          <span class="flex-1 min-w-0 break-words" x-text="$store.income.error"></span>
+          <button type="button" @click="$store.income.error = null" class="shrink-0 text-red-400 hover:text-red-700 dark:hover:text-red-200" aria-label="Cerrar aviso">✕</button>
         </div>
 
-        <!-- Live total of expected monthly income -->
-        <div class="bg-emerald-50 dark:bg-emerald-950/30 rounded-lg p-2.5 border border-emerald-200 dark:border-emerald-900">
-          <div class="flex items-baseline justify-between">
-            <div class="text-[10px] uppercase tracking-wide text-emerald-700 dark:text-emerald-400 font-semibold">Plan ingresos mensual</div>
-            <div class="text-lg font-bold text-emerald-700 dark:text-emerald-400">
-              $<span x-text="Math.round($store.income.totalExpectedMonthly).toLocaleString('en-US')"></span>
-              <span class="text-[10px] text-slate-500 font-normal">/mes</span>
+        <!-- Nueva fuente -->
+        <div x-show="$store.income.fuenteForm.open" x-transition class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3 sm:p-4 space-y-3">
+          <div class="flex items-center justify-between gap-2"><div class="text-sm font-semibold text-slate-800 dark:text-slate-100">Nueva fuente</div>
+            <button type="button" @click="$store.income.fuenteForm.open = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200" aria-label="Cerrar">✕</button></div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <label class="block min-w-0"><span class="text-[11px] text-slate-500 px-1">Nombre</span>
+              <input type="text" x-model="$store.income.fuenteForm.label" maxlength="60" placeholder="Ej. Airbnb Medellín" class="mt-0.5 w-full bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm"></label>
+            <label class="block min-w-0"><span class="text-[11px] text-slate-500 px-1">Categoría</span>
+              <select x-model="$store.income.fuenteForm.categoria" class="mt-0.5 w-full bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm">
+                <template x-for="c in $store.ingcat.lista" :key="'nfc' + c.key"><option :value="c.key" :selected="$store.income.fuenteForm.categoria === c.key" x-text="c.icon + ' ' + c.label"></option></template>
+              </select></label>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="flex rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-0.5 text-xs">
+              <button type="button" @click="$store.income.fuenteForm.tipo = 'mes'" class="rounded-full px-3 py-1 whitespace-nowrap" :class="$store.income.fuenteForm.tipo === 'mes' ? 'bg-ahorro text-white' : 'text-slate-500 dark:text-slate-400'">Cada mes</button>
+              <button type="button" @click="$store.income.fuenteForm.tipo = 'veces'" class="rounded-full px-3 py-1 whitespace-nowrap" :class="$store.income.fuenteForm.tipo === 'veces' ? 'bg-slate-700 text-white dark:bg-slate-600' : 'text-slate-500 dark:text-slate-400'">A veces</button>
+            </span>
+            <label x-show="$store.income.fuenteForm.tipo === 'mes'" class="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">Plan al mes $
+              <input type="text" inputmode="decimal" x-model="$store.income.fuenteForm.expected_usd" placeholder="0" class="w-24 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-sm text-right num"></label>
+            <select x-model="$store.income.fuenteForm.currency" class="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs" aria-label="Moneda en que llega">
+              <template x-for="m in ['USD', 'COP', 'AED', 'BOB', 'CLP', 'ARS']" :key="'nfm' + m"><option :value="m" x-text="'llega en ' + m"></option></template>
+            </select>
+            <label class="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300"><input type="checkbox" x-model="$store.income.fuenteForm.boton" class="rounded"> ⭐ botón</label>
+          </div>
+          <div x-show="$store.income.fuenteForm.error" class="text-xs text-red-700 dark:text-red-300" x-text="$store.income.fuenteForm.error"></div>
+          <div class="flex gap-2">
+            <button type="button" @click="$store.income.crearFuenteForm()" :disabled="$store.income.busy || !$store.income.fuenteForm.label.trim()" class="rounded-full bg-ahorro text-white px-4 py-1.5 text-xs font-semibold disabled:opacity-50">Crear fuente</button>
+            <button type="button" @click="$store.income.fuenteForm.open = false" class="rounded-full bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200 px-4 py-1.5 text-xs">Cancelar</button>
+          </div>
+        </div>
+
+        <!-- Nueva categoría / editar categoría -->
+        <div id="ing-catform" x-show="$store.income.catForm.open" x-transition class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3 sm:p-4 space-y-3">
+          <div class="flex items-center justify-between gap-2"><div class="text-sm font-semibold text-slate-800 dark:text-slate-100" x-text="$store.income.catForm.key ? 'Editar categoría' : 'Nueva categoría'"></div>
+            <button type="button" @click="$store.income.catForm.open = false" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200" aria-label="Cerrar">✕</button></div>
+          <label class="block min-w-0"><span class="text-[11px] text-slate-500 px-1">Nombre</span>
+            <input type="text" x-model="$store.income.catForm.label" maxlength="40" placeholder="Ej. Asesorías y trabajo" class="mt-0.5 w-full bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm"></label>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="min-w-0"><div class="text-[11px] text-slate-500 px-1 mb-1">Ícono</div>
+              <div class="flex flex-wrap gap-1.5">
+                <template x-for="ic in $store.ingcat.ICONOS" :key="'cfi' + ic">
+                  <button type="button" @click="$store.income.catForm.icon = ic" class="w-9 h-9 rounded-xl text-lg grid place-items-center border transition"
+                    :class="$store.income.catForm.icon === ic ? 'border-slate-800 dark:border-slate-100 bg-white dark:bg-slate-900' : 'border-transparent bg-white/60 dark:bg-slate-900/60 hover:border-slate-300 dark:hover:border-slate-600'" x-text="ic" :aria-label="'Ícono ' + ic"></button>
+                </template>
+              </div></div>
+            <div class="min-w-0"><div class="text-[11px] text-slate-500 px-1 mb-1">Color</div>
+              <div class="flex flex-wrap gap-1.5">
+                <template x-for="c in $store.ingcat.COLORES" :key="'cfc' + c">
+                  <button type="button" @click="$store.income.catForm.color = c" class="w-9 h-9 rounded-full border-2 transition grid place-items-center"
+                    :class="$store.income.catForm.color === c ? 'border-slate-800 dark:border-slate-100' : 'border-transparent'" :aria-label="'Color ' + c">
+                    <span class="w-6 h-6 rounded-full" :style="'background:' + c"></span></button>
+                </template>
+              </div></div>
+          </div>
+          <div>
+            <div class="text-[11px] text-slate-500 px-1 mb-1">¿Qué fuentes van aquí? · puedes marcar varias</div>
+            <div class="max-h-56 overflow-y-auto overscroll-contain rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 divide-y divide-slate-100 dark:divide-slate-800">
+              <template x-for="x in $store.income.fuentesParaCat()" :key="'cff' + x.s.key">
+                <label class="flex items-center gap-2 px-3 py-1.5 text-sm min-w-0" :class="x.yaEsta ? 'opacity-60' : 'cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60'">
+                  <input type="checkbox" class="rounded shrink-0" :checked="x.yaEsta || $store.income.catForm.fuentes.includes(x.s.key)" :disabled="x.yaEsta" @change="$store.income.toggleFuenteCat(x.s.key)">
+                  <span class="shrink-0" x-text="x.s.icon || '💰'"></span>
+                  <span class="truncate min-w-0 flex-1 text-slate-700 dark:text-slate-200" x-text="x.s.label + (Number(x.s.active) === 0 ? ' (archivada)' : '')"></span>
+                  <span class="shrink-0 flex items-center gap-1 text-[10px] text-slate-400 max-w-[40%] min-w-0"><span class="w-2 h-2 rounded-full shrink-0" :style="'background:' + x.cat.color"></span><span class="truncate" x-text="x.yaEsta ? 'ya está aquí' : x.cat.label"></span></span>
+                </label>
+              </template>
             </div>
           </div>
-          <div class="text-[10px] text-slate-500 mt-0.5">
-            Suma del esperado de las <span x-text="$store.income.activas.length"></span> fuentes activas<span x-show="$store.income.archivadas.length" x-text="' · ' + $store.income.archivadas.length + ' archivadas no cuentan'"></span>
+          <div x-show="$store.income.catForm.error" class="text-xs text-red-700 dark:text-red-300" x-text="$store.income.catForm.error"></div>
+          <div class="flex flex-wrap items-center gap-2">
+            <button type="button" @click="$store.income.guardarCat()" :disabled="$store.income.busy || !$store.income.catForm.label.trim()" class="rounded-full bg-ahorro text-white px-4 py-1.5 text-xs font-semibold disabled:opacity-50"
+              x-text="(() => { const n = $store.income.catForm.fuentes.length; if ($store.income.catForm.key) return n ? 'Guardar y mover ' + n + (n === 1 ? ' fuente' : ' fuentes') : 'Guardar'; return n ? 'Crear con ' + n + (n === 1 ? ' fuente' : ' fuentes') : 'Crear sin fuentes'; })()"></button>
+            <button type="button" @click="$store.income.catForm.open = false" class="rounded-full bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200 px-4 py-1.5 text-xs">Cancelar</button>
+          </div>
+          <!-- Tus categorías -->
+          <div class="pt-2 border-t border-slate-200 dark:border-slate-700">
+            <div class="text-[11px] text-slate-500 px-1 mb-1">Tus categorías · se borran solo vacías (si tiene fuentes, primero las mueves)</div>
+            <div class="space-y-1">
+              <template x-for="c in $store.ingcat.lista" :key="'cfl' + c.key">
+                <div class="flex items-center gap-2 min-w-0 rounded-lg px-2 py-1 text-sm" :class="$store.income.catForm.key === c.key ? 'bg-white dark:bg-slate-900' : ''">
+                  <span class="w-2.5 h-2.5 rounded-full shrink-0" :style="'background:' + c.color"></span>
+                  <span class="truncate min-w-0 flex-1 text-slate-700 dark:text-slate-200" x-text="c.icon + ' ' + c.label"></span>
+                  <span class="shrink-0 text-[11px] text-slate-400 whitespace-nowrap" x-text="(n => n + (n === 1 ? ' fuente' : ' fuentes'))($store.income.nFuentesCat(c.key))"></span>
+                  <button type="button" @click="$store.income.editarCat(c)" class="shrink-0 text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200">Editar</button>
+                  <button type="button" @click="$store.income.borrarCat(c.key)" :disabled="$store.income.busy || $store.income.nFuentesCat(c.key) > 0"
+                    :title="$store.income.nFuentesCat(c.key) > 0 ? 'Si tiene fuentes, primero las mueves' : 'Borrar categoría'"
+                    class="shrink-0 text-[11px] text-red-600 dark:text-red-400 hover:underline disabled:text-slate-300 dark:disabled:text-slate-600 disabled:no-underline disabled:cursor-not-allowed">Borrar</button>
+                </div>
+              </template>
+            </div>
           </div>
         </div>
 
-        <div class="space-y-2">
-          <template x-for="s in $store.income.activas" :key="s.key">
-            <div class="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-2 border border-slate-200 dark:border-slate-800">
-              <!-- Row 1: icon + label + currency + delete -->
-              <div class="flex items-center gap-2">
-                <input
-                  type="text"
-                  x-model="s.icon"
-                  @change="$store.income.updateSource(s)"
-                  maxlength="4"
-                  class="w-10 text-center text-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-1"
-                />
-                <input
-                  type="text"
-                  x-model="s.label"
-                  @change="$store.income.updateSource(s)"
-                  class="flex-1 min-w-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-1 text-sm"
-                />
-                <select
-                  x-model="s.currency"
-                  @change="$store.income.updateSource(s)"
-                  class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1 py-1 text-xs w-16"
-                >
-                  <option>USD</option><option>COP</option><option>AED</option><option>BOB</option><option>CLP</option><option>ARS</option>
-                </select>
-                <button @click="$store.income.archivar(s, true)" :disabled="$store.income.busy"
-                  class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1" title="Archivar: deja de contar en el plan y de salir por defecto (sus ingresos viejos se siguen viendo)" aria-label="Archivar">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="5" rx="1"/><path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/></svg>
-                </button>
-                <button
-                  @click="$store.income.deleteSource(s.key)"
-                  class="text-slate-400 hover:text-red-600 p-1"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                </button>
-              </div>
-              <!-- Row 2: expected_usd monthly target -->
-              <div class="flex items-center gap-2 mt-1.5 text-xs">
-                <span class="text-[10px] text-slate-500 w-24 text-right">Esperado mensual</span>
-                <div class="relative flex-1">
-                  <span class="absolute left-2 top-1 text-slate-400 text-[10px]">$</span>
-                  <input
-                    type="number"
-                    step="1"
-                    min="0"
-                    x-model.number="s.expected_usd"
-                    @change="$store.income.updateSource(s)"
-                    placeholder="0"
-                    class="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded pl-5 pr-1 py-1 text-sm text-right focus:ring-1 focus:ring-slate-400"
-                  />
+        <!-- Encabezados de columna (escritorio) -->
+        <div class="hidden lg:flex items-center gap-2 px-3 pt-1 text-[10px] uppercase tracking-wide text-slate-400">
+          <span class="flex-1 min-w-0 pl-7">Fuente</span>
+          <span class="w-[13.5rem] shrink-0">Estado</span>
+          <span class="w-28 shrink-0 text-right">Plan al mes</span>
+          <span class="w-24 shrink-0 text-right" x-text="'Entró en ' + $store.income.anioFuentes"></span>
+          <span class="w-24 shrink-0">Último</span>
+          <span class="w-36 shrink-0">Categoría</span>
+          <span class="w-6 shrink-0"></span>
+        </div>
+
+        <!-- Fuentes por categoría; archivadas plegadas al final -->
+        <div class="space-y-1.5">
+          <template x-for="it in $store.income.filasFuentes()" :key="it.id">
+            <div>
+              <!-- Encabezado de categoría -->
+              <template x-if="it.t === 'cat'">
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 pt-3 pb-0.5 min-w-0">
+                  <span class="flex items-center gap-2 min-w-0 text-sm font-semibold text-slate-800 dark:text-slate-100">
+                    <span class="w-2.5 h-2.5 rounded-full shrink-0" :style="'background:' + it.g.color"></span>
+                    <span class="truncate" x-text="(it.g.icon || '') + ' ' + it.g.label"></span>
+                  </span>
+                  <span class="text-[11px] text-slate-500 dark:text-slate-400 min-w-0" x-text="$store.income.resumenCat(it)"></span>
+                  <span class="ml-auto flex items-center gap-3 shrink-0" x-show="it.g.key !== '_sin'">
+                    <button type="button" @click="$store.income.editarCat(it.g)" class="text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 whitespace-nowrap">✎ cambiar nombre</button>
+                    <button type="button" x-show="!it.total" @click="$store.income.borrarCat(it.g.key)" class="text-[11px] text-red-600 dark:text-red-400 hover:underline whitespace-nowrap">Borrar</button>
+                  </span>
                 </div>
-                <span class="text-[10px] text-slate-500 w-10 text-right">USD/mes</span>
-              </div>
+              </template>
+              <!-- Archivadas -->
+              <template x-if="it.t === 'arch'">
+                <button type="button" @click="$store.income.verArchivadas = !$store.income.verArchivadas" class="mt-3 w-full flex items-center justify-between gap-2 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 px-3 py-2 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200">
+                  <span x-text="'📦 Archivadas · ' + it.n"></span><span x-text="$store.income.verArchivadas ? 'Ocultar' : 'Ver'"></span>
+                </button>
+              </template>
+              <!-- Fuente -->
+              <template x-if="it.t === 'src'">
+                <div class="rounded-xl border px-3 py-2 lg:py-1.5"
+                  :class="it.arch ? 'border-dashed border-slate-200 dark:border-slate-700 bg-transparent' : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900'">
+                  <div class="flex flex-wrap lg:flex-nowrap items-center gap-x-2 gap-y-1.5 min-w-0">
+                    <!-- ⭐ + nombre (+ moneda) -->
+                    <div class="flex items-center gap-1.5 min-w-0 basis-full lg:flex-1">
+                      <button type="button" @click="$store.income.setBoton(it.s)" class="shrink-0 w-6 h-6 grid place-items-center rounded-full text-sm transition"
+                        :class="Number(it.s.boton) === 1 ? '' : 'grayscale opacity-30 hover:opacity-70'" :disabled="!!it.arch"
+                        :title="Number(it.s.boton) === 1 ? 'Sale como botón en Anotar ingreso · toca para quitarlo' : 'Toca para que salga como botón en Anotar ingreso'"
+                        :aria-label="Number(it.s.boton) === 1 ? 'Quitar botón' : 'Poner como botón'" :aria-pressed="Number(it.s.boton) === 1">⭐</button>
+                      <span class="shrink-0" :class="it.arch ? 'opacity-60' : ''" x-text="it.s.icon || '💰'"></span>
+                      <span class="truncate min-w-0 text-sm font-medium" :class="it.arch ? 'text-slate-500 dark:text-slate-400' : 'text-slate-800 dark:text-slate-100'" x-text="it.s.label" :title="it.s.label"></span>
+                      <span x-show="it.s.currency && it.s.currency !== 'USD'" class="shrink-0 text-[10px] rounded px-1 py-0.5 bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400" x-text="it.s.currency"></span>
+                      <button type="button" @click="$store.income.editKey = ($store.income.editKey === it.s.key ? null : it.s.key)" class="lg:hidden ml-auto shrink-0 w-6 h-6 grid place-items-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200" aria-label="Editar nombre, ícono o moneda">✎</button>
+                    </div>
+                    <!-- Cada mes / A veces / Archivar -->
+                    <div class="flex rounded-full bg-slate-100 dark:bg-slate-800 p-0.5 text-[11px] flex-1 lg:flex-none lg:w-[13.5rem] min-w-0" role="group" aria-label="Estado de la fuente">
+                      <template x-for="op in [['mes', 'Cada mes'], ['veces', 'A veces'], ['arch', 'Archivar']]" :key="'seg' + op[0]">
+                        <button type="button" @click="$store.income.setEstado(it.s, op[0])" class="flex-1 rounded-full px-1.5 py-1 whitespace-nowrap transition"
+                          :aria-pressed="$store.income.estadoDe(it.s) === op[0]"
+                          :class="$store.income.estadoDe(it.s) === op[0]
+                            ? (op[0] === 'mes' ? 'bg-ahorro text-white font-semibold' : (op[0] === 'veces' ? 'bg-white text-slate-800 shadow-sm font-semibold dark:bg-slate-600 dark:text-slate-100' : 'bg-slate-500 text-white font-semibold dark:bg-slate-600'))
+                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'" x-text="op[1]"></button>
+                      </template>
+                    </div>
+                    <!-- Plan al mes -->
+                    <div class="w-28 shrink-0 text-right">
+                      <template x-if="$store.income.estadoDe(it.s) === 'mes'">
+                        <label class="flex items-center justify-end gap-1 text-[11px] text-slate-400">$
+                          <input type="text" inputmode="decimal" :value="Number(it.s.expected_usd) || 0" @change="$store.income.setPlan(it.s, $event.target.value)" @keydown.enter.prevent="$event.target.blur()"
+                            class="w-20 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-sm text-right num" :aria-label="'Plan al mes de ' + it.s.label"><span class="lg:hidden">/mes</span></label>
+                      </template>
+                      <span x-show="$store.income.estadoDe(it.s) !== 'mes'" class="text-[11px] text-slate-400 whitespace-nowrap">no cuenta</span>
+                    </div>
+                    <!-- Entró este año · último · categoría -->
+                    <div class="flex items-center gap-2 min-w-0 basis-full lg:basis-auto lg:contents text-[11px]">
+                      <span class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0 flex-1 lg:contents">
+                        <span class="lg:w-24 shrink-0 lg:text-right whitespace-nowrap text-slate-600 dark:text-slate-300">
+                          <span class="lg:hidden text-slate-400">entró </span><span class="font-medium" x-text="$store.income.fmt(it.s.entro_anio_usd)"></span><span class="lg:hidden text-slate-400" x-text="' en ' + $store.income.anioFuentes"></span></span>
+                        <span class="lg:w-24 shrink-0 whitespace-nowrap">
+                          <span class="lg:hidden text-slate-400">· último </span>
+                          <span class="rounded-full" :class="$store.income.sinLlegar(it.s) ? 'px-1.5 py-0.5 bg-gusto-suave text-gusto-fuerte dark:bg-amber-950/50 dark:text-amber-300' : 'text-slate-600 dark:text-slate-300'"
+                            :title="$store.income.sinLlegar(it.s) ? 'Cuenta en el plan y no recibe nada hace más de 2 meses' : ''" x-text="$store.income.fechaCorta(it.s.ultimo)"></span></span>
+                      </span>
+                      <select :value="$store.ingcat.keyDe(it.s)" @change="$store.income.setCategoria(it.s, $event.target.value)"
+                        class="w-32 lg:w-36 shrink-0 min-w-0 bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg px-1.5 py-1 text-[11px]" :aria-label="'Categoría de ' + it.s.label">
+                        <template x-for="c in $store.ingcat.lista" :key="'rc' + it.s.key + c.key"><option :value="c.key" :selected="$store.ingcat.keyDe(it.s) === c.key" x-text="c.icon + ' ' + c.label"></option></template>
+                        <option x-show="$store.ingcat.keyDe(it.s) === '_sin'" value="_sin" :selected="$store.ingcat.keyDe(it.s) === '_sin'">📦 Sin categoría</option>
+                      </select>
+                    </div>
+                    <button type="button" @click="$store.income.editKey = ($store.income.editKey === it.s.key ? null : it.s.key)" class="hidden lg:grid w-6 h-6 shrink-0 place-items-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200" aria-label="Editar nombre, ícono o moneda" title="Nombre, ícono, moneda">✎</button>
+                  </div>
+                  <!-- Nombre, ícono y moneda; borrar solo si no tiene ingresos -->
+                  <div x-show="$store.income.editKey === it.s.key" x-transition class="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center gap-2">
+                    <input type="text" x-model="it.s.icon" @change="$store.income.updateSource(it.s)" maxlength="4" class="w-11 text-center text-base bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-1 py-1" aria-label="Ícono">
+                    <input type="text" x-model="it.s.label" @change="$store.income.updateSource(it.s)" maxlength="60" class="flex-1 min-w-[10rem] bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-sm" aria-label="Nombre">
+                    <select x-model="it.s.currency" @change="$store.income.updateSource(it.s)" class="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-lg px-1.5 py-1 text-xs" aria-label="Moneda">
+                      <template x-for="m in ['USD', 'COP', 'AED', 'BOB', 'CLP', 'ARS']" :key="'ecm' + it.s.key + m"><option :value="m" :selected="it.s.currency === m" x-text="m"></option></template>
+                    </select>
+                    <button type="button" @click="$store.income.deleteSource(it.s.key)" :disabled="$store.income.busy" class="ml-auto text-[11px] text-red-600 dark:text-red-400 hover:underline disabled:opacity-50"
+                      x-text="Number(it.s.n_ingresos) > 0 ? 'Borrar (tiene ' + it.s.n_ingresos + (Number(it.s.n_ingresos) === 1 ? ' ingreso' : ' ingresos') + ')' : 'Borrar fuente'"></button>
+                  </div>
+                </div>
+              </template>
             </div>
           </template>
-        </div>
-
-        <button
-          @click="$store.income.addSource()"
-          class="w-full py-2 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-500 hover:text-slate-700 hover:border-slate-400 transition"
-        >+ Agregar fuente de ingreso</button>
-
-        <!-- Archivadas: por temporada o etapa; no cuentan en el plan -->
-        <div x-show="$store.income.archivadas.length" class="pt-2">
-          <button @click="$store.income.verArchivadas = !$store.income.verArchivadas" class="w-full flex items-center justify-between text-xs text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 py-1">
-            <span>📦 <span x-text="$store.income.archivadas.length"></span> <span x-text="$store.income.archivadas.length === 1 ? 'fuente archivada' : 'fuentes archivadas'"></span></span>
-            <span x-text="$store.income.verArchivadas ? 'Ocultar' : 'Ver'"></span>
-          </button>
-          <div x-show="$store.income.verArchivadas" class="mt-2 space-y-1.5">
-            <template x-for="s in $store.income.archivadas" :key="'arch' + s.key">
-              <div class="flex items-center gap-2 rounded-lg p-2 border border-dashed border-slate-200 dark:border-slate-700 text-slate-500">
-                <span class="text-lg opacity-60" x-text="s.icon || '💰'"></span>
-                <span class="flex-1 min-w-0 text-sm truncate" x-text="s.label"></span>
-                <span class="text-[10px]" x-text="(Number(s.expected_usd) || 0) ? 'esperaba $' + Math.round(s.expected_usd).toLocaleString('en-US') + '/mes' : ''"></span>
-                <button @click="$store.income.archivar(s, false)" :disabled="$store.income.busy" class="text-xs rounded-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-2.5 py-1 hover:text-slate-800 dark:hover:text-slate-200">Desarchivar</button>
-              </div>
-            </template>
-          </div>
         </div>
       </div>
 
@@ -3590,7 +3850,7 @@
     <!-- Error + footer -->
     <div class="border-t border-slate-200 dark:border-slate-800 px-5 py-3 bg-white dark:bg-slate-900 sm:rounded-b-2xl">
       <div
-        x-show="$store.income.error"
+        x-show="$store.income.error && $store.income.tab !== 'sources'"
         class="mb-2 text-sm text-red-600 dark:text-red-400"
         x-text="$store.income.error"
       ></div>
@@ -5274,6 +5534,128 @@ document.addEventListener('alpine:init', () => {
     },
   });
 
+  // ──────────────── Categorías de ingreso (Daniel 12-nov) ────────────────
+  // Las crea Daniel en «Fuentes y plan». «De dónde vino», «Por fuente» y los selectores de fuente las
+  // leen de /api/income/categories; si la API falla quedan las 7 de siempre (BASE) con la asignación
+  // vieja por nombre/clave. Cada fuente guarda su categoría en income_sources.categoria.
+  Alpine.store('ingcat', {
+    cats: [],
+    BASE: [
+      { key: 'clp', label: 'CLP', icon: '🌊', color: '#1baf7a' },
+      { key: 'rentas', label: 'Rentas', icon: '🏠', color: '#c98500' },
+      { key: 'defi', label: 'Cripto DeFi', icon: '💰', color: '#6250d6' },
+      { key: 'cefi', label: 'Cripto CeFi', icon: '💵', color: '#2a78d6' },
+      { key: 'mineria', label: 'Minería', icon: '⛏️', color: '#6f7680' },
+      { key: 'trading', label: 'Trading', icon: '📈', color: '#c63a2d' },
+      { key: 'otros', label: 'Tradicional/Otros', icon: '🏦', color: '#6da7ec' },
+    ],
+    // Degradado de siempre para las 7 de base (donut); las nuevas lo sacan de su color
+    GRAD: { clp: ['#5eead4', '#0d9488'], rentas: ['#fcd34d', '#b45309'], defi: ['#c4b5fd', '#6d28d9'], cefi: ['#f9a8d4', '#db2777'],
+            mineria: ['#d6d3d1', '#78716c'], trading: ['#fca5a5', '#dc2626'], otros: ['#7dd3fc', '#0284c7'] },
+    ICONOS: ['💼', '🏠', '🌊', '💰', '📈', '🏦', '🎁', '⛏️'],
+    COLORES: ['#1baf7a', '#c98500', '#6250d6', '#2a78d6', '#6f7680', '#c63a2d', '#6da7ec', '#d6457a'],
+    SIN: { key: '_sin', label: 'Sin categoría', icon: '📦', color: '#9aa1ab' },
+    get lista() { return this.cats.length ? this.cats : this.BASE; },
+    async cargar() {
+      try { const r = await fetch('/api/income/categories'); if (r.ok) this.cats = (await r.json()).categories || []; } catch (e) { /* quedan las de base */ }
+    },
+    def(k) { return this.lista.find(c => c.key === k) || (k === this.SIN.key ? this.SIN : null); },
+    // Asignación de antes de las categorías (nombre o clave), para fuentes sin categoría guardada
+    _vieja(key, label) {
+      if (/clp/i.test(label || '')) return 'clp';
+      if (/alquiler|renta/i.test(label || '')) return 'rentas';
+      return ({ aave: 'defi', yield: 'defi', fluid: 'defi', deltayield: 'defi', caashback: 'defi', nexo: 'cefi', potosi: 'mineria', futuros: 'trading' })[key] || 'otros';
+    },
+    // Clave de categoría de una fuente ({key|source_key, label, categoria})
+    keyDe(s) {
+      s = s || {};
+      if (s.categoria) return this.lista.some(c => c.key === s.categoria) ? s.categoria : this.SIN.key;
+      const k = this._vieja(s.key || s.source_key, s.label);
+      if (this.lista.some(c => c.key === k)) return k;
+      return this.lista.some(c => c.key === 'otros') ? 'otros' : this.SIN.key;
+    },
+    catDe(s) { return this.def(this.keyDe(s)) || this.SIN; },
+    grad(c) {
+      const base = this.BASE.find(b => b.key === c.key);
+      if (base && base.color === c.color && this.GRAD[c.key]) return this.GRAD[c.key];
+      const hex = /^#[0-9a-f]{6}$/i.test(c.color || '') ? c.color : '#6da7ec';
+      const mix = '#' + [1, 3, 5].map(i => Math.round(parseInt(hex.slice(i, i + 2), 16) * 0.45 + 255 * 0.55).toString(16).padStart(2, '0')).join('');
+      return [mix, hex];
+    },
+    esVeces(s) { return (s && s.tipo) === 'veces'; },
+    planDe(s) { return Number(s.active) === 0 || this.esVeces(s) ? 0 : (Number(s.expected_usd) || 0); },
+    // Fuentes activas agrupadas por categoría (todas las categorías, también vacías; «Sin categoría» al final si hace falta).
+    // orden 'alfa' = por nombre; 'plan' = primero «cada mes» por plan, luego «a veces» por nombre.
+    grupos(fuentes, orden) {
+      const out = this.lista.map(c => ({ ...c, items: [] }));
+      const sin = { ...this.SIN, items: [] };
+      for (const f of (fuentes || [])) {
+        if (Number(f.active) === 0) continue;
+        const k = this.keyDe(f);
+        (out.find(g => g.key === k) || sin).items.push(f);
+      }
+      if (sin.items.length) out.push(sin);
+      const nom = (a, b) => (a.label || '').localeCompare(b.label || '', 'es');
+      const porPlan = (a, b) => (this.esVeces(a) - this.esVeces(b)) || (this.planDe(b) - this.planDe(a)) || nom(a, b);
+      out.forEach(g => g.items.sort(orden === 'plan' ? porPlan : nom));
+      return out;
+    },
+    archivadas(fuentes) { return (fuentes || []).filter(f => Number(f.active) === 0).sort((a, b) => (a.label || '').localeCompare(b.label || '', 'es')); },
+    // Crea una fuente (desde el selector o «Fuentes y plan») y refresca todas las listas. Devuelve la clave nueva.
+    async crearFuente(d) {
+      const tipo = d.tipo === 'mes' ? 'mes' : 'veces';
+      const cat = this.def(d.categoria);
+      const body = { label: (d.label || '').trim(), categoria: cat && cat.key !== this.SIN.key ? cat.key : null, tipo,
+        currency: d.currency || 'USD', expected_usd: tipo === 'mes' ? (window.parseMonto(d.expected_usd, 'USD') || 0) : 0,
+        icon: (cat && cat.icon) || '💰', boton: d.boton ? 1 : 0 };
+      if (!body.label) throw new Error('Escribe el nombre de la fuente.');
+      const r = await fetch('/api/income/sources', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.detail || ('No se pudo crear la fuente (' + r.status + ')'));
+      await this.refrescarFuentes();
+      Alpine.store('quick').aviso('✓ Fuente nueva: ' + body.label);
+      return j.key;
+    },
+    async refrescarFuentes() {
+      try {
+        const r = await fetch('/api/income/sources');
+        if (r.ok) {
+          const lista = (await r.json()).sources || [];
+          Alpine.store('quick').fuentes = lista;
+          const st = Alpine.store('income'); if (st.open) st.sources = lista;
+        }
+      } catch (e) { /* el tablero recarga igual */ }
+      window.dispatchEvent(new CustomEvent('fuentes-changed'));
+    },
+  });
+
+  // Selector de fuente de «Anotar ingreso» (sección Ingresos y botón +): agrupado por categoría con su color,
+  // «a veces» marcado, archivadas plegadas al final y «+ Nueva fuente» ahí mismo.
+  Alpine.data('fuentePicker', (getFuentes, getSel, setSel) => ({
+    abierto: false, verArch: false, nueva: false, nfBusy: false, nfErr: '',
+    nf: { label: '', categoria: '', tipo: 'veces' },
+    fuentes() { return getFuentes() || []; },
+    sel() { const k = getSel(); return k ? (this.fuentes().find(f => f.key === k) || null) : null; },
+    grupos() { return Alpine.store('ingcat').grupos(this.fuentes(), 'alfa').filter(g => g.items.length); },
+    archivadas() { return Alpine.store('ingcat').archivadas(this.fuentes()); },
+    colorDe(f) { return Alpine.store('ingcat').catDe(f).color; },
+    getSelKey() { return getSel(); },
+    elegir(k) { setSel(k); this.abierto = false; this.nueva = false; },
+    abrirNueva() {
+      const ic = Alpine.store('ingcat');
+      this.nf = { label: '', categoria: (ic.lista.find(c => c.key === 'otros') || ic.lista[0] || {}).key || '', tipo: 'veces' };
+      this.nfErr = ''; this.nueva = true;
+      this.$nextTick(() => this.$refs.nfLabel && this.$refs.nfLabel.focus());
+    },
+    async crear() {
+      if (this.nfBusy) return;
+      this.nfBusy = true; this.nfErr = '';
+      try { const k = await Alpine.store('ingcat').crearFuente(this.nf); this.elegir(k); }
+      catch (e) { this.nfErr = e.message || String(e); }
+      finally { this.nfBusy = false; }
+    },
+  }));
+
   // Income editor store — sources, entries, and per-month rates
   Alpine.store('income', {
     open: false,
@@ -5310,21 +5692,166 @@ document.addEventListener('alpine:init', () => {
     // gauge on the dashboard. Recomputes reactively as the user types in the
     // Fuentes tab.
     get totalExpectedMonthly() {
-      return this.activas.reduce((s, src) => s + (Number(src.expected_usd) || 0), 0);
+      // Solo «cada mes»: las «a veces» no cuentan aunque guarden un esperado viejo
+      return this.activas.filter(src => src.tipo !== 'veces').reduce((s, src) => s + (Number(src.expected_usd) || 0), 0);
     },
     // Archivadas: no cuentan en el plan ni salen por defecto; quedan al final de las listas
     get activas() { return this.sources.filter(x => Number(x.active) !== 0); },
     get archivadas() { return this.sources.filter(x => Number(x.active) === 0); },
     verArchivadas: false,
-    async archivar(s, archivar) {
+    async archivar(s, archivar) { await this.setEstado(s, archivar ? 'arch' : (s.tipo === 'veces' ? 'veces' : 'mes')); },
+
+    // ── Fuentes y plan (Daniel 12-nov): Cada mes / A veces / Archivar, ⭐ botones y categorías ──
+    anioFuentes: new Date().getFullYear(),
+    editKey: null,            // fuente con el editor de nombre/ícono/moneda abierto
+    catForm: { open: false, key: '', label: '', icon: '💼', color: '#1baf7a', fuentes: [], error: '' },
+    fuenteForm: { open: false, label: '', categoria: '', tipo: 'mes', expected_usd: '', currency: 'USD', boton: false, error: '' },
+    get nMes() { return this.activas.filter(s => s.tipo !== 'veces').length; },
+    get nVeces() { return this.activas.filter(s => s.tipo === 'veces').length; },
+    fmt(v) { return '$' + Math.round(Number(v) || 0).toLocaleString('en-US'); },
+    estadoDe(s) { return Number(s.active) === 0 ? 'arch' : (s.tipo === 'veces' ? 'veces' : 'mes'); },
+    _corte2m() { const d = new Date(); d.setMonth(d.getMonth() - 2); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); },
+    // «Cada mes» sin ingresos hace más de 2 meses (si nunca recibió, cuenta desde que se creó). Solo avisa: nunca se cambia sola.
+    sinLlegar(s) {
+      if (this.estadoDe(s) !== 'mes') return false;
+      const c = this._corte2m(), ult = (s.ultimo || '').slice(0, 10);
+      return ult ? ult < c : (s.created_at || '').slice(0, 10) < c;
+    },
+    get estancadas() { return this.activas.filter(s => this.sinLlegar(s)); },
+    avisoEstancadas() {
+      const l = this.estancadas, n = l.length;
+      if (!n) return '';
+      const suma = l.reduce((a, s) => a + (Number(s.expected_usd) || 0), 0);
+      return (n === 1 ? '1 fuente cuenta en el plan pero no recibe nada hace más de 2 meses: suma ' : n + ' fuentes cuentan en el plan pero no reciben nada hace más de 2 meses: suman ')
+        + this.fmt(suma) + ' de los ' + this.fmt(this.totalExpectedMonthly) + ' del plan. Si ya no ' + (n === 1 ? 'da, pásala' : 'dan, pásalas') + ' a «A veces» o ' + (n === 1 ? 'archívala.' : 'archívalas.');
+    },
+    fechaCorta(f) {
+      if (!f) return 'nunca';
+      const [y, m, d] = f.slice(0, 10).split('-');
+      const mes = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'][Number(m) - 1] || m;
+      return Number(d) + ' ' + mes + (Number(y) !== new Date().getFullYear() ? ' ' + y : '');
+    },
+    // Filas de la ventana: encabezado de cada categoría y sus fuentes; las archivadas plegadas al final
+    filasFuentes() {
+      const ic = Alpine.store('ingcat'), out = [];
+      for (const g of ic.grupos(this.sources, 'plan')) {
+        const plan = g.items.reduce((a, s) => a + ic.planDe(s), 0);
+        const entro = g.items.reduce((a, s) => a + (Number(s.entro_anio_usd) || 0), 0);
+        out.push({ id: 'c:' + g.key, t: 'cat', g, n: g.items.length, plan, entro, total: this.nFuentesCat(g.key) });
+        g.items.forEach(s => out.push({ id: 's:' + s.key, t: 'src', s }));
+      }
+      const arch = ic.archivadas(this.sources);
+      if (arch.length) {
+        out.push({ id: 'arch', t: 'arch', n: arch.length });
+        if (this.verArchivadas) arch.forEach(s => out.push({ id: 's:' + s.key, t: 'src', s, arch: true }));
+      }
+      return out;
+    },
+    resumenCat(it) {
+      if (!it.n) return it.total ? 'solo archivadas (' + it.total + ')' : 'sin fuentes';
+      return it.n + (it.n === 1 ? ' fuente' : ' fuentes') + ' · plan ' + this.fmt(it.plan) + ' al mes · entró ' + this.fmt(it.entro) + ' en ' + this.anioFuentes;
+    },
+    // Todas las fuentes (también archivadas) que hoy caen en la categoría: solo se borra vacía
+    nFuentesCat(k) { const ic = Alpine.store('ingcat'); return this.sources.filter(s => ic.keyDe(s) === k).length; },
+    _tCambio: null,
+    _avisarCambio() { clearTimeout(this._tCambio); this._tCambio = setTimeout(() => window.dispatchEvent(new CustomEvent('fuentes-changed')), 700); },
+    async _guardarFuente(s, body, okMsg) {
+      const prev = {}; for (const k of Object.keys(body)) prev[k] = s[k];
+      Object.assign(s, body);   // se ve al instante; si falla, vuelve atrás
+      this.error = null;
+      try {
+        const r = await fetch('/api/income/sources/' + encodeURIComponent(s.key), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.detail || ('No se pudo guardar (' + r.status + ')'));
+        if (okMsg) Alpine.store('quick').aviso(okMsg);
+        this._avisarCambio();
+        return true;
+      } catch (e) { Object.assign(s, prev); this.error = (e.message || String(e)); return false; }
+    },
+    async setEstado(s, e) {
+      if (this.estadoDe(s) === e) return;
+      if (e === 'arch') return this._guardarFuente(s, { active: 0 }, '📦 ' + s.label + ' archivada: sus ingresos viejos se siguen viendo');
+      return this._guardarFuente(s, { active: 1, tipo: e }, e === 'mes' ? '✓ ' + s.label + ': cada mes, cuenta en el plan' : '✓ ' + s.label + ': a veces, no cuenta en el plan');
+    },
+    setBoton(s) {
+      const v = Number(s.boton) === 1 ? 0 : 1;
+      return this._guardarFuente(s, { boton: v }, v ? '⭐ ' + s.label + ' sale como botón en Anotar ingreso' : s.label + ' ya no sale como botón');
+    },
+    setPlan(s, txt) {
+      const t = String(txt == null ? '' : txt).trim();
+      const n = t ? window.parseMonto(t, 'USD') : 0;
+      if (t && !(n > 0) && !/^\$?\s*0+([.,]0+)?$/.test(t)) { this.error = 'Escribe el plan en dólares, por ejemplo 650.'; return; }
+      if (Math.round(n * 100) === Math.round((Number(s.expected_usd) || 0) * 100)) return;
+      return this._guardarFuente(s, { expected_usd: n }, '✓ Plan de ' + s.label + ': ' + this.fmt(n) + ' al mes');
+    },
+    setCategoria(s, k) {
+      const c = Alpine.store('ingcat').def(k);
+      if (!c || c.key === '_sin') return;
+      return this._guardarFuente(s, { categoria: k }, '✓ ' + s.label + ' pasa a ' + c.label);
+    },
+    abrirNuevaFuente() {
+      const ic = Alpine.store('ingcat');
+      this.catForm.open = false;
+      this.fuenteForm = { open: true, label: '', categoria: (ic.lista.find(c => c.key === 'otros') || ic.lista[0] || {}).key || '', tipo: 'mes', expected_usd: '', currency: 'USD', boton: false, error: '' };
+    },
+    async crearFuenteForm() {
+      const f = this.fuenteForm;
+      if (this.busy) return;
+      this.busy = true; f.error = '';
+      try { await Alpine.store('ingcat').crearFuente(f); f.open = false; await this.reload(); }
+      catch (e) { f.error = e.message || String(e); }
+      finally { this.busy = false; }
+    },
+    abrirNuevaCat() {
+      this.fuenteForm.open = false;
+      this.catForm = { open: true, key: '', label: '', icon: '💼', color: '#d6457a', fuentes: [], error: '' };
+    },
+    editarCat(g) {
+      this.fuenteForm.open = false;
+      this.catForm = { open: true, key: g.key, label: g.label, icon: g.icon || '💰', color: g.color || '#6da7ec', fuentes: [], error: '' };
+      setTimeout(() => document.getElementById('ing-catform')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 30);
+    },
+    // Fuentes para las casillas: activas primero, luego archivadas; las que ya están en la categoría que se edita van marcadas
+    fuentesParaCat() {
+      const ic = Alpine.store('ingcat');
+      return [...ic.grupos(this.sources, 'alfa').flatMap(g => g.items), ...ic.archivadas(this.sources)]
+        .map(s => ({ s, cat: ic.catDe(s), yaEsta: !!this.catForm.key && ic.keyDe(s) === this.catForm.key }));
+    },
+    toggleFuenteCat(k) { const l = this.catForm.fuentes, i = l.indexOf(k); if (i >= 0) l.splice(i, 1); else l.push(k); },
+    async guardarCat() {
+      const f = this.catForm;
+      if (this.busy) return;
+      if (!f.label.trim()) { f.error = 'Escribe el nombre de la categoría.'; return; }
+      this.busy = true; f.error = '';
+      try {
+        const body = { label: f.label.trim(), icon: f.icon, color: f.color, fuentes: f.fuentes.slice() };
+        const r = await fetch(f.key ? '/api/income/categories/' + encodeURIComponent(f.key) : '/api/income/categories',
+          { method: f.key ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.detail || ('No se pudo guardar (' + r.status + ')'));
+        Alpine.store('quick').aviso(f.key ? '✓ Categoría ' + body.label + ' guardada' : '✓ Categoría ' + body.label + (body.fuentes.length ? ' creada con ' + body.fuentes.length + (body.fuentes.length === 1 ? ' fuente' : ' fuentes') : ' creada'));
+        f.open = false;
+        await Alpine.store('ingcat').cargar();
+        await this.reload();
+        this._avisarCambio();
+      } catch (e) { f.error = e.message || String(e); }
+      finally { this.busy = false; }
+    },
+    async borrarCat(k) {
+      const c = Alpine.store('ingcat').def(k);
+      if (!c || this.busy) return;
+      const n = this.nFuentesCat(k);
+      if (n) { this.error = 'La categoría ' + c.label + ' tiene ' + n + (n === 1 ? ' fuente' : ' fuentes') + ': primero las mueves a otra.'; return; }
+      if (!confirm('¿Borrar la categoría «' + c.label + '»? No tiene fuentes.')) return;
       this.busy = true; this.error = null;
       try {
-        const resp = await fetch('/api/income/sources/' + s.key, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ active: archivar ? 0 : 1 }) });
-        if (!resp.ok) throw new Error('No se pudo ' + (archivar ? 'archivar' : 'desarchivar') + ' (' + resp.status + ')');
-        s.active = archivar ? 0 : 1;
-        Alpine.store('quick').aviso(archivar ? '📦 ' + s.label + ' archivada: ya no cuenta en el plan' : '✓ ' + s.label + ' vuelve a estar activa');
-        window.dispatchEvent(new CustomEvent('fuentes-changed'));
+        const r = await fetch('/api/income/categories/' + encodeURIComponent(k), { method: 'DELETE' });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.detail || ('No se pudo borrar (' + r.status + ')'));
+        Alpine.store('quick').aviso('🗑 Categoría ' + c.label + ' borrada');
+        if (this.catForm.key === k) this.catForm.open = false;
+        await Alpine.store('ingcat').cargar();
+        this._avisarCambio();
       } catch (e) { this.error = e.message || String(e); }
       finally { this.busy = false; }
     },
@@ -5396,10 +5923,13 @@ document.addEventListener('alpine:init', () => {
         this._fetchRetry('/api/income/sources'),
         this._fetchRetry('/api/income/entries?month=' + this.month),
         this._fetchRetry('/api/rates/history/' + this.month),
+        Alpine.store('ingcat').cargar(),
       ]);
       try {
         if (sourcesR.status === 'fulfilled' && sourcesR.value.ok) {
-          this.sources = (await sourcesR.value.json()).sources || [];
+          const d = await sourcesR.value.json();
+          this.sources = d.sources || [];
+          if (d.anio) this.anioFuentes = d.anio;
         }
         if (entriesR.status === 'fulfilled' && entriesR.value.ok) {
           this.entries = (await entriesR.value.json()).entries || [];
@@ -5483,32 +6013,7 @@ document.addEventListener('alpine:init', () => {
 
     // ── Sources CRUD ──
 
-    async addSource() {
-      const rawKey = prompt('Clave de la nueva fuente\n(minúsculas, números y guiones bajos — ej: "airbnb_medellin", "yield_clp"):');
-      if (!rawKey) return;
-      const key = rawKey.trim().toLowerCase();
-      if (!/^[a-z_][a-z0-9_]*$/.test(key)) {
-        alert('Clave inválida. Usa solo letras minúsculas, números y guiones bajos.');
-        return;
-      }
-      const label = prompt('Nombre legible de la fuente:', key) || key;
-      this.busy = true;
-      try {
-        const resp = await fetch('/api/income/sources', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            key, label, icon: '💰', currency: 'USD', expected_usd: 0, active: 1,
-          }),
-        });
-        if (!resp.ok) throw new Error('No se pudo crear (' + resp.status + '): ' + (await resp.text()).slice(0, 200));
-        await this.reload();
-      } catch (e) {
-        this.error = e.message || String(e);
-      } finally {
-        this.busy = false;
-      }
-    },
+    addSource() { this.abrirNuevaFuente(); },
 
     async updateSource(s) {
       this.busy = true;
@@ -5516,12 +6021,10 @@ document.addEventListener('alpine:init', () => {
         const resp = await fetch('/api/income/sources/' + s.key, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            label: s.label, icon: s.icon, currency: s.currency,
-            expected_usd: s.expected_usd || 0,
-          }),
+          body: JSON.stringify({ label: s.label, icon: s.icon, currency: s.currency }),
         });
         if (!resp.ok) throw new Error('No se pudo actualizar (' + resp.status + ')');
+        this._avisarCambio();
       } catch (e) {
         this.error = e.message || String(e);
       } finally {
@@ -5530,14 +6033,18 @@ document.addEventListener('alpine:init', () => {
     },
 
     async deleteSource(key) {
-      if (!confirm('¿Eliminar la fuente "' + key + '"?\n\nSi tiene entradas, primero debes borrarlas.')) return;
+      const src = this.sources.find(x => x.key === key) || { label: key, n_ingresos: 0 };
+      if (Number(src.n_ingresos) > 0) { this.error = src.label + ' tiene ' + src.n_ingresos + (Number(src.n_ingresos) === 1 ? ' ingreso' : ' ingresos') + ': no se puede borrar. Archívala para esconderla (sus ingresos se siguen viendo).'; return; }
+      if (!confirm('¿Borrar la fuente «' + src.label + '»? No tiene ingresos anotados.')) return;
       this.busy = true;
       try {
         const resp = await fetch('/api/income/sources/' + key, { method: 'DELETE' });
         if (!resp.ok) {
-          const body = await resp.text();
-          throw new Error('No se pudo eliminar (' + resp.status + '): ' + body.slice(0, 200));
+          const body = await resp.json().catch(() => ({}));
+          throw new Error(body.detail || ('No se pudo borrar (' + resp.status + ')'));
         }
+        this.editKey = null;
+        this._avisarCambio();
         await this.reload();
       } catch (e) {
         this.error = e.message || String(e);
@@ -6940,9 +7447,9 @@ document.addEventListener('alpine:init', () => {
       gastado: { t: 'Gastado', h: '<p>Todo lo gastado en el período que elegiste arriba.</p><p>La barra separa <b>fijos y cuotas</b> (oscuro: hipoteca, administración, suscripciones y cuotas de diferidos; desde diciembre los fijos entran cuando los confirmas en Tarjetas, y los que faltan se apartan de lo que queda) del <b>día a día</b> (dorado: lo que anotan ustedes).</p><p><b>Comparar con</b> tiene dos referencias: el <b>presupuesto ideal</b> (la suma del ideal de cada categoría, que editas en Ajustes → Categorías y presupuesto) y el <b>ingreso percibido</b> (lo que de verdad entró, de la sección Ingresos). Con 3, 6 o 12 meses el presupuesto se multiplica por los meses.</p><p>Con el presupuesto ideal, el <b>ritmo</b> del mes en curso mira solo el día a día: qué parte de lo disponible llevan contra qué parte del mes va.</p>' },
       pagos: { t: 'Próximos pagos', h: '<p>Las fechas de pago de tarjetas y créditos. El color dice qué tan cerca está: <b>rojo</b> vencido o 3 días o menos, <b>naranja</b> hasta 7, <b>dorado</b> hasta 14 y <b>verde</b> más lejos.</p><p>Cuando paguen, toquen <b>Ya pagué</b>: sale de la lista y vuelve sola el mes siguiente con la nueva fecha. Si fue un error, en "pagados este mes" está <b>Deshacer</b>.</p><p>Tocar el nombre lo edita; <b>+ Agregar</b> y <b>Gestionar</b> crean, cambian o borran recordatorios. Solo avisa: no anota el gasto.</p>' },
       pyg: { t: 'P&G', h: '<p>Ingresos contra gastos del período. <b>Neto</b> = ingresos − gastos; si es positivo dice qué parte del ingreso ahorraron.</p><p>La gráfica muestra los últimos meses: barras verdes = ingresos, doradas = gastos, línea = neto (punto verde si sobró, rojo si faltó). Los meses fuera del período elegido se ven más claros.</p><p><b>De dónde vino</b> agrupa los ingresos (CLP, rentas, cripto…) y <b>En qué se fue</b> reparte el gasto en esencial, estilo de vida y gusto. <b>+ Anotar ingreso</b> lleva a la sección Ingresos; en <b>⋯</b> están las fuentes y los CSV.</p>' },
-      'ing-recibido': { t: 'Recibido', h: '<p>Todo lo que entró en el período, en dólares (cada ingreso se convierte con la tasa de su mes).</p><p>La barra lo compara con el <b>plan</b>: la suma de lo que esperan de cada fuente al mes (con 3, 6 o 12 meses se multiplica). "Fuentes sin recibir" son las que tienen plan pero no han registrado nada.</p><p>Abajo, el neto del período: ingresos menos gastos.</p>' },
-      'ing-form': { t: 'Anotar ingreso', h: '<p>Elige la fuente (los botones son las de mayor plan), escribe el monto y la moneda, y guarda. Al elegir la fuente se pone su moneda.</p><p>El ingreso cuenta en el <b>mes de la fecha</b> y se convierte a dólares con la tasa de ese mes. También puedes anotarlo con el botón <b>+</b> → Ingreso.</p><p><b>Fuentes y plan</b> abre la ventana para crear fuentes y fijar cuánto esperan de cada una al mes.</p>' },
-      'ing-fuentes': { t: 'Por fuente', h: '<p>Cada fuente con lo recibido en el período y su plan, agrupadas (CLP, rentas, cripto DeFi y CeFi, minería, trading y otros). <b>Pendiente</b> = tiene plan y aún no llega nada.</p><p>Las fuentes <b>archivadas</b> (por temporada o etapa) no cuentan en el plan ni salen por defecto: solo aparecen aquí en los meses en que tuvieron ingresos, marcadas 📦. Se archivan y desarchivan en <b>Fuentes y plan</b>.</p><p>Toca una fuente para ver solo sus ingresos en la lista de abajo.</p>' },
+      'ing-recibido': { t: 'Recibido', h: '<p>Todo lo que entró en el período, en dólares (cada ingreso se convierte con la tasa de su mes).</p><p>La barra lo compara con el <b>plan</b>: la suma de lo que esperan de las fuentes <b>cada mes</b> (con 3, 6 o 12 meses se multiplica); las <b>a veces</b> no cuentan. "Fuentes sin recibir" son las de cada mes que aún no registran nada.</p><p>Abajo, el neto del período: ingresos menos gastos.</p>' },
+      'ing-form': { t: 'Anotar ingreso', h: '<p>Elige la fuente, escribe el monto y la moneda, y guarda. Al elegir la fuente se pone su moneda.</p><p><b>Tus botones</b> son las fuentes que marcas con ⭐ en Fuentes y plan (si no marcas ninguna, salen las de mayor plan); <b>✎ Elegir botones</b> abre esa ventana. En la lista, las fuentes van por categoría; las <b>a veces</b> no cuentan en el plan y las archivadas quedan plegadas al final. <b>+ Nueva fuente</b> la crea ahí mismo.</p><p>El ingreso cuenta en el <b>mes de la fecha</b> y se convierte a dólares con la tasa de ese mes. También puedes anotarlo con el botón <b>+</b> → Ingreso.</p>' },
+      'ing-fuentes': { t: 'Por fuente', h: '<p>Cada fuente con lo recibido en el período y su plan, agrupadas por las categorías que eliges en <b>Fuentes y plan</b>. <b>Pendiente</b> = es de cada mes, tiene plan y aún no llega nada; las <b>a veces</b> nunca salen pendientes.</p><p>Las fuentes <b>archivadas</b> (por temporada o etapa) no cuentan en el plan ni salen por defecto: solo aparecen aquí en los meses en que tuvieron ingresos, marcadas 📦. Se archivan y desarchivan en <b>Fuentes y plan</b>.</p><p>Toca una fuente para ver solo sus ingresos en la lista de abajo.</p>' },
       'ing-mes': { t: 'Mes a mes', h: '<p>Lo recibido en cada uno de los últimos meses; la línea punteada es el plan mensual. Los meses fuera del período elegido se ven más claros. Abajo, el promedio de los meses que tuvieron ingresos.</p>' },
       'ing-lista': { t: 'Cada ingreso', h: '<p>Todos los ingresos del período, del más nuevo al más viejo, con su monto original y la tasa usada.</p><p>Toca uno para cambiar fuente, fecha, monto, moneda o nota, o para borrarlo. Si cambias la fecha a otro mes, pasa a contar en ese mes.</p>' },
       contable: { t: 'Vista contable', h: '<p>Separa el gasto corriente de las compras de bienes (muebles, equipos, vehículo). Solo aparece cuando hay alguna compra marcada como bien.</p><p>Se marca al editar el gasto, en <b>Tipo contable</b>. Tocar una fila abre Movimientos filtrado.</p>' },
@@ -8565,9 +9072,12 @@ function dashboard() {
     incomeSources: [], pnlSerie: [], pnlPlanMensual: 0,
     ingForm: { source_key: '', monto: '', currency: 'USD', fecha: '', nota: '' },
     ingBusy: false, ingError: null, ingFiltro: null, ingEditId: null, ingEdit: {},
-    COLORES_ING: { clp: '#1baf7a', rentas: '#c98500', defi: '#6250d6', cefi: '#2a78d6', mineria: '#6f7680', trading: '#c63a2d', otros: '#6da7ec' },
     async cargarFuentes() {
-      try { const r = await fetch('/api/income/sources'); if (r.ok) this.incomeSources = (await r.json()).sources || []; } catch (e) {}
+      // Fuentes y categorías juntas: «De dónde vino» y los selectores agrupan con las categorías de Daniel
+      await Promise.allSettled([
+        (async () => { const r = await fetch('/api/income/sources'); if (r.ok) this.incomeSources = (await r.json()).sources || []; })(),
+        Alpine.store('ingcat').cargar(),
+      ]);
     },
     // Meses de las gráficas: el rango elegido, y como mínimo los 6 meses que terminan en el mes elegido
     _mesesSerie() {
@@ -8583,10 +9093,15 @@ function dashboard() {
         if (r.ok) { const d = await r.json(); this.pnlSerie = d.meses || []; this.pnlPlanMensual = d.plan_ingresos_mensual_usd || 0; }
       } catch (e) { /* las gráficas quedan vacías */ }
     },
-    openFuentes() {
+    openFuentes(opts) {
       const st = Alpine.store('income');
       st.onClose = async () => { await this.cargarFuentes(); await this.reload(); };
-      st.openFor(this.month, (this.pnl && this.pnl.expenses && this.pnl.expenses.total_usd) || 0).then(() => { st.tab = 'sources'; });
+      st.editKey = null; st.catForm.open = false; st.fuenteForm.open = false;
+      st.openFor(this.month, (this.pnl && this.pnl.expenses && this.pnl.expenses.total_usd) || 0).then(() => {
+        st.tab = 'sources';
+        if (opts && opts.archivadas) st.verArchivadas = true;
+        if (opts && opts.nueva) st.abrirNuevaFuente();
+      });
       st.tab = 'sources';
     },
     // P&G del período
@@ -8609,7 +9124,8 @@ function dashboard() {
         .filter(([k]) => t[k] > 0).map(([k, l, c]) => ({ k, label: l, color: c, usd: t[k], pct: Math.round(100 * t[k] / tot) }));
     },
     ingresosPorGrupo() {
-      return this.incomeGroups.map(g => ({ ...g, color: this.COLORES_ING[g.key] || '#6da7ec' })).sort((a, b) => b.total - a.total);
+      // color = el de la categoría (las 7 de base conservan el de siempre)
+      return this.incomeGroups.slice().sort((a, b) => b.total - a.total);
     },
     // Ingresos: recibido vs plan, por fuente y por grupo
     ingPlan() { return Number(this.pnl && this.pnl.income && this.pnl.income.expected_total_usd) || 0; },
@@ -8620,16 +9136,19 @@ function dashboard() {
         const r = rec[e.source_key] || (rec[e.source_key] = { usd: 0, n: 0 });
         r.usd += Number(e.monto_usd) || 0; r.n++;
       }
+      // «A veces» y archivadas no tienen plan: nunca salen como pendientes
+      const ic = Alpine.store('ingcat');
       const fuentes = (this.incomeSources || []).map(s => ({ key: s.key, label: s.label, icon: s.icon || '💰', currency: s.currency,
-        archivada: Number(s.active) === 0, recibido: (rec[s.key] || {}).usd || 0, n: (rec[s.key] || {}).n || 0,
-        plan: Number(s.active) === 0 ? 0 : (Number(s.expected_usd) || 0) * n }))
+        archivada: Number(s.active) === 0, veces: ic.esVeces(s), recibido: (rec[s.key] || {}).usd || 0, n: (rec[s.key] || {}).n || 0,
+        plan: ic.planDe(s) * n }))
         .filter(f => f.recibido > 0 || (!f.archivada && f.plan > 0));
       for (const k of Object.keys(rec)) if (!fuentes.some(f => f.key === k)) fuentes.push({ key: k, label: k, icon: '💰', recibido: rec[k].usd, n: rec[k].n, plan: 0 });
       const grupos = {};
+      const defs = this._incomeGroupDefs();
       for (const f of fuentes) {
         const gk = this._groupOf({ source_key: f.key, label: f.label });
-        const def = this._incomeGroupDefs().find(g => g.key === gk) || { key: 'otros', label: 'Otros', icon: '🏦' };
-        const g = grupos[gk] || (grupos[gk] = { key: gk, label: def.label, icon: def.icon, color: this.COLORES_ING[gk] || '#6da7ec', recibido: 0, plan: 0, items: [] });
+        const def = defs.find(g => g.key === gk) || ic.SIN;
+        const g = grupos[gk] || (grupos[gk] = { key: gk, label: def.label, icon: def.icon, color: def.color, recibido: 0, plan: 0, items: [] });
         g.recibido += f.recibido; g.plan += f.plan; g.items.push(f);
       }
       const lista = Object.values(grupos);
@@ -8644,9 +9163,18 @@ function dashboard() {
       if (!b.ingresos_usd) return null;
       return { pct: Math.round(100 * (a.ingresos_usd - b.ingresos_usd) / b.ingresos_usd), mes: this.MESES_LARGOS[Number(b.mes.slice(5)) - 1].toLowerCase() };
     },
+    // «Tus botones» en Anotar ingreso: las que Daniel marca con ⭐ (cualquier tipo, menos archivadas).
+    // Si no marcó ninguna, las 6 de mayor plan como antes.
     fuentesTop() {
-      return (this.incomeSources || []).filter(s => Number(s.active) !== 0).slice().sort((a, b) => (Number(b.expected_usd) || 0) - (Number(a.expected_usd) || 0)).slice(0, 6);
+      const act = (this.incomeSources || []).filter(s => Number(s.active) !== 0);
+      const est = act.filter(s => Number(s.boton) === 1);
+      if (est.length) {
+        const ic = Alpine.store('ingcat');
+        return est.slice().sort((a, b) => (ic.planDe(b) - ic.planDe(a)) || (a.label || '').localeCompare(b.label || '', 'es'));
+      }
+      return act.slice().sort((a, b) => (Number(b.expected_usd) || 0) - (Number(a.expected_usd) || 0)).slice(0, 6);
     },
+    hayBotones() { return (this.incomeSources || []).some(s => Number(s.active) !== 0 && Number(s.boton) === 1); },
     ingElegirFuente(k) {
       this.ingForm.source_key = k;
       const s = (this.incomeSources || []).find(x => x.key === k);
@@ -8790,7 +9318,7 @@ function dashboard() {
         { key: 'diferidos', icon: '📅', label: 'Diferidos', desc: 'Compras en cuotas: valor, cuotas, fechas o concepto de todas a la vez.', run: () => Alpine.store('recurring').openModal('diferidos') },
         { key: 'presupuesto', icon: '🗂️', label: 'Categorías y presupuesto', desc: 'Categorías, subcategorías y cuánto le asignas a cada una.', run: () => this.openSettings() },
         { key: 'tipos', icon: '🏷️', label: 'Tipos de gasto', desc: 'Qué es esencial, estilo de vida o gusto (para la Revisión).', run: () => Alpine.store('review').abrirTipos() },
-        { key: 'ingresos', icon: '💵', label: 'Fuentes de ingreso', desc: 'Crear fuentes y su plan mensual. Los ingresos se anotan en la sección Ingresos.', run: () => this.openFuentes() },
+        { key: 'ingresos', icon: '💵', label: 'Fuentes de ingreso', desc: 'Fuentes y plan: cada mes, a veces o archivada, botones ⭐ y categorías. Los ingresos se anotan en la sección Ingresos.', run: () => this.openFuentes() },
         { key: 'tasas', icon: '💱', label: 'Tasas de cambio', desc: 'TRM y otras monedas, mes a mes.', run: () => Alpine.store('fx').openFor(this.month) },
         { key: 'pagos', icon: '📅', label: 'Fechas de pago', desc: 'Tarjetas, créditos e hipoteca: cuándo vence cada uno.', run: () => Alpine.store('reminders').openModal() },
         { key: 'telefonos', icon: '📱', label: 'Teléfonos y Macs', desc: 'El botón Anotar gasto y los widgets: emparejar un iPhone o quitar un equipo.', run: () => Alpine.store('equipos').openModal(), show: () => Alpine.store('auth').enabled },
@@ -8872,26 +9400,15 @@ function dashboard() {
       }
       return out;
     },
-    // Definición de grupos de ingreso (orden = orden en el donut).
-    // Cada grupo: degradado de color a→b. Matching por regex de label o por
-    // lista explícita de source_key; lo no reconocido cae en 'otros'.
+    // Grupos de ingreso = categorías de Daniel (/api/income/categories, orden = orden en el donut).
+    // Cada grupo: su color y un degradado a→b para las fuentes; las 7 de base conservan el de siempre.
     _incomeGroupDefs() {
-      return [
-        { key: 'clp',     label: 'CLP',              icon: '🌊', a: '#5eead4', b: '#0d9488', match: s => /clp/i.test(s.label || '') },
-        { key: 'rentas',  label: 'Rentas',           icon: '🏠', a: '#fcd34d', b: '#b45309', match: s => /alquiler|renta/i.test(s.label || '') },
-        { key: 'defi',    label: 'Cripto DeFi',      icon: '💰', a: '#c4b5fd', b: '#6d28d9', keys: ['aave', 'yield', 'fluid', 'deltayield', 'caashback'] },
-        { key: 'cefi',    label: 'Cripto CeFi',      icon: '💵', a: '#f9a8d4', b: '#db2777', keys: ['nexo'] },
-        { key: 'mineria', label: 'Minería',          icon: '⛏️', a: '#d6d3d1', b: '#78716c', keys: ['potosi'] },
-        { key: 'trading', label: 'Trading',          icon: '📈', a: '#fca5a5', b: '#dc2626', keys: ['futuros'] },
-        { key: 'otros',   label: 'Tradicional/Otros', icon: '🏦', a: '#7dd3fc', b: '#0284c7', keys: ['ib_dividends', 'intereses'] },
-      ];
+      const ic = Alpine.store('ingcat');
+      return [...ic.lista, ic.SIN].map(c => { const [a, b] = ic.grad(c); return { key: c.key, label: c.label, icon: c.icon || '💰', color: c.color, a, b }; });
     },
     _groupOf(s) {
-      for (const g of this._incomeGroupDefs()) {
-        if (g.match && g.match(s)) return g.key;
-        if (g.keys && g.keys.includes(s.source_key)) return g.key;
-      }
-      return 'otros';
+      const src = (this.incomeSources || []).find(x => x.key === s.source_key);
+      return Alpine.store('ingcat').keyDe(src || { key: s.source_key, label: s.label, categoria: s.categoria });
     },
     get incomeItems() {
       const src = (this.pnl && this.pnl.income && this.pnl.income.by_source) || [];
@@ -8916,7 +9433,7 @@ function dashboard() {
         const inG = items.filter(s => s.groupKey === g.key);
         if (!inG.length) continue;
         const gt = inG.reduce((a, b) => a + (b.total_usd || 0), 0);
-        out.push({ key: g.key, label: g.label, icon: g.icon, color: g.b, total: gt, pct: Math.round(gt / tot * 100), count: inG.length });
+        out.push({ key: g.key, label: g.label, icon: g.icon, color: g.color, total: gt, pct: Math.round(gt / tot * 100), count: inG.length });
       }
       return out;
     },
