@@ -2018,43 +2018,50 @@ def persona_de(nombre):
     return _ALIAS_PERSONA.get(((nombre or "").strip().split(" ") or [""])[0].lower())
 
 
-def make_payment_keyboard(expense_id, persona=None):
-    """Botones de método de pago por banco. Daniel no ve lo de Mado; Mado ve lo mismo y, al final, «De Mado»."""
-    rows = []
-    de_mado = []
-    # Iconos para grupos "singleton" (un solo método con el mismo nombre del grupo).
-    _SINGLETON_ICONS = {"Efectivo": "💵", "USDT": "₮", "ARQ": "💲"}
+def _metodos_de(duenio):
+    """[(grupo, valor)] de un dueño: 'Daniel' (lo que no termina en " Mado") o 'Mado'. Sin efectivo, USDT ni ARQ."""
+    out = []
     for bank, methods in PAYMENT_METHODS.items():
-        # Grupos singleton (Efectivo, USDT, etc.): un solo botón cuyo
-        # callback es solo el nombre del grupo. Evita guardar "USDT USDT"
-        # como metodo_pago y muestra un botón limpio sin header redundante.
         if bank == "Efectivo" or methods == [bank]:
-            icon = _SINGLETON_ICONS.get(bank, "•")
-            rows.append([InlineKeyboardButton(f"{icon} {bank}", callback_data=f"pago|{expense_id}|{bank}")])
-        else:
-            btns = []
-            for m in methods:
-                valor = f"{bank} {m}"
-                if es_de_mado(valor):
-                    if persona == "Mado":
-                        de_mado.append(valor)
-                    continue
-                label = etiqueta_metodo(valor).split(" · ", 1)[-1]
-                btns.append(InlineKeyboardButton(label, callback_data=f"pago|{expense_id}|{valor}"))
-            if not btns:
-                continue
-            # Bank header row
-            titulo = {"BDB": "Banco de Bogotá", "WIO": "Wio", "Pichincha": "Banco Pichincha"}.get(bank, bank)
-            rows.append([InlineKeyboardButton(f"── {titulo} ──", callback_data="noop")])
-            # Methods in pairs
-            for i in range(0, len(btns), 2):
-                rows.append(btns[i:i+2])
-    if de_mado:
-        rows.append([InlineKeyboardButton("── De Mado ──", callback_data="noop")])
-        btns = [InlineKeyboardButton(etiqueta_metodo(v), callback_data=f"pago|{expense_id}|{v}") for v in de_mado]
-        for i in range(0, len(btns), 2):
-            rows.append(btns[i:i+2])
+            continue
+        for m in methods:
+            valor = f"{bank} {m}"
+            if es_de_mado(valor) == (duenio == "Mado"):
+                out.append((bank, valor))
+    return out
+
+
+def make_payment_keyboard(expense_id, persona=None):
+    """Embudo (Daniel 13-nov): primero de quién es la tarjeta o cuenta; luego se abren solo esas, por banco.
+    Daniel paga todo, así que todos ven las dos opciones. Efectivo, USDT y ARQ van directo."""
+    rows = [[InlineKeyboardButton("👤 Tarjetas y cuentas de Daniel", callback_data=f"pagoq|{expense_id}|Daniel")],
+            [InlineKeyboardButton("👤 Tarjetas y cuentas de Mado", callback_data=f"pagoq|{expense_id}|Mado")]]
+    _SINGLETON_ICONS = {"Efectivo": "💵", "USDT": "₮", "ARQ": "💲"}
+    sueltos = [InlineKeyboardButton(f"{_SINGLETON_ICONS.get(b, '•')} {b}", callback_data=f"pago|{expense_id}|{b}")
+               for b, ms in PAYMENT_METHODS.items() if b == "Efectivo" or ms == [b]]
+    for i in range(0, len(sueltos), 3):
+        rows.append(sueltos[i:i+3])
     rows.append([InlineKeyboardButton("⏭️ Sin especificar", callback_data=f"pago|{expense_id}|Sin especificar")])
+    return InlineKeyboardMarkup(rows)
+
+
+def make_payment_keyboard_de(expense_id, duenio):
+    """Segundo paso del embudo: las tarjetas y cuentas de un dueño, por banco, con «Atrás»."""
+    rows = []
+    actual = None
+    btns = []
+    titulos = {"BDB": "Banco de Bogotá", "WIO": "Wio", "Pichincha": "Banco Pichincha"}
+    for bank, valor in _metodos_de(duenio) + [(None, None)]:
+        if bank != actual:
+            for k in range(0, len(btns), 2):
+                rows.append(btns[k:k+2])
+            btns = []
+            if bank is None:
+                break
+            rows.append([InlineKeyboardButton(f"── {titulos.get(bank, bank)} ──", callback_data="noop")])
+            actual = bank
+        btns.append(InlineKeyboardButton(etiqueta_metodo(valor).split(" · ", 1)[-1], callback_data=f"pago|{expense_id}|{valor}"))
+    rows.append([InlineKeyboardButton("← Atrás", callback_data=f"pagoq|{expense_id}|inicio")])
     return InlineKeyboardMarkup(rows)
 
 def make_confirm_keyboard(expense_id):
@@ -2198,6 +2205,15 @@ async def callback_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
     if data == "cancel":
         await query.edit_message_text("❌ Cancelado")
+        return
+
+    # Embudo del método de pago: pagoq|EXPENSE_ID|Daniel|Mado|inicio
+    if data.startswith("pagoq|"):
+        _, exp_id, duenio = data.split("|", 2)
+        if duenio == "inicio":
+            await query.edit_message_reply_markup(reply_markup=make_payment_keyboard(int(exp_id)))
+        else:
+            await query.edit_message_reply_markup(reply_markup=make_payment_keyboard_de(int(exp_id), duenio))
         return
 
     # Payment method selection: pago|EXPENSE_ID|METHOD

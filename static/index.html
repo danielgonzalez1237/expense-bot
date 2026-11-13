@@ -1876,15 +1876,16 @@
           class="mt-0.5 w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2.5 text-sm">
       </label>
       <div class="grid gap-2" :class="$store.quick.tipo === 'gasto' ? 'grid-cols-2' : 'grid-cols-1'">
-        <label class="block min-w-0" x-show="$store.quick.tipo === 'gasto'">
+        <label class="block min-w-0 col-span-2" x-show="$store.quick.tipo === 'gasto'">
           <span class="text-[11px] text-slate-500 px-1">Método de pago</span>
-          <select x-model="$store.quick.form.metodo_pago" class="mt-0.5 w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2.5 text-sm">
-            <template x-for="m in $store.quick.metodosComunes()" :key="'qm' + m"><option :value="m" x-text="$store.quick.etiqueta(m)"></option></template>
-            <template x-if="$store.quick.form.user_name === 'Mado' && $store.quick.metodosDeMado().length">
-              <optgroup label="De Mado">
-                <template x-for="m in $store.quick.metodosDeMado()" :key="'qmm' + m"><option :value="m" x-text="$store.quick.etiqueta(m)"></option></template>
-              </optgroup>
+          <span class="mt-0.5 flex rounded-full bg-slate-100 dark:bg-slate-800 p-1 text-xs" role="group" aria-label="De quién es la tarjeta o cuenta">
+            <template x-for="d in [['Daniel', 'De Daniel'], ['Mado', 'De Mado'], ['Otro', 'Efectivo y otros']]" :key="'qd' + d[0]">
+              <button type="button" @click="$store.quick.elegirDuenio(d[0])" class="flex-1 rounded-full py-1.5 transition whitespace-nowrap"
+                :class="$store.quick.pagoDe === d[0] ? 'bg-white dark:bg-slate-900 shadow-sm font-semibold' : 'text-slate-500'" x-text="d[1]"></button>
             </template>
+          </span>
+          <select x-model="$store.quick.form.metodo_pago" class="mt-0.5 w-full bg-slate-100 dark:bg-slate-800 rounded-xl px-3 py-2.5 text-sm">
+            <template x-for="m in $store.quick.metodosDel($store.quick.pagoDe)" :key="'qm' + $store.quick.pagoDe + m"><option :value="m" x-text="$store.quick.etiqueta(m)"></option></template>
           </select>
         </label>
         <label class="block min-w-0">
@@ -1897,7 +1898,7 @@
         <span class="text-[11px] text-slate-500 px-1">¿Quién?</span>
         <div class="mt-0.5 flex rounded-full bg-slate-100 dark:bg-slate-800 p-1 text-sm">
           <template x-for="u in ['Daniel', 'Mado', 'Tuo']" :key="'qu' + u">
-            <button type="button" @click="$store.quick.form.user_name = u; if (u !== 'Mado' && $store.quick._deMado($store.quick.form.metodo_pago)) $store.quick.form.metodo_pago = 'Sin especificar'" class="flex-1 rounded-full py-1.5 transition"
+            <button type="button" @click="$store.quick.form.user_name = u" class="flex-1 rounded-full py-1.5 transition"
               :class="$store.quick.form.user_name === u ? 'bg-white dark:bg-slate-900 shadow-sm font-semibold' : 'text-slate-500'" x-text="u"></button>
           </template>
         </div>
@@ -6211,10 +6212,17 @@ document.addEventListener('alpine:init', () => {
     // Diferir (ya pagado): meses e inicio ('' = el mes de la fecha)
     dif: { on: false, meses: 6, inicio: '' },
     hoy() { return qHoy(); },
-    // Métodos por persona (13-nov): lo que termina en " Mado" es de ella; Daniel no lo ve y Mado lo ve al final, en «De Mado».
+    // Embudo del método de pago (Daniel 13-nov): primero de quién es la tarjeta o cuenta, luego solo esas.
+    // Daniel paga todo, así que cualquiera ve las de los dos. Lo que termina en " Mado" es de ella.
+    pagoDe: 'Daniel',
     _deMado(m) { return / Mado$/.test(m || ''); },
-    metodosComunes() { return this.metodos.filter(m => !this._deMado(m)); },
-    metodosDeMado() { return this.metodos.filter(m => this._deMado(m)); },
+    _suelto(m) { return ['Sin especificar', 'Efectivo', 'USDT', 'ARQ'].includes(m); },
+    duenioDe(m) { return this._suelto(m) ? 'Otro' : (this._deMado(m) ? 'Mado' : 'Daniel'); },
+    elegirDuenio(d) { this.pagoDe = d; if (this.duenioDe(this.form.metodo_pago) !== d) this.form.metodo_pago = d === 'Otro' ? 'Efectivo' : 'Sin especificar'; },
+    metodosDel(d) {
+      if (d === 'Otro') return this.metodos.filter(m => this._suelto(m) && m !== 'Sin especificar');
+      return ['Sin especificar', ...this.metodos.filter(m => this.duenioDe(m) === d)];
+    },
     etiqueta(m) { return this.etiquetas[m] || m; },
     _mesNom: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'],
     _ym(ym, k) { let [y, m] = ym.split('-').map(Number); const t = y * 12 + (m - 1) + k; return Math.floor(t / 12) + '-' + String(t % 12 + 1).padStart(2, '0'); },
@@ -6259,6 +6267,7 @@ document.addEventListener('alpine:init', () => {
       const metodo = qGet('quick_metodo_' + quien);
       this.form = { monto: '', moneda: qGet('quick_moneda_' + quien) || 'COP', categoria: '', nota: '',
         metodo_pago: metodo && this.metodos.includes(metodo) ? metodo : 'Sin especificar', user_name: quien, fecha: qHoy() };
+      this.pagoDe = this.duenioDe(this.form.metodo_pago) === 'Otro' && this.form.metodo_pago === 'Sin especificar' ? 'Daniel' : this.duenioDe(this.form.metodo_pago);
       this.dif = { on: false, meses: 6, inicio: '' };
       this.error = null; this.busy = false; this.open = true;
       setTimeout(() => document.querySelector('[x-ref="qmonto"]')?.focus(), 80);
