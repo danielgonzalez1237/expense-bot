@@ -947,6 +947,7 @@ class TarjetaUpdate(BaseModel):
     corte_dia: Optional[int] = None
     pago_dia: Optional[int] = None
     nota: Optional[str] = None
+    recordatorio_id: Optional[int] = None   # la fecha de pago de «Próximos pagos» que corresponde a esta tarjeta
 
 
 class FijoConfirmar(BaseModel):
@@ -4405,9 +4406,15 @@ def make_api_app() -> FastAPI:
                 conn.execute("DELETE FROM payment_reminder_paid WHERE reminder_id = ? AND period = ?",
                              (rid, body.period))
             conn.commit()
+            try:   # Tarjetas: abono de esa tarjeta y, si el pago es un fijo (hipoteca), su confirmación
+                import tarjetas
+                junto = tarjetas.al_marcar_pago(conn, bot, rid, body.period, bool(body.paid))
+            except Exception as e:   # el pago queda marcado igual; Tarjetas no debe tumbar «Próximos pagos»
+                print(f"[tarjetas] al marcar pago {rid} {body.period}: {e}")
+                junto = {}
         finally:
             conn.close()
-        return {"ok": True, "id": rid, "period": body.period, "paid": body.paid}
+        return {"ok": True, "id": rid, "period": body.period, "paid": body.paid, "tarjetas": junto}
 
     # ──────────────── 💳 Tarjetas, calendario y fijos por confirmar ────────────────
     def _con_db(fn):
@@ -4430,6 +4437,8 @@ def make_api_app() -> FastAPI:
         if not campos:
             raise HTTPException(400, "nada que actualizar")
         def f(c):
+            if "recordatorio_id" in campos and not c.execute("SELECT 1 FROM payment_reminders WHERE id = ?", (campos["recordatorio_id"],)).fetchone():
+                raise HTTPException(400, f"recordatorio {campos['recordatorio_id']} no existe")
             sets = ", ".join(f"{k} = ?" for k in campos)
             r = c.execute(f"UPDATE tarjetas SET {sets}, updated_at = ? WHERE id = ?", (*campos.values(), datetime.now().isoformat(), tid))
             c.commit()

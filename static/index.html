@@ -1120,7 +1120,7 @@
               <button @click="openEdit(g)" class="w-full text-left py-2.5 flex items-center gap-3 text-sm hover:bg-slate-50 dark:hover:bg-slate-800/50 -mx-2 px-2 rounded-xl transition" title="Toca para editar">
                 <span class="w-14 text-xs text-slate-400 shrink-0" x-text="formatDate(g.fecha)"></span>
                 <span class="flex-1 min-w-0"><span class="block truncate font-medium" x-text="g.nota || catLabel(g.categoria)"></span>
-                  <span class="block text-[11px] text-slate-400 truncate" x-text="g.user_name + ' · ' + (g.metodo_pago || '') + (g.recurring_id ? ' · 🔁 fijo' : '') + (g.deferred_total > 1 ? ' · 📅 cuota ' + g.deferred_index + '/' + g.deferred_total : '')"></span></span>
+                  <span class="block text-[11px] text-slate-400 truncate" x-text="g.user_name + ' · ' + etiquetaPago(g.metodo_pago) + (g.recurring_id ? ' · 🔁 fijo' : '') + (g.deferred_total > 1 ? ' · 📅 cuota ' + g.deferred_index + '/' + g.deferred_total : '')"></span></span>
                 <span class="text-right shrink-0"><span class="block font-semibold" x-text="fmtUsd(g.monto_usd)"></span>
                   <span class="block text-[10px] text-slate-400" x-text="'$' + Math.round(g.monto_cop || 0).toLocaleString('de-DE')"></span></span>
               </button>
@@ -1899,7 +1899,7 @@
               </td>
               <td class="py-2.5 px-2 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap" x-text="catLabel(e.categoria)"></td>
               <td class="py-2.5 px-2 text-xs text-slate-600 dark:text-slate-300" x-text="e.user_name"></td>
-              <td class="py-2.5 px-2 text-xs text-slate-500 hidden xl:table-cell max-w-[200px] truncate" x-text="e.metodo_pago && e.metodo_pago !== 'Sin especificar' ? e.metodo_pago : '—'"></td>
+              <td class="py-2.5 px-2 text-xs text-slate-500 hidden xl:table-cell max-w-[200px] truncate" x-text="e.metodo_pago && e.metodo_pago !== 'Sin especificar' ? etiquetaPago(e.metodo_pago) : '—'"></td>
               <td class="py-2.5 px-2 text-xs text-slate-500 text-right whitespace-nowrap" x-text="'$' + Math.round(e.monto_cop || 0).toLocaleString('de-DE')"></td>
               <td class="py-2.5 px-2 text-right font-semibold whitespace-nowrap" x-text="fmtUsd(e.monto_usd)"></td>
             </tr>
@@ -1948,7 +1948,7 @@
               <span class="text-[10px] text-slate-400 dark:text-slate-600 whitespace-nowrap" x-text="'$' + Math.round(e.monto_cop || 0).toLocaleString('de-DE') + ' COP'"></span>
             </div>
             <div class="text-[10px] text-slate-400 dark:text-slate-600 truncate mt-0.5" x-show="e.metodo_pago && e.metodo_pago !== 'Sin especificar'">
-              💳 <span x-text="e.metodo_pago"></span>
+              💳 <span x-text="etiquetaPago(e.metodo_pago)"></span>
             </div>
           </div>
         </div>
@@ -2448,7 +2448,7 @@
           class="mt-1 w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 focus:ring-1 focus:ring-slate-400"
         >
           <template x-for="opt in $store.edit.paymentOptions" :key="opt">
-            <option :value="opt" x-text="opt"></option>
+            <option :value="opt" x-text="etiquetaPago(opt)"></option>
           </template>
         </select>
       </label>
@@ -2646,7 +2646,7 @@
                   <span> · total <span x-text="$store.deferred.money(g.total, g.currency)"></span></span>
                 </div>
                 <div class="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  <span x-text="$store.deferred.catLabel(g.categoria)"></span> · <span x-text="g.metodo_pago"></span> · <span x-text="g.user_name"></span> · <span x-text="$store.deferred.modoLabel(g.mode)"></span>
+                  <span x-text="$store.deferred.catLabel(g.categoria)"></span> · <span x-text="etiquetaPago(g.metodo_pago)"></span> · <span x-text="g.user_name"></span> · <span x-text="$store.deferred.modoLabel(g.mode)"></span>
                 </div>
                 <div x-show="g.incompleto" class="text-[10px] text-amber-600 dark:text-amber-400 mt-0.5"
                      x-text="'Tiene ' + g.cuotas_registradas + ' de ' + g.cuotas_total + ' cuotas registradas'"></div>
@@ -2730,7 +2730,7 @@
                 <select x-model="$store.deferred.ef.metodo_pago"
                   class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-2 text-sm">
                   <template x-for="m in $store.deferred.metodosCon($store.deferred.ef.metodo_pago)" :key="m">
-                    <option :value="m" x-text="m" :selected="m === $store.deferred.ef.metodo_pago"></option>
+                    <option :value="m" x-text="etiquetaPago(m)" :selected="m === $store.deferred.ef.metodo_pago"></option>
                   </template>
                 </select>
               </div>
@@ -2810,7 +2810,7 @@
             <select x-model="$store.deferred.form.metodo_pago"
               class="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-2 py-2 text-sm">
               <template x-for="m in $store.recurring.methods" :key="m">
-                <option :value="m" x-text="m" :selected="m === $store.deferred.form.metodo_pago"></option>
+                <option :value="m" x-text="etiquetaPago(m)" :selected="m === $store.deferred.form.metodo_pago"></option>
               </template>
             </select>
           </div>
@@ -4182,7 +4182,7 @@
                 <div class="flex-1 min-w-0">
                   <div class="text-sm font-medium" x-text="orph.nota || orph.categoria"></div>
                   <div class="text-[11px] text-slate-500 mt-0.5">
-                    <span x-text="orph.fecha"></span> · <span x-text="orph.metodo_pago"></span> · <span x-text="orph.categoria"></span>
+                    <span x-text="orph.fecha"></span> · <span x-text="etiquetaPago(orph.metodo_pago)"></span> · <span x-text="orph.categoria"></span>
                   </div>
                 </div>
                 <div class="text-right shrink-0">
@@ -5076,6 +5076,7 @@
 
 <script>
 // Edit modal as an Alpine store so it can be opened from the main dashboard.
+window.etiquetaPago = (m) => (m && (window.__ETIQ || {})[m]) || m || '';
 document.addEventListener('alpine:init', () => {
   Alpine.store('edit', {
     open: false,
@@ -6632,7 +6633,7 @@ document.addEventListener('alpine:init', () => {
       try {
         const r = await this._json('/api/fijos/' + b.fijo_id + '/confirmar', { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ periodo: b.periodo, estado, monto: monto ?? null }) });
-        this.data = null; await this.cargar();
+        this.data = null; await this.cargar(); this._pagosAlDia();
         Alpine.store('quick').aviso(estado !== 'paso' ? b.label + ': no pasó este mes'
           : r && r.unido ? '✓ ' + b.label + ': se unió al gasto que ya anotaste el ' + this.fechaCorta(String(r.unido.fecha).slice(0, 10)) + ' (no se suma dos veces)'
           : '✓ ' + b.label + ' entró al P&G');
@@ -6646,6 +6647,7 @@ document.addEventListener('alpine:init', () => {
       if (!n || n <= 0) { this.error = 'No entendí ese valor. Escríbelo así: 106,40 o 53.900.'; return; }
       this.confirmar(b, 'paso', n);
     },
+    _pagosAlDia() { try { const r = Alpine.store('reminders'); if (r && r.load) r.load(); } catch (e) { /* «Próximos pagos» se pone al día al abrirlo */ } },
     confirmadosMes() {
       return ((this.cal && this.cal.items) || []).filter(i => i.tipo === 'fijo' && i.periodo === this.mes && (i.estado === 'confirmado' || i.estado === 'no_paso') && i.periodo >= this.confirmarDesde);
     },
@@ -6659,7 +6661,7 @@ document.addEventListener('alpine:init', () => {
         await this._json('/api/fijos/' + it.fijo_id + '/confirmar?periodo=' + it.periodo, { method: 'DELETE' });
         await this._json('/api/fijos/' + it.fijo_id + '/confirmar', { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ periodo: it.periodo, estado: 'paso', monto: n }) });
-        this.data = null; await this.cargar();
+        this.data = null; await this.cargar(); this._pagosAlDia();
         Alpine.store('quick').aviso('✓ ' + it.label + ' quedó en ' + this.fmt(n, it.moneda));
       } catch (e) { this.error = 'No se pudo corregir: ' + e.message; }
       this.busy = false;
@@ -6667,7 +6669,7 @@ document.addEventListener('alpine:init', () => {
     async deshacer(f) {
       if (!confirm('¿Deshacer la confirmación de ' + f.label + ' en ' + this.estadoMesTxt(f).split(':')[0] + '? Si el gasto lo creó la confirmación, se borra.')) return;
       this.busy = true;
-      try { await this._json('/api/fijos/' + f.id + '/confirmar?periodo=' + f.periodo, { method: 'DELETE' }); this.data = null; await this.cargar(); }
+      try { await this._json('/api/fijos/' + f.id + '/confirmar?periodo=' + f.periodo, { method: 'DELETE' }); this.data = null; await this.cargar(); this._pagosAlDia(); }
       catch (e) { this.error = 'No se pudo deshacer: ' + e.message; }
       this.busy = false;
     },
@@ -6776,14 +6778,14 @@ document.addEventListener('alpine:init', () => {
       if (!n || n <= 0) { this.abono.error = 'Escribe cuánto abonaste.'; return; }
       this.busy = true; this.abono.error = null;
       try { await this._json('/api/tarjetas/' + t.id + '/abonos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ monto: n, fecha: this.abono.fecha || null, nota: this.abono.nota || null }) });
-            this.abono.open = false; this.data = null; await this.cargar(); if (this.tab === 'tarjeta') this.abrirTarjeta(t.id);
+            this.abono.open = false; this.data = null; await this.cargar(); this._pagosAlDia(); if (this.tab === 'tarjeta') this.abrirTarjeta(t.id);
             Alpine.store('quick').aviso('✓ Abono de ' + this.fmt(n, t.moneda) + ' a la ' + this.nombreCorto(t)); }
       catch (e) { this.abono.error = 'No se pudo guardar: ' + e.message; }
       this.busy = false;
     },
     async borrarAbono(aid) {
       if (!confirm('¿Quitar este abono?')) return;
-      try { await this._json('/api/tarjetas/abonos/' + aid, { method: 'DELETE' }); this.data = null; await this.cargar(); this.abrirTarjeta(this.tid); }
+      try { await this._json('/api/tarjetas/abonos/' + aid, { method: 'DELETE' }); this.data = null; await this.cargar(); this._pagosAlDia(); this.abrirTarjeta(this.tid); }
       catch (e) { this.error = 'No se pudo quitar: ' + e.message; }
     },
     abrirLectura(tid) { if (!this.data) this.cargar(); this.lectura = { open: true, tid: tid || (this.tarjetas()[0] || {}).id || '', usado: '', fuente: 'app del banco', error: null }; },
@@ -7539,9 +7541,14 @@ document.addEventListener('alpine:init', () => {
       const undo = c.st.state === 'paid';
       const period = undo ? c.st.paidPeriod : c.st.period;
       this.busy = true; this.error = null;
-      try { await this._send('/api/reminders/' + c.id + '/paid', 'POST', { period, paid: !undo }); }
+      try {
+        const r = await this._send('/api/reminders/' + c.id + '/paid', 'POST', { period, paid: !undo });
+        const j = (r && r.tarjetas) || {};   // marcar la tarjeta deja su abono; la hipoteca confirma su fijo
+        if (j.abono) Alpine.store('quick').aviso('✓ Pagado · la tarjeta baja ' + Math.round(j.abono).toLocaleString('de-DE') + ' en Tarjetas');
+        else if (j.fijo_confirmado) Alpine.store('quick').aviso('✓ Pagado · ' + c.label + ' también quedó confirmado en el P&G');
+      }
       catch (e) { this.error = e.message; }
-      finally { await this.load(); this.busy = false; }
+      finally { await this.load(); this.busy = false; const tj = Alpine.store('tarjetas'); if (tj && tj.data) { tj.data = null; tj.cargar(); } }
     },
   });
 
@@ -9056,7 +9063,7 @@ function dashboard() {
         ]);
         if (budgetResp.ok) { const bj = await budgetResp.json(); this.budget = bj.categories || {}; this.naturalezas = bj.naturalezas || {}; }
         if (ratesResp.ok) this.rates = await ratesResp.json();
-        if (payResp.ok) { const pj = await payResp.json(); this.paymentMethods = pj.methods || {}; this.paymentLabels = pj.labels || {}; }
+        if (payResp.ok) { const pj = await payResp.json(); this.paymentMethods = pj.methods || {}; this.paymentLabels = pj.labels || {}; window.__ETIQ = this.paymentLabels; }
       } catch (e) { /* non-fatal */ }
 
       this.cargarFuentes();

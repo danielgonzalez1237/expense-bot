@@ -125,6 +125,27 @@ def _lectura_utc(fecha):
         return fecha
 
 
+def _recordatorio_de(conn, tid):
+    """La fecha de pago de la tarjeta: la ligada a mano o una de «Próximos pagos» con el nombre de uno de sus métodos."""
+    t = conn.execute("SELECT recordatorio_id, metodos FROM tarjetas WHERE id = ?", (tid,)).fetchone()
+    if not t:
+        return None
+    if t[0]:
+        return t[0]
+    mets = [m.lower() for m in json.loads(t[1] or "[]")]
+    for rid, label in conn.execute("SELECT id, label FROM payment_reminders WHERE active = 1"):
+        if (label or "").strip().lower() in mets:
+            return rid
+    return None
+
+
+def _tarjeta_de_recordatorio(conn, rid):
+    for (tid,) in conn.execute("SELECT id FROM tarjetas WHERE activa = 1"):
+        if _recordatorio_de(conn, tid) == rid:
+            return tid
+    return None
+
+
 def _periodo_a_pagar(due_day, pagados, ref):
     """El pago que toca: el de este mes si sigue sin pagar (aunque ya venció), si no el siguiente sin pagar."""
     for k in (0, 1, 2):
@@ -184,13 +205,16 @@ def estado(conn, bot):
     tasas = _tasas(bot)
     hoy = _hoy()
     tarjetas = _filas(conn, "SELECT * FROM tarjetas WHERE activa = 1 ORDER BY orden, id")
-    recordatorios = {r["id"]: r for r in _filas(conn, "SELECT id, label, due_day, amount, currency FROM payment_reminders")}
+    recordatorios = {r["id"]: r for r in _filas(conn, "SELECT id, label, due_day, amount, currency, active FROM payment_reminders")}
+    por_label = {(r["label"] or "").strip().lower(): r["id"] for r in recordatorios.values() if r["active"]}
     pagados = {}
     for r in _filas(conn, "SELECT reminder_id, period FROM payment_reminder_paid"):
         pagados.setdefault(r["reminder_id"], set()).add(r["period"])
     out = []
     for t in tarjetas:
         metodos = json.loads(t["metodos"] or "[]")
+        if not t["recordatorio_id"]:   # una fecha de pago nueva en «Próximos pagos» con el nombre del método queda ligada sola
+            t["recordatorio_id"] = next((por_label[m.lower()] for m in metodos if m.lower() in por_label), None)
         lec = _filas(conn, "SELECT fecha, usado, fuente FROM tarjeta_lecturas WHERE tarjeta_id = ? ORDER BY fecha DESC, id DESC LIMIT 1",
                      (t["id"],))
         lec = lec[0] if lec else None
@@ -260,9 +284,9 @@ def poner_lectura(conn, tid, usado, fecha=None, fuente="tú", nota=None):
 
 
 def abonar(conn, tid, monto, fecha=None, nota=None):
-    t = conn.execute("SELECT recordatorio_id FROM tarjetas WHERE id = ?", (tid,)).fetchone()
-    if not t:
+    if not conn.execute("SELECT 1 FROM tarjetas WHERE id = ?", (tid,)).fetchone():
         raise KeyError(tid)
+    t = (_recordatorio_de(conn, tid),)
     if float(monto) <= 0:
         raise ValueError("el abono debe ser mayor que cero")
     f = fecha or _hoy().isoformat()
@@ -284,14 +308,13 @@ def abonar(conn, tid, monto, fecha=None, nota=None):
 
 def borrar_abono(conn, aid):
     """Quita el abono; si ese abono dejó un pago como hecho, el pago vuelve a quedar pendiente."""
-    fila = conn.execute("SELECT a.periodo_marcado, t.recordatorio_id FROM tarjeta_abonos a JOIN tarjetas t ON t.id = a.tarjeta_id "
-                        "WHERE a.id = ?", (aid,)).fetchone()
-    if not fila:
+    f0 = conn.execute("SELECT periodo_marcado, tarjeta_id FROM tarjeta_abonos WHERE id = ?", (aid,)).fetchone()
+    if not f0:
         raise KeyError(aid)
+    fila = (f0[0], _recordatorio_de(conn, f0[1]))
     conn.execute("DELETE FROM tarjeta_abonos WHERE id = ?", (aid,))
     if fila[0] and fila[1]:
-        otro = conn.execute("SELECT 1 FROM tarjeta_abonos a JOIN tarjetas t ON t.id = a.tarjeta_id WHERE t.recordatorio_id = ? "
-                            "AND a.periodo_marcado = ?", (fila[1], fila[0])).fetchone()
+        otro = conn.execute("SELECT 1 FROM tarjeta_abonos WHERE tarjeta_id = ? AND periodo_marcado = ?", (f0[1], fila[0])).fetchone()
         if not otro:
             conn.execute("DELETE FROM payment_reminder_paid WHERE reminder_id = ? AND period = ?", (fila[1], fila[0]))
     conn.commit()
@@ -407,6 +430,10 @@ def confirmar(conn, bot, rid, periodo, estado_, monto=None, fuente="tú"):
                      (rid, periodo, now))
     conn.execute("INSERT INTO fijo_confirmaciones (recurring_id, period, estado, expense_id, creado_aqui, monto, fuente, at) "
                  "VALUES (?,?,?,?,?,?,?,?)", (rid, periodo, estado_, exp_id, creado, monto, fuente, now))
+    if estado_ == "paso" and fuente != "próximos pagos":   # el mismo pago en «Próximos pagos» queda hecho (una sola acción)
+        r = conn.execute("SELECT id FROM payment_reminders WHERE lower(label) = lower(?) AND active = 1", (v["label"] or "",)).fetchone()
+        if r:
+            conn.execute("INSERT OR IGNORE INTO payment_reminder_paid (reminder_id, period, paid_at) VALUES (?,?,?)", (r[0], periodo, now))
     conn.commit()
     return {"ya": False, "estado": estado_, "expense_id": exp_id, "creado": creado == 1, "unido": unido}
 
@@ -425,6 +452,37 @@ def deshacer(conn, rid, periodo):
     conn.execute("DELETE FROM recurring_postings WHERE recurring_id = ? AND period = ?", (rid, periodo))
     conn.commit()
     return {"ok": True}
+
+
+def al_marcar_pago(conn, bot, rid, periodo, pagado):
+    """«Próximos pagos» y Tarjetas van juntos: marcar pagada la tarjeta deja su abono (baja lo usado) y marcar un pago
+    que también es un fijo (la hipoteca) lo confirma. Desmarcar quita solo lo que se hizo desde aquí."""
+    rec = conn.execute("SELECT label, amount FROM payment_reminders WHERE id = ?", (rid,)).fetchone()
+    if not rec:
+        return {}
+    hecho = {}
+    nota = "pagado en Próximos pagos"
+    tid = _tarjeta_de_recordatorio(conn, rid)
+    t = (tid,) if tid else None
+    if t:
+        ya = conn.execute("SELECT id FROM tarjeta_abonos WHERE tarjeta_id = ? AND periodo_marcado = ?", (t[0], periodo)).fetchone()
+        if pagado and not ya and rec[1]:
+            conn.execute("INSERT INTO tarjeta_abonos (tarjeta_id, fecha, monto, nota, created_at, periodo_marcado) VALUES (?,?,?,?,?,?)",
+                         (t[0], _hoy().isoformat(), float(rec[1]), nota, _ahora_utc(), periodo))
+            hecho["abono"] = float(rec[1])
+        elif not pagado:
+            conn.execute("DELETE FROM tarjeta_abonos WHERE tarjeta_id = ? AND periodo_marcado = ? AND nota = ?", (t[0], periodo, nota))
+    if periodo >= FIJOS_CONFIRMAR_DESDE and periodo <= _ym(_hoy()):
+        f = conn.execute("SELECT id FROM recurring_expenses WHERE lower(label) = lower(?)", (rec[0] or "",)).fetchone()
+        if f:
+            c = conn.execute("SELECT fuente FROM fijo_confirmaciones WHERE recurring_id = ? AND period = ?", (f[0], periodo)).fetchone()
+            if pagado and not c:
+                confirmar(conn, bot, f[0], periodo, "paso", fuente="próximos pagos")
+                hecho["fijo_confirmado"] = f[0]
+            elif not pagado and c and c[0] == "próximos pagos":
+                deshacer(conn, f[0], periodo)
+    conn.commit()
+    return hecho
 
 
 def tarjeta_de_metodo(conn):
